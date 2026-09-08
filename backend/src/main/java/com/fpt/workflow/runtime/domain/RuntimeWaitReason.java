@@ -6,5 +6,6 @@ public enum RuntimeWaitReason {
   EXTERNAL_CALLBACK,
   CHILD_EVENT,
   JOIN,
-  RETRY_BACKOFF
+  RETRY_BACKOFF,
+  MULTI_INSTANCE
 }

@@ -24,7 +24,8 @@ class NodeTypeRegistryTest {
                 configuration.endNodeTypeProvider(),
                 configuration.approvalNodeTypeProvider(),
                 configuration.reviewNodeTypeProvider(),
-                configuration.conditionNodeTypeProvider()));
+                configuration.conditionNodeTypeProvider(),
+                configuration.joinNodeTypeProvider()));
   }
 
   @Test

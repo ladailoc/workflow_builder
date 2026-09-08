@@ -38,7 +38,7 @@ public class CoreNodeTypeConfiguration {
         NodeType.END,
         Set.of(NodeCapability.TERMINAL, NodeCapability.OUTPUT),
         EMPTY_SCHEMA,
-        EMPTY_SCHEMA,
+        config,
         Set.of("COMPLETED"),
         config,
         "control");
@@ -69,6 +69,24 @@ public class CoreNodeTypeConfiguration {
         Set.of("TRUE", "FALSE", "ERROR"),
         config,
         "routing");
+  }
+
+  @Bean
+  NodeTypeProvider joinNodeTypeProvider() {
+    CanonicalSchema config =
+        CanonicalSchema.strict(
+            Map.of(
+                "policy", TypeDescriptor.nullable(CanonicalValueType.STRING),
+                "threshold", TypeDescriptor.nullable(CanonicalValueType.INTEGER)),
+            Set.of());
+    return provider(
+        NodeType.JOIN,
+        Set.of(NodeCapability.OUTPUT),
+        EMPTY_SCHEMA,
+        EMPTY_SCHEMA,
+        Set.of("DEFAULT"),
+        config,
+        "control");
   }
 
   private static NodeTypeProvider humanTaskProvider(NodeType nodeType, Set<String> outputPorts) {
@@ -107,7 +125,13 @@ public class CoreNodeTypeConfiguration {
     CanonicalSchema effectiveConfigSchema = withRuntimeConfiguration(configSchema);
     ObjectNode uiSchema = JsonNodeFactory.instance.objectNode();
     uiSchema.put("category", category);
-    NodeHandler handler = new ContractOnlyNodeHandler(nodeType);
+    NodeHandler handler =
+        switch (nodeType) {
+          case START -> new StartNodeHandler();
+          case END -> new EndNodeHandler();
+          case APPROVAL, REVIEW -> new ApprovalNodeHandler(nodeType);
+          default -> new ContractOnlyNodeHandler(nodeType);
+        };
     NodeTypeManifest manifest =
         new NodeTypeManifest(
             nodeType,

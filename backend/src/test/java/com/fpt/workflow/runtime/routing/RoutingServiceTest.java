@@ -24,8 +24,6 @@ import com.fpt.workflow.nodetype.NodeTypeManifest;
 import com.fpt.workflow.nodetype.NodeTypeProvider;
 import com.fpt.workflow.nodetype.NodeTypeRegistry;
 import com.fpt.workflow.nodetype.StrictNodeValidator;
-import com.fpt.workflow.operations.audit.AuditEvent;
-import com.fpt.workflow.operations.audit.AuditEventRepository;
 import com.fpt.workflow.resolver.expression.ExpressionOperator;
 import com.fpt.workflow.resolver.expression.ExpressionSchema;
 import com.fpt.workflow.resolver.expression.LiteralExpression;
@@ -40,7 +38,10 @@ import com.fpt.workflow.runtime.domain.Event;
 import com.fpt.workflow.runtime.domain.NodeExecution;
 import com.fpt.workflow.runtime.repository.EventRepository;
 import com.fpt.workflow.runtime.repository.NodeExecutionRepository;
-import com.fpt.workflow.security.ActorContextProvider;
+import com.fpt.workflow.runtime.routing.domain.ActivationToken;
+import com.fpt.workflow.runtime.routing.domain.RoutingDecision;
+import com.fpt.workflow.runtime.routing.repository.ActivationTokenRepository;
+import com.fpt.workflow.runtime.routing.repository.RoutingDecisionRepository;
 import com.fpt.workflow.shared.domain.CommandId;
 import com.fpt.workflow.shared.domain.CorrelationId;
 import com.fpt.workflow.shared.domain.value.CanonicalSchema;
@@ -67,8 +68,8 @@ class RoutingServiceTest {
   private final EdgeDefinitionRepository edges = mock(EdgeDefinitionRepository.class);
   private final EventContextBuilder contexts = mock(EventContextBuilder.class);
   private final NodeActivationService activations = mock(NodeActivationService.class);
-  private final AuditEventRepository audits = mock(AuditEventRepository.class);
-  private final ActorContextProvider actors = mock(ActorContextProvider.class);
+  private final RoutingDecisionRepository decisions = mock(RoutingDecisionRepository.class);
+  private final ActivationTokenRepository tokens = mock(ActivationTokenRepository.class);
   private RoutingService service;
   private Event event;
   private NodeExecution source;
@@ -117,8 +118,24 @@ class RoutingServiceTest {
     when(executions.findByIdForUpdate(source.getId())).thenReturn(Optional.of(source));
     when(events.findById(eventId)).thenReturn(Optional.of(event));
     when(nodes.findById(sourceNodeId)).thenReturn(Optional.of(sourceNode));
-    when(actors.currentActor()).thenReturn(Optional.empty());
     when(activations.activate(any())).thenReturn(mock(NodeExecution.class));
+
+    // Default: no prior routing decision
+    when(decisions.findBySourceNodeExecutionId(any())).thenReturn(Optional.empty());
+    // Default save: return the object itself (with mocked ID)
+    when(decisions.save(any(RoutingDecision.class)))
+        .thenAnswer(
+            inv -> {
+              RoutingDecision rd = inv.getArgument(0);
+              return rd;
+            });
+    when(tokens.save(any(ActivationToken.class)))
+        .thenAnswer(
+            inv -> {
+              ActivationToken at = inv.getArgument(0);
+              return at;
+            });
+
     EventContext context = mock(EventContext.class);
     when(context.value())
         .thenReturn(
@@ -154,8 +171,8 @@ class RoutingServiceTest {
             new SafeExpressionEngine(),
             new NodeTypeRegistry(List.of((NodeTypeProvider) () -> manifest)),
             activations,
-            audits,
-            actors,
+            decisions,
+            tokens,
             UUID::randomUUID,
             () -> NOW,
             mapper);
@@ -211,24 +228,42 @@ class RoutingServiceTest {
   }
 
   @Test
-  void duplicateRoutingReplaysThePersistedSelectionAndActivationIdentity() {
-    EdgeDefinition selected = edge(0, false, UUID.randomUUID(), trueExpression());
-    outgoing().thenReturn(List.of(selected));
-    ArgumentCaptor<AuditEvent> saved = ArgumentCaptor.forClass(AuditEvent.class);
+  void duplicateRoutingReplaysFromPersistedDecisionAndTokens() {
+    EdgeDefinition selectedEdge = edge(0, false, UUID.randomUUID(), trueExpression());
+    outgoing().thenReturn(List.of(selectedEdge));
+
+    // First call: no prior decision
     RoutingResult first = service.route(source.getId(), correlation(), command());
-    verify(audits).save(saved.capture());
-    when(audits.findAllByAggregateTypeAndAggregateIdOrderByOccurredAtAsc(
-            "NODE_EXECUTION", source.getId()))
-        .thenReturn(List.of(saved.getValue()));
+
+    // Capture the saved RoutingDecision and ActivationToken
+    ArgumentCaptor<RoutingDecision> rdCaptor = ArgumentCaptor.forClass(RoutingDecision.class);
+    verify(decisions).save(rdCaptor.capture());
+    RoutingDecision savedDecision = rdCaptor.getValue();
+
+    ArgumentCaptor<ActivationToken> tokenCaptor = ArgumentCaptor.forClass(ActivationToken.class);
+    verify(tokens, times(2)).save(tokenCaptor.capture());
+    ActivationToken savedToken = tokenCaptor.getAllValues().get(1);
+
+    // Second call: simulate that a prior decision exists and token is already ACTIVATED
+    when(decisions.findBySourceNodeExecutionId(source.getId()))
+        .thenReturn(Optional.of(savedDecision));
+    when(tokens.findAllByRoutingDecisionId(savedDecision.getId())).thenReturn(List.of(savedToken));
 
     RoutingResult replay = service.route(source.getId(), correlation(), command());
 
-    assertThat(replay.selectedEdgeIds()).isEqualTo(first.selectedEdgeIds());
+    // Should have the same edge selection
+    assertThat(replay.selectedEdgeIds()).containsExactly(selectedEdge.getId());
+
+    // Activation must have been called twice (first evaluation + replay), same activation key
     ArgumentCaptor<ActivationRequest> requests = ArgumentCaptor.forClass(ActivationRequest.class);
     verify(activations, times(2)).activate(requests.capture());
     assertThat(requests.getAllValues().get(0).activationKey())
         .isEqualTo(requests.getAllValues().get(1).activationKey());
-    verify(audits, times(1)).save(any());
+
+    // RoutingDecision should only be saved once (not re-created on replay)
+    verify(decisions, times(1)).save(any(RoutingDecision.class));
+    // ActivationToken should not be re-saved on replay because it was already activated
+    verify(tokens, times(2)).save(any(ActivationToken.class));
   }
 
   @Test

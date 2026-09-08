@@ -6,5 +6,6 @@ public enum NodeType {
   END,
   APPROVAL,
   REVIEW,
-  CONDITION
+  CONDITION,
+  JOIN
 }

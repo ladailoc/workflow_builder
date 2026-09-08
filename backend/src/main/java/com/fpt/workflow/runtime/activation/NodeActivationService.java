@@ -73,6 +73,8 @@ public class NodeActivationService {
   private final UuidGenerator uuidGenerator;
   private final PlatformClock clock;
   private final ObjectMapper objectMapper;
+  private final com.fpt.workflow.runtime.multiinstance.service.MultiInstanceService
+      multiInstanceService;
 
   public NodeActivationService(
       EventRepository eventRepository,
@@ -90,6 +92,45 @@ public class NodeActivationService {
       UuidGenerator uuidGenerator,
       PlatformClock clock,
       ObjectMapper objectMapper) {
+    this(
+        eventRepository,
+        executionRepository,
+        nodeRepository,
+        variableRepository,
+        contextBuilder,
+        bindingResolver,
+        variableMapper,
+        registry,
+        participantHook,
+        runtimeServices,
+        auditRepository,
+        actorProvider,
+        uuidGenerator,
+        clock,
+        objectMapper,
+        null);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public NodeActivationService(
+      EventRepository eventRepository,
+      NodeExecutionRepository executionRepository,
+      NodeDefinitionRepository nodeRepository,
+      WorkflowVariableRepository variableRepository,
+      EventContextBuilder contextBuilder,
+      InputBindingResolver bindingResolver,
+      EventVariableMapper variableMapper,
+      NodeTypeRegistry registry,
+      ParticipantActivationHook participantHook,
+      NodeRuntimeServices runtimeServices,
+      AuditEventRepository auditRepository,
+      ActorContextProvider actorProvider,
+      UuidGenerator uuidGenerator,
+      PlatformClock clock,
+      ObjectMapper objectMapper,
+      @org.springframework.context.annotation.Lazy
+          com.fpt.workflow.runtime.multiinstance.service.MultiInstanceService
+              multiInstanceService) {
     this.eventRepository = eventRepository;
     this.executionRepository = executionRepository;
     this.nodeRepository = nodeRepository;
@@ -105,6 +146,7 @@ public class NodeActivationService {
     this.uuidGenerator = uuidGenerator;
     this.clock = clock;
     this.objectMapper = objectMapper;
+    this.multiInstanceService = multiInstanceService;
   }
 
   @Transactional
@@ -157,10 +199,40 @@ public class NodeActivationService {
             now);
     execution.markReady();
     execution.start(now);
-    executionRepository.saveAndFlush(execution);
+    execution = executionRepository.saveAndFlush(execution);
     if (event.getStatus() != EventStatus.RUNNING) event.markRunning();
     if (manifest.supportedCapabilities().contains(NodeCapability.PARTICIPANT)) {
       participantHook.onActivation(event, node, execution, beforeActivation);
+    }
+
+    if (multiInstanceService != null && multiInstanceService.isMultiInstance(node)) {
+      com.fpt.workflow.runtime.multiinstance.domain.MultiInstanceState miState =
+          multiInstanceService.initialize(
+              event,
+              execution,
+              node,
+              beforeActivation,
+              request.correlationId(),
+              request.commandId());
+      if ("COMPLETED".equals(miState.getStatus())) {
+        return execution;
+      }
+      execution.waitFor(RuntimeWaitReason.MULTI_INSTANCE);
+      event.waitFor(RuntimeWaitReason.MULTI_INSTANCE);
+      eventRepository.save(event);
+      execution = executionRepository.saveAndFlush(execution);
+      recordAudit(
+          event,
+          node,
+          execution,
+          NodeExecutionResult.waitFor(
+              new com.fpt.workflow.nodetype.WaitDescriptor(
+                  RuntimeWaitReason.MULTI_INSTANCE.name(),
+                  execution.getId().toString(),
+                  objectMapper.createObjectNode())),
+          request,
+          now);
+      return execution;
     }
 
     NodeExecutionResult result =
@@ -175,7 +247,7 @@ public class NodeActivationService {
                     runtimeServices));
     applyResult(event, node, manifest, execution, result, request, scope);
     eventRepository.save(event);
-    executionRepository.save(execution);
+    execution = executionRepository.saveAndFlush(execution);
     recordAudit(event, node, execution, result, request, now);
     return execution;
   }
@@ -225,9 +297,9 @@ public class NodeActivationService {
       CanonicalValueValidator.validate(effectiveOutputSchema(node, manifest), complete.output())
           .requireValid();
       execution.complete(complete.outcomePort(), complete.output(), endedAt);
-      executionRepository.saveAndFlush(execution);
       List<VariableMapping> mappings = decodeMappings(node.getConfigJson());
       if (!mappings.isEmpty()) {
+        executionRepository.saveAndFlush(execution);
         EventContext afterOutput = contextBuilder.build(event.getId(), scope);
         List<WorkflowVariable> declarations =
             variableRepository.findAllByWorkflowVersionIdOrderByKeyAsc(
