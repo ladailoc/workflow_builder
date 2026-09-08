@@ -1,6 +1,7 @@
 package com.fpt.workflow.integration.repository;
 
 import com.fpt.workflow.integration.domain.IntegrationExecution;
+import com.fpt.workflow.integration.domain.IntegrationExecutionStatus;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -15,4 +16,6 @@ public interface IntegrationExecutionRepository extends JpaRepository<Integratio
   Optional<IntegrationExecution> findByCallbackCorrelationId(String callbackCorrelationId);
 
   List<IntegrationExecution> findAllByEventIdOrderByCreatedAtAsc(UUID eventId);
+
+  List<IntegrationExecution> findAllByStatusOrderByUpdatedAtAsc(IntegrationExecutionStatus status);
 }

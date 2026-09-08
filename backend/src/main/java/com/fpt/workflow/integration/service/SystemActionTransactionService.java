@@ -15,6 +15,8 @@ import com.fpt.workflow.integration.domain.IntegrationErrorCategory;
 import com.fpt.workflow.integration.domain.IntegrationExecution;
 import com.fpt.workflow.integration.repository.IntegrationAttemptRepository;
 import com.fpt.workflow.integration.repository.IntegrationExecutionRepository;
+import com.fpt.workflow.operations.audit.AuditEvent;
+import com.fpt.workflow.operations.audit.AuditEventRepository;
 import com.fpt.workflow.runtime.binding.EventVariableMapper;
 import com.fpt.workflow.runtime.binding.VariableMapping;
 import com.fpt.workflow.runtime.context.EventContext;
@@ -48,6 +50,7 @@ public class SystemActionTransactionService {
 
   private final IntegrationExecutionRepository executionRepo;
   private final IntegrationAttemptRepository attemptRepo;
+  private final AuditEventRepository auditRepo;
   private final NodeExecutionRepository nodeExecutionRepo;
   private final NodeDefinitionRepository nodeDefinitionRepo;
   private final EventRepository eventRepo;
@@ -62,6 +65,7 @@ public class SystemActionTransactionService {
   public SystemActionTransactionService(
       IntegrationExecutionRepository executionRepo,
       IntegrationAttemptRepository attemptRepo,
+      AuditEventRepository auditRepo,
       NodeExecutionRepository nodeExecutionRepo,
       NodeDefinitionRepository nodeDefinitionRepo,
       EventRepository eventRepo,
@@ -74,6 +78,7 @@ public class SystemActionTransactionService {
       ObjectMapper objectMapper) {
     this.executionRepo = Objects.requireNonNull(executionRepo, "executionRepo");
     this.attemptRepo = Objects.requireNonNull(attemptRepo, "attemptRepo");
+    this.auditRepo = Objects.requireNonNull(auditRepo, "auditRepo");
     this.nodeExecutionRepo = Objects.requireNonNull(nodeExecutionRepo, "nodeExecutionRepo");
     this.nodeDefinitionRepo = Objects.requireNonNull(nodeDefinitionRepo, "nodeDefinitionRepo");
     this.eventRepo = Objects.requireNonNull(eventRepo, "eventRepo");
@@ -96,9 +101,12 @@ public class SystemActionTransactionService {
       String connectorKey,
       String actionKey,
       int actionVersion,
+      UUID connectorActionVersionId,
       String logicalActionIdentity,
       String idempotencyKey,
-      JsonNode rawRequest) {
+      JsonNode rawRequest,
+      CorrelationId correlationId,
+      CommandId commandId) {
     Instant now = clock.now();
     JsonNode sanitizedRequest = PayloadSanitizer.sanitize(rawRequest);
     String requestJson = sanitizedRequest != null ? sanitizedRequest.toString() : null;
@@ -111,6 +119,7 @@ public class SystemActionTransactionService {
             connectorKey,
             actionKey,
             actionVersion,
+            connectorActionVersionId,
             logicalActionIdentity,
             idempotencyKey,
             requestJson,
@@ -121,6 +130,7 @@ public class SystemActionTransactionService {
         IntegrationAttempt.createRunning(
             uuidGenerator.generate(), execution.getId(), 1, requestJson, now);
     attemptRepo.saveAndFlush(attempt);
+    audit(execution, "ACTION_STARTED", correlationId, commandId, now);
 
     return execution;
   }
@@ -132,10 +142,13 @@ public class SystemActionTransactionService {
       String connectorKey,
       String actionKey,
       int actionVersion,
+      UUID connectorActionVersionId,
       String logicalActionIdentity,
       String idempotencyKey,
       JsonNode rawRequest,
-      int attemptNumber) {
+      int attemptNumber,
+      CorrelationId correlationId,
+      CommandId commandId) {
     var existing = executionRepo.findByNodeExecutionId(nodeExecutionId);
     if (existing.isEmpty()) {
       if (attemptNumber != 1) {
@@ -147,11 +160,21 @@ public class SystemActionTransactionService {
           connectorKey,
           actionKey,
           actionVersion,
+          connectorActionVersionId,
           logicalActionIdentity,
           idempotencyKey,
-          rawRequest);
+          rawRequest,
+          correlationId,
+          commandId);
     }
     IntegrationExecution execution = existing.orElseThrow();
+    if (!execution.getConnectorActionVersionId().equals(connectorActionVersionId)
+        || !execution.getConnectorKey().equals(connectorKey)
+        || !execution.getActionKey().equals(actionKey)
+        || execution.getActionVersion() != actionVersion) {
+      throw new IllegalStateException(
+          "A durable integration execution cannot be rebound to a different connector action version");
+    }
     if (execution.getStatus()
         != com.fpt.workflow.integration.domain.IntegrationExecutionStatus.RUNNING) {
       return execution;
@@ -160,6 +183,7 @@ public class SystemActionTransactionService {
         .findByIntegrationExecutionIdAndAttemptNumber(execution.getId(), attemptNumber)
         .isEmpty()) {
       startAttemptTx(execution.getId(), attemptNumber, rawRequest);
+      audit(execution, "ACTION_RETRIED", correlationId, commandId, clock.now());
     }
     return execution;
   }
@@ -231,6 +255,12 @@ public class SystemActionTransactionService {
       execution.markFailed(finalResponse.errorCategory(), responseJson, now);
     }
     IntegrationExecution savedExecution = executionRepo.saveAndFlush(execution);
+    audit(
+        savedExecution,
+        finalResponse.success() ? "ACTION_SUCCEEDED" : "ACTION_FAILED",
+        correlationId,
+        commandId,
+        now);
     final UUID targetNodeExecutionId = savedExecution.getNodeExecutionId();
     final UUID targetEventId = savedExecution.getEventId();
 
@@ -340,7 +370,10 @@ public class SystemActionTransactionService {
 
   @Transactional(propagation = Propagation.REQUIRES_NEW)
   public SystemActionResult transitionToManualReconciliationTx(
-      UUID executionId, IntegrationCallResponse uncertainResponse) {
+      UUID executionId,
+      IntegrationCallResponse uncertainResponse,
+      CorrelationId correlationId,
+      CommandId commandId) {
     Instant now = clock.now();
     IntegrationExecution execution =
         executionRepo
@@ -353,6 +386,7 @@ public class SystemActionTransactionService {
         sanitizedResponse == null ? null : sanitizedResponse.toString(),
         now);
     execution = executionRepo.saveAndFlush(execution);
+    audit(execution, "ACTION_FAILED", correlationId, commandId, now);
     UUID nodeExecutionId = execution.getNodeExecutionId();
     UUID eventId = execution.getEventId();
 
@@ -371,6 +405,31 @@ public class SystemActionTransactionService {
     event.changeWaitReason(RuntimeWaitReason.MANUAL_RECONCILIATION);
     eventRepo.saveAndFlush(event);
     return new SystemActionResult(execution, nodeExecution, "MANUAL_RECONCILIATION", null);
+  }
+
+  private void audit(
+      IntegrationExecution execution,
+      String eventType,
+      CorrelationId correlationId,
+      CommandId commandId,
+      Instant occurredAt) {
+    ObjectNode metadata = JsonNodeFactory.instance.objectNode();
+    metadata.put("eventId", execution.getEventId().toString());
+    metadata.put("nodeExecutionId", execution.getNodeExecutionId().toString());
+    metadata.put("connectorActionVersionId", execution.getConnectorActionVersionId().toString());
+    metadata.put("status", execution.getStatus().name());
+    auditRepo.save(
+        AuditEvent.record(
+            uuidGenerator.generate(),
+            "INTEGRATION_EXECUTION",
+            execution.getId(),
+            eventType,
+            null,
+            null,
+            correlationId,
+            commandId,
+            metadata,
+            occurredAt));
   }
 
   private List<VariableMapping> decodeMappings(JsonNode config) {

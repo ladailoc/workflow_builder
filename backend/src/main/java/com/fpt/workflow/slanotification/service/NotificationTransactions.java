@@ -97,6 +97,10 @@ public class NotificationTransactions {
         || d.getStatus()
             == com.fpt.workflow.slanotification.domain.NotificationDispatchStatus.CANCELLED)
       return Optional.empty();
+    if (d.getStatus()
+        == com.fpt.workflow.slanotification.domain.NotificationDispatchStatus.SENDING) {
+      return Optional.of(d);
+    }
     var event = events.findById(d.getEventId()).orElseThrow();
     if (TERMINAL.contains(event.getStatus()) && !d.isAllowAfterTerminal()) {
       d.cancel(clock.now());

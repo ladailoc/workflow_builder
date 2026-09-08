@@ -3,10 +3,11 @@ import type { ReactNode } from "react";
 
 import "./globals.css";
 import { Providers } from "./providers";
+import { AppShell } from "@/shared/components/layout/app-shell";
 
 export const metadata: Metadata = {
   title: "Workflow Platform",
-  description: "Definition-driven workflow platform",
+  description: "Definition-driven enterprise workflow platform",
 };
 
 export default function RootLayout({
@@ -14,8 +15,10 @@ export default function RootLayout({
 }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en">
-      <body>
-        <Providers>{children}</Providers>
+      <body className="antialiased font-sans text-slate-900 bg-slate-50">
+        <Providers>
+          <AppShell>{children}</AppShell>
+        </Providers>
       </body>
     </html>
   );

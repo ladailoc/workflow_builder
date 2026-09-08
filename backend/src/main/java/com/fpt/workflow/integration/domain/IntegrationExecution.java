@@ -6,6 +6,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
@@ -34,6 +35,9 @@ public class IntegrationExecution {
 
   @Column(name = "action_version", nullable = false)
   private int actionVersion;
+
+  @Column(name = "connector_action_version_id", nullable = false)
+  private UUID connectorActionVersionId;
 
   @Enumerated(EnumType.STRING)
   @Column(name = "status", nullable = false, length = 30)
@@ -69,6 +73,10 @@ public class IntegrationExecution {
   @Column(name = "completed_at")
   private Instant completedAt;
 
+  @Version
+  @Column(name = "lock_version", nullable = false)
+  private long lockVersion;
+
   protected IntegrationExecution() {}
 
   public static IntegrationExecution createRunning(
@@ -78,6 +86,7 @@ public class IntegrationExecution {
       String connectorKey,
       String actionKey,
       int actionVersion,
+      UUID connectorActionVersionId,
       String logicalActionIdentity,
       String idempotencyKey,
       String sanitizedRequestJson,
@@ -89,6 +98,8 @@ public class IntegrationExecution {
     execution.connectorKey = Objects.requireNonNull(connectorKey, "connectorKey");
     execution.actionKey = Objects.requireNonNull(actionKey, "actionKey");
     execution.actionVersion = actionVersion;
+    execution.connectorActionVersionId =
+        Objects.requireNonNull(connectorActionVersionId, "connectorActionVersionId");
     execution.status = IntegrationExecutionStatus.RUNNING;
     execution.logicalActionIdentity =
         Objects.requireNonNull(logicalActionIdentity, "logicalActionIdentity");
@@ -100,6 +111,7 @@ public class IntegrationExecution {
   }
 
   public void markCompleted(String sanitizedResponseJson, Instant now) {
+    requireNonTerminal();
     this.status = IntegrationExecutionStatus.COMPLETED;
     this.errorCategory = IntegrationErrorCategory.NONE;
     this.sanitizedResponseJson = sanitizedResponseJson;
@@ -109,6 +121,7 @@ public class IntegrationExecution {
 
   public void markFailed(
       IntegrationErrorCategory errorCategory, String sanitizedResponseJson, Instant now) {
+    requireNonTerminal();
     this.status = IntegrationExecutionStatus.FAILED;
     this.errorCategory =
         errorCategory != null ? errorCategory : IntegrationErrorCategory.CLIENT_ERROR;
@@ -118,6 +131,9 @@ public class IntegrationExecution {
   }
 
   public void markWaitingCallback(String callbackCorrelationId, Instant now) {
+    if (status != IntegrationExecutionStatus.RUNNING) {
+      throw new IllegalStateException("IntegrationExecution is terminal or waiting: " + status);
+    }
     this.status = IntegrationExecutionStatus.WAITING_CALLBACK;
     this.callbackCorrelationId = callbackCorrelationId;
     this.updatedAt = now;
@@ -125,6 +141,7 @@ public class IntegrationExecution {
 
   public void markManualReconciliation(
       IntegrationErrorCategory errorCategory, String sanitizedResponseJson, Instant now) {
+    requireNonTerminal();
     this.status = IntegrationExecutionStatus.MANUAL_RECONCILIATION;
     this.errorCategory = Objects.requireNonNull(errorCategory, "errorCategory");
     this.sanitizedResponseJson = sanitizedResponseJson;
@@ -154,6 +171,10 @@ public class IntegrationExecution {
 
   public int getActionVersion() {
     return actionVersion;
+  }
+
+  public UUID getConnectorActionVersionId() {
+    return connectorActionVersionId;
   }
 
   public IntegrationExecutionStatus getStatus() {
@@ -194,5 +215,16 @@ public class IntegrationExecution {
 
   public Instant getCompletedAt() {
     return completedAt;
+  }
+
+  public long getLockVersion() {
+    return lockVersion;
+  }
+
+  private void requireNonTerminal() {
+    if (status != IntegrationExecutionStatus.RUNNING
+        && status != IntegrationExecutionStatus.WAITING_CALLBACK) {
+      throw new IllegalStateException("IntegrationExecution is terminal or waiting: " + status);
+    }
   }
 }

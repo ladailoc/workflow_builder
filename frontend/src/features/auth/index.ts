@@ -3,6 +3,7 @@ export { AuthRouteGuard } from "./route-guard";
 export {
   ANONYMOUS_SESSION,
   PLATFORM_ROLES,
+  PRESET_ACTORS,
   type AuthSession,
   type PlatformPermission,
   type PlatformRole,

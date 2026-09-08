@@ -107,33 +107,45 @@ public class ConnectorDefinition {
   }
 
   public static void validateNoSecrets(JsonNode config) {
-    if (config == null || !config.isObject()) return;
-    config
-        .fieldNames()
+    validateNoSecrets(config, "$config");
+  }
+
+  private static void validateNoSecrets(JsonNode value, String path) {
+    if (value == null || value.isNull()) return;
+    if (value.isArray()) {
+      for (int index = 0; index < value.size(); index++) {
+        validateNoSecrets(value.get(index), path + "[" + index + "]");
+      }
+      return;
+    }
+    if (!value.isObject()) return;
+    value
+        .fields()
         .forEachRemaining(
-            field -> {
-              String lower = field.toLowerCase();
-              if (lower.equals("connectorkey")
-                  || lower.equals("actionkey")
-                  || lower.equals("nodekey")
-                  || lower.equals("formkey")
-                  || lower.equals("handlerkey")) {
-                return;
+            entry -> {
+              String field = entry.getKey();
+              String lower = field.toLowerCase(java.util.Locale.ROOT);
+              boolean semanticKey =
+                  lower.equals("connectorkey")
+                      || lower.equals("actionkey")
+                      || lower.equals("nodekey")
+                      || lower.equals("formkey")
+                      || lower.equals("handlerkey");
+              boolean reference = lower.endsWith("ref") || lower.endsWith("reference");
+              boolean secretLike =
+                  lower.contains("secret")
+                      || lower.contains("password")
+                      || lower.contains("token")
+                      || lower.contains("authorization")
+                      || (lower.contains("key") && !semanticKey);
+              if (secretLike && !reference) {
+                throw new IllegalArgumentException(
+                    "Direct secret storage forbidden in connector config. Use a credential reference: "
+                        + path
+                        + "."
+                        + field);
               }
-              if (lower.contains("secret")
-                  || lower.contains("password")
-                  || lower.contains("token")
-                  || (lower.contains("key") && !lower.contains("ref"))) {
-                JsonNode val = config.get(field);
-                if (val != null
-                    && val.isTextual()
-                    && !val.asText().startsWith("vault://")
-                    && !val.asText().startsWith("secret:")) {
-                  throw new IllegalArgumentException(
-                      "Direct secret storage forbidden in connector config. Use credentialRef: "
-                          + field);
-                }
-              }
+              validateNoSecrets(entry.getValue(), path + "." + field);
             });
   }
 

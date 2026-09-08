@@ -1,7 +1,7 @@
 package com.fpt.workflow.integration.client;
 
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fpt.workflow.integration.domain.IntegrationErrorCategory;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -22,16 +22,14 @@ public class DefaultConnectorActionClient implements ConnectorActionClient {
     if (testDelegate != null) {
       return testDelegate.execute(request);
     }
-    // Default fallback: return a successful response with request echo
-    ObjectNode response = JsonNodeFactory.instance.objectNode();
-    response.put("status", "SUCCESS");
-    response.put("connectorKey", request.connectorKey());
-    response.put("actionKey", request.actionKey());
-    response.put("actionVersion", request.actionVersion());
-    response.put("idempotencyKey", request.idempotencyKey());
-    if (request.inputData() != null) {
-      response.set("echo", request.inputData());
-    }
-    return IntegrationCallResponse.success(200, response);
+    var details = JsonNodeFactory.instance.objectNode();
+    details.put("connectorKey", request.connectorKey());
+    details.put("actionKey", request.actionKey());
+    details.put("actionVersion", request.actionVersion());
+    return IntegrationCallResponse.failure(
+        IntegrationErrorCategory.CONFIGURATION_ERROR,
+        0,
+        "No ConnectorActionClient adapter is registered for this action",
+        details);
   }
 }

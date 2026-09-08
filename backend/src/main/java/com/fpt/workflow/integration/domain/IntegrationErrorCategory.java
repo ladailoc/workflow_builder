@@ -8,5 +8,6 @@ public enum IntegrationErrorCategory {
   NETWORK_ERROR,
   HTTP_5XX,
   HTTP_4XX,
+  CONFIGURATION_ERROR,
   CLIENT_ERROR
 }

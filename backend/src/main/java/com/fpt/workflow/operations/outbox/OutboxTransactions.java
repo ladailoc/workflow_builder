@@ -60,7 +60,7 @@ public class OutboxTransactions {
     Instant until = now.plus(lease);
     List<UUID> ids =
         jdbc.query(
-            "WITH candidates AS (SELECT id FROM outbox_events WHERE ((status IN ('READY','RETRY') AND next_run_at<=?) OR (status='PUBLISHING' AND lease_until<?)) ORDER BY next_run_at,created_at FOR UPDATE SKIP LOCKED LIMIT ?) UPDATE outbox_events o SET status='PUBLISHING',attempts=o.attempts+1,lease_owner=?,lease_until=? FROM candidates c WHERE o.id=c.id RETURNING o.id",
+            "WITH candidates AS (SELECT id FROM outbox_events WHERE ((status IN ('READY','RETRY') AND next_run_at<=?) OR (status='PUBLISHING' AND lease_until<?)) ORDER BY next_run_at,created_at FOR UPDATE SKIP LOCKED LIMIT ?) UPDATE outbox_events o SET status='PUBLISHING',attempts=o.attempts+1,lease_owner=?,lease_until=?,lock_version=o.lock_version+1 FROM candidates c WHERE o.id=c.id RETURNING o.id",
             (rs, row) -> rs.getObject(1, UUID.class),
             ts(now),
             ts(now),
@@ -86,7 +86,7 @@ public class OutboxTransactions {
     Instant now = clock.now();
     JsonNode safe = error == null ? JsonNodeFactory.instance.objectNode() : error;
     return jdbc.update(
-            "UPDATE outbox_events SET status=CASE WHEN attempts>=max_attempts THEN 'DEAD' ELSE 'RETRY' END,next_run_at=?,last_error_json=?::jsonb,lease_owner=NULL,lease_until=NULL WHERE id=? AND status='PUBLISHING' AND lease_owner=?",
+            "UPDATE outbox_events SET status=CASE WHEN attempts>=max_attempts THEN 'DEAD' ELSE 'RETRY' END,next_run_at=?,last_error_json=?::jsonb,lease_owner=NULL,lease_until=NULL,lock_version=lock_version+1 WHERE id=? AND status='PUBLISHING' AND lease_owner=?",
             ts(now.plus(delay)),
             safe.toString(),
             id,

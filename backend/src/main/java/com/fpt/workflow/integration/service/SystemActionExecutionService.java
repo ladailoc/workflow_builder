@@ -11,7 +11,9 @@ import com.fpt.workflow.integration.client.IntegrationCallRequest;
 import com.fpt.workflow.integration.client.IntegrationCallResponse;
 import com.fpt.workflow.integration.domain.IntegrationErrorCategory;
 import com.fpt.workflow.integration.domain.IntegrationExecution;
+import com.fpt.workflow.integration.domain.IntegrationExecutionStatus;
 import com.fpt.workflow.integration.domain.RetryPolicy;
+import com.fpt.workflow.integration.repository.IntegrationExecutionRepository;
 import com.fpt.workflow.runtime.domain.NodeExecution;
 import com.fpt.workflow.runtime.repository.NodeExecutionRepository;
 import com.fpt.workflow.shared.domain.CommandId;
@@ -36,6 +38,7 @@ public class SystemActionExecutionService {
   private final ConnectorActionClient actionClient;
   private final NodeExecutionRepository nodeExecutionRepo;
   private final NodeDefinitionRepository nodeDefinitionRepo;
+  private final IntegrationExecutionRepository integrationExecutionRepo;
   private final ObjectMapper objectMapper;
   private final CallbackCorrelationService callbackCorrelationService;
 
@@ -45,6 +48,7 @@ public class SystemActionExecutionService {
       ConnectorActionClient actionClient,
       NodeExecutionRepository nodeExecutionRepo,
       NodeDefinitionRepository nodeDefinitionRepo,
+      IntegrationExecutionRepository integrationExecutionRepo,
       ObjectMapper objectMapper,
       CallbackCorrelationService callbackCorrelationService) {
     this.txService = Objects.requireNonNull(txService, "txService");
@@ -52,6 +56,8 @@ public class SystemActionExecutionService {
     this.actionClient = Objects.requireNonNull(actionClient, "actionClient");
     this.nodeExecutionRepo = Objects.requireNonNull(nodeExecutionRepo, "nodeExecutionRepo");
     this.nodeDefinitionRepo = Objects.requireNonNull(nodeDefinitionRepo, "nodeDefinitionRepo");
+    this.integrationExecutionRepo =
+        Objects.requireNonNull(integrationExecutionRepo, "integrationExecutionRepo");
     this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
     this.callbackCorrelationService =
         Objects.requireNonNull(callbackCorrelationService, "callbackCorrelationService");
@@ -86,6 +92,20 @@ public class SystemActionExecutionService {
     String credentialRef = config.path("credentialRef").asText(null);
     ConnectorActionVersion action =
         connectorRegistry.requireActionVersion(connectorKey, actionKey, actionVersion);
+    boolean idempotent =
+        isIdempotent(action.getRetryPolicyJson(), action.getIdempotencyPolicyJson());
+    if (attemptNumber > 1 && !idempotent) {
+      var existing = integrationExecutionRepo.findByNodeExecutionId(nodeExecutionId);
+      if (existing.isPresent()
+          && existing.orElseThrow().getStatus() == IntegrationExecutionStatus.RUNNING) {
+        IntegrationCallResponse uncertain =
+            IntegrationCallResponse.lostResponse(
+                "A non-idempotent action was reclaimed after an incomplete attempt; manual reconciliation is required");
+        return SystemActionAttemptOutcome.terminal(
+            txService.transitionToManualReconciliationTx(
+                existing.orElseThrow().getId(), uncertain, correlationId, commandId));
+      }
+    }
     RetryPolicy retryPolicy =
         parseRetryPolicy(action.getRetryPolicyJson(), action.getIdempotencyPolicyJson());
     JsonNode executionConfig = parseExecutionConfig(action.getExecutionConfigJson());
@@ -110,10 +130,13 @@ public class SystemActionExecutionService {
             connectorKey,
             actionKey,
             actionVersion,
+            action.getId(),
             logicalIdentity,
             idempotencyKey,
             inputData,
-            attemptNumber);
+            attemptNumber,
+            correlationId,
+            commandId);
     if (execution.getStatus()
         != com.fpt.workflow.integration.domain.IntegrationExecutionStatus.RUNNING) {
       return SystemActionAttemptOutcome.idempotentReplay();
@@ -135,11 +158,10 @@ public class SystemActionExecutionService {
       response = mapExceptionToResponse(ex);
     }
     txService.recordAttemptResultTx(execution.getId(), attemptNumber, response);
-    if (!response.success()
-        && !isIdempotent(action.getRetryPolicyJson(), action.getIdempotencyPolicyJson())
-        && isUncertain(response.errorCategory())) {
+    if (!response.success() && !idempotent && isUncertain(response.errorCategory())) {
       return SystemActionAttemptOutcome.terminal(
-          txService.transitionToManualReconciliationTx(execution.getId(), response));
+          txService.transitionToManualReconciliationTx(
+              execution.getId(), response, correlationId, commandId));
     }
     boolean async =
         config.path("asyncCallback").asBoolean(false)

@@ -17,6 +17,7 @@ import com.fpt.workflow.integration.repository.IntegrationAttemptRepository;
 import com.fpt.workflow.integration.repository.IntegrationExecutionRepository;
 import com.fpt.workflow.integration.service.SystemActionExecutionService;
 import com.fpt.workflow.integration.service.SystemActionResult;
+import com.fpt.workflow.integration.service.SystemActionTransactionService;
 import com.fpt.workflow.runtime.activation.ActivationRequest;
 import com.fpt.workflow.runtime.activation.NodeActivationService;
 import com.fpt.workflow.runtime.domain.Event;
@@ -70,6 +71,7 @@ class SystemActionExecutionIT {
   @Autowired private DefaultConnectorActionClient actionClient;
   @Autowired private IntegrationExecutionRepository executionRepository;
   @Autowired private IntegrationAttemptRepository attemptRepository;
+  @Autowired private SystemActionTransactionService transactionService;
   @Autowired private EventRepository eventRepository;
   @Autowired private NodeActivationService activationService;
   @Autowired private RoutingService routingService;
@@ -349,6 +351,42 @@ class SystemActionExecutionIT {
         .isEqualTo(RuntimeWaitReason.MANUAL_RECONCILIATION);
   }
 
+  @Test
+  void reclaimedNonIdempotentRunningAttempt_neverCallsExternalActionAgain() {
+    Fixture f = setupFixture("NON_IDEMPOTENT_RECOVERY", false, 3, 10, List.of("TIMEOUT"));
+    transactionService.startOrResumeExecutionTx(
+        f.event().getId(),
+        f.systemActionExecution().getId(),
+        f.connectorKey(),
+        "NON_IDEMPOTENT_RECOVERY",
+        1,
+        f.connectorActionVersionId(),
+        "logical:" + f.systemActionExecution().getId(),
+        "idemp:" + f.systemActionExecution().getId(),
+        f.systemActionExecution().getInputJson(),
+        1,
+        new CorrelationId(uuidGenerator.generate()),
+        new CommandId(uuidGenerator.generate()));
+
+    AtomicInteger calls = new AtomicInteger();
+    actionClient.setTestDelegate(
+        request -> {
+          calls.incrementAndGet();
+          return IntegrationCallResponse.success(200, objectMapper.createObjectNode());
+        });
+
+    var result =
+        systemActionExecutionService.executeDurableAttempt(
+            f.systemActionExecution().getId(),
+            2,
+            new CorrelationId(uuidGenerator.generate()),
+            new CommandId(uuidGenerator.generate()));
+
+    assertThat(calls).hasValue(0);
+    assertThat(result.terminal()).isTrue();
+    assertThat(result.terminalResult().outcomePort()).isEqualTo("MANUAL_RECONCILIATION");
+  }
+
   // ────────────────────────────────────────────────────────────────────────────
   // Fixture setup helper
   // ────────────────────────────────────────────────────────────────────────────
@@ -357,6 +395,7 @@ class SystemActionExecutionIT {
       Event event,
       NodeExecution systemActionExecution,
       String connectorKey,
+      UUID connectorActionVersionId,
       UUID successEndNodeId,
       UUID errorEndNodeId) {}
 
@@ -401,18 +440,19 @@ class SystemActionExecutionIT {
     ArrayNode errArray = retryPolicy.putArray("retryableErrors");
     retryableErrors.forEach(errArray::add);
 
-    managementService.publishActionVersion(
-        connectorKey,
-        actionKey,
-        1,
-        objectMapper.createObjectNode(),
-        objectMapper.createObjectNode(),
-        objectMapper.createObjectNode(),
-        retryPolicy,
-        retryPolicy,
-        objectMapper.createObjectNode(),
-        objectMapper.createObjectNode(),
-        TECH_ADMIN);
+    var connectorActionVersion =
+        managementService.publishActionVersion(
+            connectorKey,
+            actionKey,
+            1,
+            objectMapper.createObjectNode(),
+            objectMapper.createObjectNode(),
+            objectMapper.createObjectNode(),
+            retryPolicy,
+            retryPolicy,
+            objectMapper.createObjectNode(),
+            objectMapper.createObjectNode(),
+            TECH_ADMIN);
 
     // 2. Workflow Definition + Version
     jdbcTemplate.update(
@@ -561,6 +601,12 @@ class SystemActionExecutionIT {
     RoutingResult startRoute = routingService.route(startExecution.getId(), corr, cmd);
     NodeExecution sysActionExecution = startRoute.activations().get(0);
 
-    return new Fixture(ev, sysActionExecution, connectorKey, successEndId, errorEndId);
+    return new Fixture(
+        ev,
+        sysActionExecution,
+        connectorKey,
+        connectorActionVersion.getId(),
+        successEndId,
+        errorEndId);
   }
 }

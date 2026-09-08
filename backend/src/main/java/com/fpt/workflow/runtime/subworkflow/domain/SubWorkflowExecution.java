@@ -6,6 +6,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
@@ -61,6 +62,10 @@ public class SubWorkflowExecution {
   @Column(name = "completed_at", columnDefinition = "timestamptz")
   private Instant completedAt;
 
+  @Version
+  @Column(name = "lock_version", nullable = false)
+  private long lockVersion;
+
   protected SubWorkflowExecution() {}
 
   public static SubWorkflowExecution create(
@@ -93,18 +98,21 @@ public class SubWorkflowExecution {
   }
 
   public void markCompleted(String outputSnapshotJson, Instant completedAt) {
+    requireRunning();
     this.status = SubWorkflowExecutionStatus.COMPLETED;
     this.outputSnapshotJson = outputSnapshotJson;
     this.completedAt = Objects.requireNonNull(completedAt, "completedAt");
   }
 
   public void markFailed(String errorSnapshotJson, Instant completedAt) {
+    requireRunning();
     this.status = SubWorkflowExecutionStatus.FAILED;
     this.outputSnapshotJson = errorSnapshotJson;
     this.completedAt = Objects.requireNonNull(completedAt, "completedAt");
   }
 
   public void markCancelled(Instant completedAt) {
+    requireRunning();
     this.status = SubWorkflowExecutionStatus.CANCELLED;
     this.completedAt = Objects.requireNonNull(completedAt, "completedAt");
   }
@@ -159,5 +167,15 @@ public class SubWorkflowExecution {
 
   public Instant getCompletedAt() {
     return completedAt;
+  }
+
+  public long getLockVersion() {
+    return lockVersion;
+  }
+
+  private void requireRunning() {
+    if (status != SubWorkflowExecutionStatus.RUNNING) {
+      throw new IllegalStateException("SubWorkflowExecution is terminal: " + status);
+    }
   }
 }

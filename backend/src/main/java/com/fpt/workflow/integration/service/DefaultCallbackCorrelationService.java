@@ -13,6 +13,8 @@ import com.fpt.workflow.integration.domain.IntegrationExecution;
 import com.fpt.workflow.integration.domain.IntegrationExecutionStatus;
 import com.fpt.workflow.integration.repository.IntegrationCallbackRepository;
 import com.fpt.workflow.integration.repository.IntegrationExecutionRepository;
+import com.fpt.workflow.operations.audit.AuditEvent;
+import com.fpt.workflow.operations.audit.AuditEventRepository;
 import com.fpt.workflow.runtime.domain.Event;
 import com.fpt.workflow.runtime.domain.NodeExecution;
 import com.fpt.workflow.runtime.repository.EventRepository;
@@ -52,6 +54,7 @@ public class DefaultCallbackCorrelationService implements CallbackCorrelationSer
   private final CallbackSignatureValidator signatureValidator;
   private final IntegrationCallbackRepository callbackRepo;
   private final IntegrationExecutionRepository executionRepo;
+  private final AuditEventRepository auditRepo;
   private final NodeExecutionRepository nodeExecutionRepo;
   private final EventRepository eventRepo;
   private final RoutingService routingService;
@@ -66,6 +69,7 @@ public class DefaultCallbackCorrelationService implements CallbackCorrelationSer
       CallbackSignatureValidator signatureValidator,
       IntegrationCallbackRepository callbackRepo,
       IntegrationExecutionRepository executionRepo,
+      AuditEventRepository auditRepo,
       NodeExecutionRepository nodeExecutionRepo,
       EventRepository eventRepo,
       RoutingService routingService) {
@@ -77,6 +81,7 @@ public class DefaultCallbackCorrelationService implements CallbackCorrelationSer
     this.signatureValidator = Objects.requireNonNull(signatureValidator, "signatureValidator");
     this.callbackRepo = Objects.requireNonNull(callbackRepo, "callbackRepo");
     this.executionRepo = Objects.requireNonNull(executionRepo, "executionRepo");
+    this.auditRepo = Objects.requireNonNull(auditRepo, "auditRepo");
     this.nodeExecutionRepo = Objects.requireNonNull(nodeExecutionRepo, "nodeExecutionRepo");
     this.eventRepo = Objects.requireNonNull(eventRepo, "eventRepo");
     this.routingService = Objects.requireNonNull(routingService, "routingService");
@@ -150,19 +155,22 @@ public class DefaultCallbackCorrelationService implements CallbackCorrelationSer
     // 4. Signature Validation
     Optional<String> secretOpt =
         credentialProvider.getSigningSecret(command.connectorKey(), connector.getCredentialRef());
-    if (secretOpt.isPresent()) {
-      String timestampStr = command.timestamp() != null ? command.timestamp().toString() : "";
-      String rawPayload =
-          command.rawPayload() != null
-              ? command.rawPayload()
-              : (command.parsedPayload() != null ? command.parsedPayload().toString() : "");
-      boolean validSig =
-          signatureValidator.isValid(
-              secretOpt.get(), timestampStr, rawPayload, command.signature());
-      if (!validSig) {
-        log.warn("Invalid signature for callback on connector {}", command.connectorKey());
-        return persistRejected(command, null, "Invalid callback signature", now);
-      }
+    if (secretOpt.isEmpty()) {
+      log.error(
+          "No callback signing credential is configured for connector {}", command.connectorKey());
+      return persistRejected(command, null, "Callback signing credential is not configured", now);
+    }
+    String timestampStr = command.timestamp() != null ? command.timestamp().toString() : "";
+    String rawPayload =
+        command.rawPayload() != null
+            ? command.rawPayload()
+            : (command.parsedPayload() != null ? command.parsedPayload().toString() : "");
+    boolean validSig =
+        signatureValidator.isValid(
+            secretOpt.orElseThrow(), timestampStr, rawPayload, command.signature());
+    if (!validSig) {
+      log.warn("Invalid signature for callback on connector {}", command.connectorKey());
+      return persistRejected(command, null, "Invalid callback signature", now);
     }
 
     // 5. Timestamp Freshness & Replay Protection
@@ -213,6 +221,23 @@ public class DefaultCallbackCorrelationService implements CallbackCorrelationSer
                     new IllegalStateException(
                         "NodeExecution not found: " + execution.getNodeExecutionId()));
 
+    // The node lock serializes callback/cancel transitions. Recheck the replay key after acquiring
+    // it because a concurrent callback may have committed since the optimistic pre-check above.
+    Optional<IntegrationCallback> committedDuplicate =
+        callbackRepo.findByConnectorKeyAndExternalEventId(
+            command.connectorKey(), command.externalEventId());
+    if (committedDuplicate.isPresent()) {
+      IntegrationCallback original = committedDuplicate.orElseThrow();
+      return new CallbackProcessingResult(
+          IntegrationCallbackStatus.DUPLICATE,
+          original.getId(),
+          original.getIntegrationExecutionId(),
+          nodeExecution.getId(),
+          original.getStatus() == IntegrationCallbackStatus.ACCEPTED ? "SUCCESS" : null,
+          "Duplicate callback; idempotently returned original result",
+          parseJson(original.getSanitizedPayloadJson()));
+    }
+
     Event event =
         eventRepo
             .findById(execution.getEventId())
@@ -261,6 +286,13 @@ public class DefaultCallbackCorrelationService implements CallbackCorrelationSer
                   + event.getStatus()
                   + ")");
       callbackRepo.saveAndFlush(lateCallback);
+      auditCallback(
+          execution,
+          lateCallback,
+          "CALLBACK_LATE",
+          command.correlationId(),
+          command.commandId(),
+          now);
 
       return new CallbackProcessingResult(
           IntegrationCallbackStatus.LATE,
@@ -311,6 +343,8 @@ public class DefaultCallbackCorrelationService implements CallbackCorrelationSer
             : new CorrelationId(uuidGenerator.generate());
     CommandId commandId =
         command.commandId() != null ? command.commandId() : new CommandId(uuidGenerator.generate());
+
+    auditCallback(execution, acceptedCallback, "CALLBACK_RECEIVED", correlationId, commandId, now);
 
     routingService.route(nodeExecution.getId(), correlationId, commandId);
 
@@ -395,6 +429,33 @@ public class DefaultCallbackCorrelationService implements CallbackCorrelationSer
         null,
         errorMessage,
         sanitized);
+  }
+
+  private void auditCallback(
+      IntegrationExecution execution,
+      IntegrationCallback callback,
+      String eventType,
+      CorrelationId correlationId,
+      CommandId commandId,
+      Instant occurredAt) {
+    CorrelationId actualCorrelation =
+        correlationId != null ? correlationId : new CorrelationId(uuidGenerator.generate());
+    var metadata = JsonNodeFactory.instance.objectNode();
+    metadata.put("callbackId", callback.getId().toString());
+    metadata.put("externalEventId", callback.getExternalEventId());
+    metadata.put("status", callback.getStatus().name());
+    auditRepo.save(
+        AuditEvent.record(
+            uuidGenerator.generate(),
+            "INTEGRATION_EXECUTION",
+            execution.getId(),
+            eventType,
+            null,
+            null,
+            actualCorrelation,
+            commandId,
+            metadata,
+            occurredAt));
   }
 
   private CallbackProcessingResult rejectWithoutPersistence(String message) {

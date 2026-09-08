@@ -8,6 +8,9 @@ import org.springframework.data.repository.query.Param;
 public interface NotificationDispatchRepository extends JpaRepository<NotificationDispatch, UUID> {
   Optional<NotificationDispatch> findByDedupKey(String dedupKey);
 
+  List<NotificationDispatch> findAllByStatusOrderByUpdatedAtAsc(
+      com.fpt.workflow.slanotification.domain.NotificationDispatchStatus status);
+
   @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
   @Query("select dispatch from NotificationDispatch dispatch where dispatch.id=:id")
   Optional<NotificationDispatch> findByIdForUpdate(@Param("id") UUID id);

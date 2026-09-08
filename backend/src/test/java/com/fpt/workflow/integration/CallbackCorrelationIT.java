@@ -536,18 +536,19 @@ class CallbackCorrelationIT {
     ObjectNode executionConfig = objectMapper.createObjectNode();
     executionConfig.put("pattern", "ASYNC_CALLBACK");
 
-    managementService.publishActionVersion(
-        connectorKey,
-        actionKey,
-        1,
-        objectMapper.createObjectNode(),
-        objectMapper.createObjectNode(),
-        objectMapper.createObjectNode(),
-        retryPolicy,
-        retryPolicy,
-        executionConfig,
-        objectMapper.createObjectNode(),
-        TECH_ADMIN);
+    var connectorActionVersion =
+        managementService.publishActionVersion(
+            connectorKey,
+            actionKey,
+            1,
+            objectMapper.createObjectNode(),
+            objectMapper.createObjectNode(),
+            objectMapper.createObjectNode(),
+            retryPolicy,
+            retryPolicy,
+            executionConfig,
+            objectMapper.createObjectNode(),
+            TECH_ADMIN);
 
     // 2. Workflow Definition + Version
     jdbcTemplate.update(
@@ -712,6 +713,7 @@ class CallbackCorrelationIT {
             connectorKey,
             actionKey,
             1,
+            connectorActionVersion.getId(),
             connectorKey + "/" + actionKey + ":v1",
             "idemp:" + sysActionExecution.getId(),
             "{}",

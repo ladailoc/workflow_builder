@@ -83,6 +83,33 @@ class NotificationPersistenceIT {
         .isEqualTo(NotificationDispatchStatus.CANCELLED);
   }
 
+  @Test
+  void reclaimedDeliveryCanResumeSendingDispatchAfterWorkerCrash() {
+    UUID eventId = createEvent();
+    var dispatch =
+        transactions.create(
+            eventId,
+            null,
+            null,
+            "EMAIL",
+            UUID.randomUUID(),
+            mapper.createObjectNode(),
+            mapper.createObjectNode(),
+            mapper.createObjectNode(),
+            "notification-crash:" + UUID.randomUUID(),
+            3,
+            false);
+
+    assertThat(transactions.begin(dispatch.getId())).isPresent();
+    assertThat(dispatches.findById(dispatch.getId()).orElseThrow().getStatus())
+        .isEqualTo(NotificationDispatchStatus.SENDING);
+
+    assertThat(transactions.begin(dispatch.getId())).isPresent();
+    transactions.sent(dispatch.getId());
+    assertThat(dispatches.findById(dispatch.getId()).orElseThrow().getStatus())
+        .isEqualTo(NotificationDispatchStatus.SENT);
+  }
+
   private UUID createEvent() {
     UUID definition = UUID.randomUUID(),
         version = UUID.randomUUID(),

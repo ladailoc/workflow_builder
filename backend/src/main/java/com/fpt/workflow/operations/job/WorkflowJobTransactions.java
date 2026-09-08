@@ -65,7 +65,7 @@ public class WorkflowJobTransactions {
     Instant now = clock.now(), until = now.plus(lease);
     List<UUID> ids =
         jdbc.query(
-            "WITH candidates AS (SELECT id FROM workflow_jobs WHERE ((status IN ('READY','RETRY') AND next_run_at <= ?) OR (status='RUNNING' AND lease_until < ?)) ORDER BY next_run_at,created_at FOR UPDATE SKIP LOCKED LIMIT ?) UPDATE workflow_jobs j SET status='RUNNING',attempts=j.attempts+1,lease_owner=?,lease_until=?,updated_at=?,completed_at=NULL FROM candidates c WHERE j.id=c.id RETURNING j.id",
+            "WITH candidates AS (SELECT id FROM workflow_jobs WHERE ((status IN ('READY','RETRY') AND next_run_at <= ?) OR (status='RUNNING' AND lease_until < ?)) ORDER BY next_run_at,created_at FOR UPDATE SKIP LOCKED LIMIT ?) UPDATE workflow_jobs j SET status='RUNNING',attempts=j.attempts+1,lease_owner=?,lease_until=?,updated_at=?,completed_at=NULL,lock_version=j.lock_version+1 FROM candidates c WHERE j.id=c.id RETURNING j.id",
             (rs, row) -> rs.getObject(1, UUID.class),
             ts(now),
             ts(now),

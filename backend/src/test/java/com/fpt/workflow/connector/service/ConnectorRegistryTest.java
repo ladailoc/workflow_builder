@@ -290,6 +290,22 @@ class ConnectorRegistryTest {
   }
 
   @Test
+  void secretMasking_nestedAndArraySecretsAreRejected() {
+    ObjectNode nested = JsonNodeFactory.instance.objectNode();
+    nested.putObject("transport").put("authorizationToken", "raw-token");
+
+    assertThatThrownBy(() -> ConnectorDefinition.validateNoSecrets(nested))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("$config.transport.authorizationToken");
+
+    ObjectNode arrayValue = JsonNodeFactory.instance.objectNode();
+    arrayValue.putArray("profiles").addObject().put("password", "raw-password");
+    assertThatThrownBy(() -> ConnectorDefinition.validateNoSecrets(arrayValue))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("$config.profiles[0].password");
+  }
+
+  @Test
   void validateNodeBinding_rejectsInvalidOrSecretNodeConfig() {
     ActorContext admin =
         new ActorContext(UUID.randomUUID(), "admin", Set.of(RoleKey.ADMIN), Set.of());
