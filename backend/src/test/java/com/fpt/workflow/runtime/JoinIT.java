@@ -318,7 +318,8 @@ class JoinIT {
     assertThat(joinScopeId).isNotNull();
 
     // 2. Complete Branch A only
-    branchA.complete("SUBMITTED", objectMapper.createObjectNode(), NOW);
+    branchA.complete(
+        "SUBMITTED", objectMapper.createObjectNode(), branchA.getCreatedAt().plusSeconds(1));
     executionRepository.saveAndFlush(branchA);
 
     RoutingResult routeA = routingService.route(branchA.getId(), corr, cmd);
@@ -352,7 +353,8 @@ class JoinIT {
     assertThat(allExecs).noneMatch(e -> e.getNodeDefinitionId().equals(f.endNodeId()));
 
     // 3. Complete Branch B (second and final inbound branch)
-    branchB.complete("SUBMITTED", objectMapper.createObjectNode(), NOW);
+    branchB.complete(
+        "SUBMITTED", objectMapper.createObjectNode(), branchB.getCreatedAt().plusSeconds(1));
     executionRepository.saveAndFlush(branchB);
 
     RoutingResult routeB = routingService.route(branchB.getId(), corr, cmd);
@@ -404,7 +406,8 @@ class JoinIT {
     UUID joinScopeId = branchA.getJoinScopeId();
 
     // 2. Complete Branch A -> FIRST condition (arrived >= 1) satisfied immediately!
-    branchA.complete("SUBMITTED", objectMapper.createObjectNode(), NOW);
+    branchA.complete(
+        "SUBMITTED", objectMapper.createObjectNode(), branchA.getCreatedAt().plusSeconds(1));
     executionRepository.saveAndFlush(branchA);
 
     RoutingResult routeA = routingService.route(branchA.getId(), corr, cmd);
@@ -424,7 +427,8 @@ class JoinIT {
     assertThat(execsAfterA).anyMatch(e -> e.getNodeDefinitionId().equals(f.endNodeId()));
 
     // 3. Late arriving Branch B completes
-    branchB.complete("SUBMITTED", objectMapper.createObjectNode(), NOW);
+    branchB.complete(
+        "SUBMITTED", objectMapper.createObjectNode(), branchB.getCreatedAt().plusSeconds(1));
     executionRepository.saveAndFlush(branchB);
 
     RoutingResult routeB = routingService.route(branchB.getId(), corr, cmd);
@@ -654,7 +658,7 @@ class JoinIT {
     UUID joinScopeId = bA.getJoinScopeId();
 
     // 1. Branch A arrives (1/2) -> WAITING
-    bA.complete("SUBMITTED", objectMapper.createObjectNode(), NOW);
+    bA.complete("SUBMITTED", objectMapper.createObjectNode(), bA.getCreatedAt().plusSeconds(1));
     executionRepository.saveAndFlush(bA);
     routingService.route(bA.getId(), corr, cmd);
 
@@ -666,7 +670,7 @@ class JoinIT {
     assertThat(s1.getStatus()).isEqualTo("WAITING");
 
     // 2. Branch B arrives (2/2) -> threshold met, routes downstream!
-    bB.complete("SUBMITTED", objectMapper.createObjectNode(), NOW);
+    bB.complete("SUBMITTED", objectMapper.createObjectNode(), bB.getCreatedAt().plusSeconds(1));
     executionRepository.saveAndFlush(bB);
     routingService.route(bB.getId(), corr, cmd);
 
@@ -683,7 +687,7 @@ class JoinIT {
     assertThat(afterB).anyMatch(e -> e.getNodeDefinitionId().equals(endId));
 
     // 3. Late Branch C arrives (3/2) -> recorded, does not duplicate downstream
-    bC.complete("SUBMITTED", objectMapper.createObjectNode(), NOW);
+    bC.complete("SUBMITTED", objectMapper.createObjectNode(), bC.getCreatedAt().plusSeconds(1));
     executionRepository.saveAndFlush(bC);
     routingService.route(bC.getId(), corr, cmd);
 
@@ -714,7 +718,8 @@ class JoinIT {
 
     UUID joinScopeId = branchA.getJoinScopeId();
 
-    branchA.complete("SUBMITTED", objectMapper.createObjectNode(), NOW);
+    branchA.complete(
+        "SUBMITTED", objectMapper.createObjectNode(), branchA.getCreatedAt().plusSeconds(1));
     executionRepository.saveAndFlush(branchA);
 
     // First arrival

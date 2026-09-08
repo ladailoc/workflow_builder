@@ -167,6 +167,17 @@ public class TaskExecution {
     this.completedAt = TaskValues.notBefore(completedAt, createdAt, "completedAt");
   }
 
+  public void reassign(UUID newAssigneeId) {
+    if (status == TaskStatus.COMPLETED
+        || status == TaskStatus.CANCELLED
+        || status == TaskStatus.EXPIRED) {
+      throw new IllegalStateException("A terminal task cannot be reassigned");
+    }
+    UUID replacement = Objects.requireNonNull(newAssigneeId, "newAssigneeId");
+    if (replacement.equals(assigneeId)) throw new IllegalArgumentException("Assignee is unchanged");
+    assigneeId = replacement;
+  }
+
   private void requireAssignee() {
     if (assigneeId == null) {
       throw new IllegalStateException("Task must have an assignee");

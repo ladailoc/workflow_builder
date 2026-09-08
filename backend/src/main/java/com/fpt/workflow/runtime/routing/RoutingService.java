@@ -8,6 +8,7 @@ import com.fpt.workflow.definition.domain.EdgeDefinition;
 import com.fpt.workflow.definition.domain.NodeDefinition;
 import com.fpt.workflow.definition.repository.EdgeDefinitionRepository;
 import com.fpt.workflow.definition.repository.NodeDefinitionRepository;
+import com.fpt.workflow.definition.rework.ReworkExhaustionAction;
 import com.fpt.workflow.nodetype.NodeCapability;
 import com.fpt.workflow.nodetype.NodeType;
 import com.fpt.workflow.nodetype.NodeTypeManifest;
@@ -28,6 +29,8 @@ import com.fpt.workflow.runtime.domain.Event;
 import com.fpt.workflow.runtime.domain.NodeExecution;
 import com.fpt.workflow.runtime.repository.EventRepository;
 import com.fpt.workflow.runtime.repository.NodeExecutionRepository;
+import com.fpt.workflow.runtime.rework.ReworkPlan;
+import com.fpt.workflow.runtime.rework.ReworkRuntimePlanner;
 import com.fpt.workflow.runtime.routing.domain.ActivationToken;
 import com.fpt.workflow.runtime.routing.domain.RoutingDecision;
 import com.fpt.workflow.runtime.routing.repository.ActivationTokenRepository;
@@ -45,6 +48,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -75,6 +79,7 @@ public class RoutingService {
   private final com.fpt.workflow.runtime.join.service.JoinService joinService;
   private final AuditEventRepository auditRepository;
   private final ActorContextProvider actorProvider;
+  private final ReworkRuntimePlanner reworkPlanner = new ReworkRuntimePlanner();
 
   public RoutingService(
       NodeExecutionRepository executionRepository,
@@ -244,6 +249,9 @@ public class RoutingService {
     }
 
     Instant now = clock.now();
+    PreparedSelection prepared =
+        prepareRework(event, source, sourceNode, manifest, mode, selected, context, now);
+    selected = prepared.edges();
 
     // Persist RoutingDecision first (explainability + replay anchor)
     ArrayNode evaluatedArray = JsonNodeFactory.instance.arrayNode();
@@ -275,6 +283,20 @@ public class RoutingService {
             : source.getJoinScopeId();
 
     for (EdgeDefinition edge : selected) {
+      ReworkPlan rework =
+          prepared
+              .plans()
+              .getOrDefault(
+                  edge.getId(),
+                  new ReworkPlan(
+                      false,
+                      null,
+                      null,
+                      source.getCycleId(),
+                      source.getIteration(),
+                      source.getItemToken(),
+                      splitScopeId,
+                      joinScopeId));
       String path = childPath(source.getPathToken(), edge.getId());
       ActivationKey key =
           ActivationKey.downstream(
@@ -282,8 +304,8 @@ public class RoutingService {
               source.getId(),
               edge.getId(),
               path,
-              source.getCycleId(),
-              source.getItemToken());
+              rework.cycleId(),
+              rework.itemToken());
 
       ActivationToken token =
           tokenRepository.save(
@@ -296,10 +318,11 @@ public class RoutingService {
                   edge.getTargetNodeId(),
                   key.value(),
                   path,
-                  source.getCycleId(),
-                  source.getItemToken(),
-                  splitScopeId,
-                  joinScopeId,
+                  rework.cycleId(),
+                  rework.iteration(),
+                  rework.itemToken(),
+                  rework.splitScopeId(),
+                  rework.joinScopeId(),
                   now));
       tokens.add(token);
     }
@@ -370,7 +393,7 @@ public class RoutingService {
                   token.getTargetNodeDefinitionId(),
                   key,
                   token.getCycleId(),
-                  source.getIteration(),
+                  token.getIteration(),
                   token.getPathToken(),
                   token.getItemToken(),
                   token.getSplitScopeId(),
@@ -415,6 +438,43 @@ public class RoutingService {
         yield selectAllMatching(outgoing, context);
       }
     };
+  }
+
+  private PreparedSelection prepareRework(
+      Event event,
+      NodeExecution source,
+      NodeDefinition sourceNode,
+      NodeTypeManifest manifest,
+      RoutingMode mode,
+      List<EdgeDefinition> selected,
+      EventContext context,
+      Instant now) {
+    List<EdgeDefinition> reworkEdges = selected.stream().filter(reworkPlanner::isRework).toList();
+    if (reworkEdges.size() > 1) {
+      throw new IllegalStateException("A routing decision cannot select multiple rework edges");
+    }
+    if (reworkEdges.isEmpty()) return new PreparedSelection(selected, Map.of());
+    EdgeDefinition edge = reworkEdges.getFirst();
+    ReworkPlan plan = reworkPlanner.plan(event.getId(), edge, source);
+    if (!plan.exhausted()) return new PreparedSelection(selected, Map.of(edge.getId(), plan));
+    if (plan.exhaustionAction() == ReworkExhaustionAction.FAIL_EVENT) {
+      event.fail(now);
+      eventRepository.save(event);
+      return new PreparedSelection(List.of(), Map.of());
+    }
+    List<EdgeDefinition> fallback =
+        edgeRepository
+            .findAllByWorkflowVersionIdAndSourceNodeIdAndSourcePortOrderByPriorityAscIdAsc(
+                event.getWorkflowVersionId(), sourceNode.getId(), plan.exhaustionPort());
+    List<EdgeDefinition> routed = select(mode, manifest, fallback, context);
+    if (routed.isEmpty()) {
+      throw new RoutingNoMatchException(
+          "No exhaustion route matched port " + plan.exhaustionPort());
+    }
+    if (routed.stream().anyMatch(reworkPlanner::isRework)) {
+      throw new IllegalStateException("Exhaustion port cannot route into another rework edge");
+    }
+    return new PreparedSelection(routed, Map.of());
   }
 
   private List<EdgeDefinition> selectSingle(List<EdgeDefinition> outgoing, EventContext context) {
@@ -530,6 +590,13 @@ public class RoutingService {
       return NodeType.valueOf(node.getNodeType());
     } catch (IllegalArgumentException exception) {
       throw new IllegalStateException("Published node type is not registered", exception);
+    }
+  }
+
+  private record PreparedSelection(List<EdgeDefinition> edges, Map<UUID, ReworkPlan> plans) {
+    private PreparedSelection {
+      edges = List.copyOf(edges);
+      plans = Map.copyOf(plans);
     }
   }
 }

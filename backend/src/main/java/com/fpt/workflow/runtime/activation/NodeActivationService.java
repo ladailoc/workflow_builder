@@ -201,10 +201,6 @@ public class NodeActivationService {
     execution.start(now);
     execution = executionRepository.saveAndFlush(execution);
     if (event.getStatus() != EventStatus.RUNNING) event.markRunning();
-    if (manifest.supportedCapabilities().contains(NodeCapability.PARTICIPANT)) {
-      participantHook.onActivation(event, node, execution, beforeActivation);
-    }
-
     if (multiInstanceService != null && multiInstanceService.isMultiInstance(node)) {
       com.fpt.workflow.runtime.multiinstance.domain.MultiInstanceState miState =
           multiInstanceService.initialize(
@@ -214,6 +210,9 @@ public class NodeActivationService {
               beforeActivation,
               request.correlationId(),
               request.commandId());
+      if (manifest.supportedCapabilities().contains(NodeCapability.PARTICIPANT)) {
+        participantHook.onActivation(event, node, execution, beforeActivation);
+      }
       if ("COMPLETED".equals(miState.getStatus())) {
         return execution;
       }
@@ -233,6 +232,10 @@ public class NodeActivationService {
           request,
           now);
       return execution;
+    }
+
+    if (manifest.supportedCapabilities().contains(NodeCapability.PARTICIPANT)) {
+      participantHook.onActivation(event, node, execution, beforeActivation);
     }
 
     NodeExecutionResult result =

@@ -7,6 +7,8 @@ import com.fpt.workflow.operations.audit.AuditEvent;
 import com.fpt.workflow.operations.audit.AuditEventRepository;
 import com.fpt.workflow.runtime.domain.NodeExecution;
 import com.fpt.workflow.runtime.lifecycle.EventLifecycleService;
+import com.fpt.workflow.runtime.multiinstance.repository.NodeItemExecutionRepository;
+import com.fpt.workflow.runtime.multiinstance.service.MultiInstanceService;
 import com.fpt.workflow.runtime.repository.NodeExecutionRepository;
 import com.fpt.workflow.runtime.routing.RoutingResult;
 import com.fpt.workflow.runtime.routing.RoutingService;
@@ -25,6 +27,7 @@ import com.fpt.workflow.task.repository.TaskExecutionRepository;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +48,37 @@ public class TaskCommandService {
   private final ActorContextProvider actorProvider;
   private final UuidGenerator uuidGenerator;
   private final PlatformClock clock;
+  private final MultiInstanceService multiInstanceService;
+  private final NodeItemExecutionRepository itemExecutionRepository;
+  private final TaskSlaActivationPort slaActivationService;
+
+  @Autowired
+  public TaskCommandService(
+      TaskExecutionRepository taskRepository,
+      TaskDecisionRepository decisionRepository,
+      NodeExecutionRepository executionRepository,
+      RoutingService routingService,
+      EventLifecycleService eventLifecycleService,
+      AuditEventRepository auditRepository,
+      ActorContextProvider actorProvider,
+      UuidGenerator uuidGenerator,
+      PlatformClock clock,
+      MultiInstanceService multiInstanceService,
+      NodeItemExecutionRepository itemExecutionRepository,
+      TaskSlaActivationPort slaActivationService) {
+    this.taskRepository = taskRepository;
+    this.decisionRepository = decisionRepository;
+    this.executionRepository = executionRepository;
+    this.routingService = routingService;
+    this.eventLifecycleService = eventLifecycleService;
+    this.auditRepository = auditRepository;
+    this.actorProvider = actorProvider;
+    this.uuidGenerator = uuidGenerator;
+    this.clock = clock;
+    this.multiInstanceService = multiInstanceService;
+    this.itemExecutionRepository = itemExecutionRepository;
+    this.slaActivationService = slaActivationService;
+  }
 
   public TaskCommandService(
       TaskExecutionRepository taskRepository,
@@ -55,16 +89,22 @@ public class TaskCommandService {
       AuditEventRepository auditRepository,
       ActorContextProvider actorProvider,
       UuidGenerator uuidGenerator,
-      PlatformClock clock) {
-    this.taskRepository = taskRepository;
-    this.decisionRepository = decisionRepository;
-    this.executionRepository = executionRepository;
-    this.routingService = routingService;
-    this.eventLifecycleService = eventLifecycleService;
-    this.auditRepository = auditRepository;
-    this.actorProvider = actorProvider;
-    this.uuidGenerator = uuidGenerator;
-    this.clock = clock;
+      PlatformClock clock,
+      MultiInstanceService multiInstanceService,
+      NodeItemExecutionRepository itemExecutionRepository) {
+    this(
+        taskRepository,
+        decisionRepository,
+        executionRepository,
+        routingService,
+        eventLifecycleService,
+        auditRepository,
+        actorProvider,
+        uuidGenerator,
+        clock,
+        multiInstanceService,
+        itemExecutionRepository,
+        null);
   }
 
   @Transactional
@@ -103,6 +143,9 @@ public class TaskCommandService {
     }
     task.complete(outcome, now);
     taskRepository.saveAndFlush(task);
+    if (slaActivationService != null) {
+      slaActivationService.complete(task.getId(), now);
+    }
 
     JsonNode effectiveFormData =
         formData != null ? formData : JsonNodeFactory.instance.objectNode();
@@ -118,6 +161,27 @@ public class TaskCommandService {
             comment,
             now);
     decisionRepository.saveAndFlush(decision);
+
+    if (task.getItemExecutionId() != null) {
+      var item = itemExecutionRepository.findById(task.getItemExecutionId()).orElseThrow();
+      NodeExecution parent = executionRepository.findById(task.getNodeExecutionId()).orElseThrow();
+      ObjectNode itemOutput = JsonNodeFactory.instance.objectNode();
+      itemOutput.put("decision", outcome.value());
+      itemOutput.set("formData", effectiveFormData);
+      RoutingResult itemRouting =
+          multiInstanceService
+              .completeItem(
+                  parent.getId(),
+                  item.getItemIndex(),
+                  outcome.value(),
+                  itemOutput,
+                  correlationId,
+                  commandId)
+              .orElse(null);
+      eventLifecycleService.syncEventStatus(parent.getEventId());
+      recordAudit(task, decision, parent, outcome, actor.actorId(), correlationId, commandId, now);
+      return new TaskDecisionResult(task, decision, itemRouting);
+    }
 
     // Complete corresponding NodeExecution
     NodeExecution execution =

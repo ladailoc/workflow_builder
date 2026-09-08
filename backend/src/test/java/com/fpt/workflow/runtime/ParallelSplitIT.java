@@ -696,7 +696,7 @@ class ParallelSplitIT {
     String pathA = execA.getPathToken(); // e.g. root/edgeA
 
     // 2. Complete Branch A occurrence and trigger nested split
-    execA.complete("SUBMITTED", objectMapper.createObjectNode(), NOW);
+    execA.complete("SUBMITTED", objectMapper.createObjectNode(), execA.getCreatedAt());
     executionRepository.saveAndFlush(execA);
 
     RoutingResult split2 =

@@ -36,6 +36,8 @@ public class WebSecurityConfiguration {
                 requests
                     .requestMatchers("/actuator/health", "/actuator/health/**")
                     .permitAll()
+                    .requestMatchers("/api/v1/callbacks/**")
+                    .permitAll()
                     .requestMatchers("/api/v1/**")
                     .authenticated()
                     .anyRequest()

@@ -8,6 +8,7 @@ import com.fpt.workflow.task.repository.TaskExecutionRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
@@ -20,9 +21,17 @@ import org.springframework.stereotype.Service;
 public class DefaultActiveTaskCancellationPort implements ActiveTaskCancellationPort {
 
   private final TaskExecutionRepository taskRepository;
+  private final TaskSlaActivationPort slaActivationService;
+
+  @Autowired
+  public DefaultActiveTaskCancellationPort(
+      TaskExecutionRepository taskRepository, TaskSlaActivationPort slaActivationService) {
+    this.taskRepository = taskRepository;
+    this.slaActivationService = slaActivationService;
+  }
 
   public DefaultActiveTaskCancellationPort(TaskExecutionRepository taskRepository) {
-    this.taskRepository = taskRepository;
+    this(taskRepository, null);
   }
 
   @Override
@@ -35,6 +44,9 @@ public class DefaultActiveTaskCancellationPort implements ActiveTaskCancellation
           && task.getStatus() != TaskStatus.EXPIRED) {
         task.cancel(new BusinessOutcome("CANCELLED"), cancelledAt);
         taskRepository.save(task);
+        if (slaActivationService != null) {
+          slaActivationService.cancel(task.getId(), cancelledAt);
+        }
       }
     }
   }

@@ -3,6 +3,9 @@ package com.fpt.workflow.definition.validation;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fpt.workflow.connector.domain.ConnectorActionVersion;
+import com.fpt.workflow.connector.domain.ConnectorDefinition;
+import com.fpt.workflow.connector.service.ConnectorRegistry;
 import com.fpt.workflow.definition.domain.EdgeDefinition;
 import com.fpt.workflow.definition.domain.NodeDefinition;
 import com.fpt.workflow.definition.domain.ValidationSeverity;
@@ -17,6 +20,8 @@ import com.fpt.workflow.resolver.expression.Expression;
 import com.fpt.workflow.resolver.expression.ExpressionSchema;
 import com.fpt.workflow.resolver.expression.ExpressionScope;
 import com.fpt.workflow.resolver.expression.SafeExpressionEngine;
+import com.fpt.workflow.security.ActorContext;
+import com.fpt.workflow.security.ActorContextProvider;
 import com.fpt.workflow.shared.domain.value.CanonicalSchema;
 import com.fpt.workflow.shared.domain.value.CanonicalValueType;
 import com.fpt.workflow.shared.domain.value.TypeDescriptor;
@@ -29,6 +34,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 
 /** Ordered static compiler. It never creates runtime executions or evaluates routes. */
@@ -42,18 +49,46 @@ public class WorkflowValidationCompiler {
   private final SafeExpressionEngine expressionEngine;
   private final CanonicalDefinitionJson canonicalJson;
   private final ObjectMapper objectMapper;
+  private final ControlledCycleAnalyzer cycleAnalyzer;
+  private final ConnectorRegistry connectorRegistry;
+  private final ActorContextProvider actorContextProvider;
+
+  @Autowired
+  public WorkflowValidationCompiler(
+      NodeTypeRegistry nodeTypeRegistry,
+      DynamicFormEngine formEngine,
+      SafeExpressionEngine expressionEngine,
+      CanonicalDefinitionJson canonicalJson,
+      ObjectMapper objectMapper,
+      ControlledCycleAnalyzer cycleAnalyzer,
+      @Autowired(required = false) ConnectorRegistry connectorRegistry,
+      @Autowired(required = false) ActorContextProvider actorContextProvider) {
+    this.nodeTypeRegistry = nodeTypeRegistry;
+    this.formEngine = formEngine;
+    this.expressionEngine = expressionEngine;
+    this.canonicalJson = canonicalJson;
+    this.objectMapper = objectMapper;
+    this.cycleAnalyzer = cycleAnalyzer;
+    this.connectorRegistry = connectorRegistry;
+    this.actorContextProvider = actorContextProvider;
+  }
 
   public WorkflowValidationCompiler(
       NodeTypeRegistry nodeTypeRegistry,
       DynamicFormEngine formEngine,
       SafeExpressionEngine expressionEngine,
       CanonicalDefinitionJson canonicalJson,
-      ObjectMapper objectMapper) {
-    this.nodeTypeRegistry = nodeTypeRegistry;
-    this.formEngine = formEngine;
-    this.expressionEngine = expressionEngine;
-    this.canonicalJson = canonicalJson;
-    this.objectMapper = objectMapper;
+      ObjectMapper objectMapper,
+      ControlledCycleAnalyzer cycleAnalyzer) {
+    this(
+        nodeTypeRegistry,
+        formEngine,
+        expressionEngine,
+        canonicalJson,
+        objectMapper,
+        cycleAnalyzer,
+        null,
+        null);
   }
 
   public ValidationCompilation compile(ValidationDefinition definition) {
@@ -65,6 +100,20 @@ public class WorkflowValidationCompiler {
     validateForms(definition, expressionSchema, issues);
     validateExpressions(definition, expressionSchema, issues);
     validateGraph(definition, nodesById, manifests, issues);
+    cycleAnalyzer
+        .analyze(definition.nodes(), definition.edges())
+        .forEach(
+            cycleIssue ->
+                issues.add(
+                    new CompilerIssue(
+                        cycleIssue.code(),
+                        ValidationSeverity.ERROR,
+                        "EDGE",
+                        cycleIssue.resourceId(),
+                        cycleIssue.fieldPath(),
+                        cycleIssue.message(),
+                        "Declare a bounded reworkPolicy with compatible scope",
+                        null)));
     JsonNode snapshot = canonicalJson.compile(definition);
     return new ValidationCompilation(
         definition.version().getId(),
@@ -119,8 +168,74 @@ public class WorkflowValidationCompiler {
                           validationIssue.message(),
                           "Conform to the registered strict node manifest",
                           null)));
+      validateSystemActionNode(node, issues);
     }
     return manifests;
+  }
+
+  private void validateSystemActionNode(NodeDefinition node, List<CompilerIssue> issues) {
+    if (!"SYSTEM_ACTION".equals(node.getNodeType())) {
+      return;
+    }
+    try {
+      ConnectorDefinition.validateNoSecrets(node.getConfigJson());
+    } catch (IllegalArgumentException ex) {
+      issues.add(
+          new CompilerIssue(
+              "SECRET_STORAGE_FORBIDDEN",
+              ValidationSeverity.ERROR,
+              "NODE",
+              node.getId(),
+              "/config",
+              ex.getMessage(),
+              "Only store credentialRef; never embed secret values in node config",
+              null));
+    }
+
+    if (connectorRegistry == null) {
+      return;
+    }
+
+    JsonNode config = node.getConfigJson();
+    String connectorKey = config.path("connectorKey").asText(null);
+    String actionKey = config.path("actionKey").asText(null);
+    int actionVersion = config.path("actionVersion").asInt(0);
+
+    if (connectorKey == null || actionKey == null || actionVersion < 1) {
+      return;
+    }
+
+    try {
+      ConnectorActionVersion version =
+          connectorRegistry.requireActionVersion(connectorKey, actionKey, actionVersion);
+      ActorContext actor =
+          actorContextProvider != null ? actorContextProvider.currentActor().orElse(null) : null;
+      if (actor != null) {
+        connectorRegistry.validateActionPermission(version, actor);
+      }
+    } catch (AccessDeniedException ex) {
+      issues.add(
+          new CompilerIssue(
+              "CONNECTOR_ACTION_PERMISSION_DENIED",
+              ValidationSeverity.ERROR,
+              "NODE",
+              node.getId(),
+              "/config/actionKey",
+              ex.getMessage(),
+              "Request access or select an allowlisted connector action version",
+              null));
+    } catch (IllegalArgumentException | IllegalStateException ex) {
+      issues.add(
+          new CompilerIssue(
+              "INVALID_CONNECTOR_ACTION_BINDING",
+              ValidationSeverity.ERROR,
+              "NODE",
+              node.getId(),
+              "/config",
+              ex.getMessage(),
+              "Ensure the connector, action, and version exist and are active/published",
+              null));
+    }
   }
 
   private ExpressionSchema buildExpressionSchema(
@@ -170,6 +285,22 @@ public class WorkflowValidationCompiler {
               "/outputSchema",
               "Output schema cannot be decoded",
               "Use CanonicalSchema");
+        }
+      } else if ("SYSTEM_ACTION".equals(node.getNodeType()) && connectorRegistry != null) {
+        try {
+          String cKey = node.getConfigJson().path("connectorKey").asText(null);
+          String aKey = node.getConfigJson().path("actionKey").asText(null);
+          int vNo = node.getConfigJson().path("actionVersion").asInt(0);
+          if (cKey != null && aKey != null && vNo >= 1) {
+            ConnectorActionVersion actionVer =
+                connectorRegistry.requireActionVersion(cKey, aKey, vNo);
+            if (actionVer.getOutputSchemaJson() != null
+                && !actionVer.getOutputSchemaJson().isEmpty()) {
+              output =
+                  objectMapper.treeToValue(actionVer.getOutputSchemaJson(), CanonicalSchema.class);
+            }
+          }
+        } catch (Exception ignored) {
         }
       }
       for (Map.Entry<String, TypeDescriptor> property : output.properties().entrySet()) {

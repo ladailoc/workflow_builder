@@ -7,5 +7,6 @@ public enum NodeType {
   APPROVAL,
   REVIEW,
   CONDITION,
-  JOIN
+  JOIN,
+  SYSTEM_ACTION
 }

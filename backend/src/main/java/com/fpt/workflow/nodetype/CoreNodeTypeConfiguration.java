@@ -89,6 +89,26 @@ public class CoreNodeTypeConfiguration {
         "control");
   }
 
+  @Bean
+  NodeTypeProvider systemActionNodeTypeProvider() {
+    CanonicalSchema config =
+        CanonicalSchema.strict(
+            Map.of(
+                "connectorKey", TypeDescriptor.required(CanonicalValueType.STRING),
+                "actionKey", TypeDescriptor.required(CanonicalValueType.STRING),
+                "actionVersion", TypeDescriptor.required(CanonicalValueType.INTEGER),
+                "credentialRef", TypeDescriptor.nullable(CanonicalValueType.STRING)),
+            Set.of("connectorKey", "actionKey", "actionVersion"));
+    return provider(
+        NodeType.SYSTEM_ACTION,
+        Set.of(NodeCapability.OUTPUT),
+        EMPTY_SCHEMA,
+        EMPTY_SCHEMA,
+        Set.of("SUCCESS", "ERROR"),
+        config,
+        "integration");
+  }
+
   private static NodeTypeProvider humanTaskProvider(NodeType nodeType, Set<String> outputPorts) {
     CanonicalSchema config =
         CanonicalSchema.strict(
@@ -130,6 +150,7 @@ public class CoreNodeTypeConfiguration {
           case START -> new StartNodeHandler();
           case END -> new EndNodeHandler();
           case APPROVAL, REVIEW -> new ApprovalNodeHandler(nodeType);
+          case SYSTEM_ACTION -> new SystemActionNodeHandler();
           default -> new ContractOnlyNodeHandler(nodeType);
         };
     NodeTypeManifest manifest =
@@ -154,6 +175,9 @@ public class CoreNodeTypeConfiguration {
     properties.put("inputBindings", objectArray);
     properties.put("variableMappings", objectArray);
     properties.put("routingMode", TypeDescriptor.nullable(CanonicalValueType.STRING));
+    properties.put("multiInstance", TypeDescriptor.nullable(CanonicalValueType.OBJECT));
+    properties.put("sla", TypeDescriptor.nullable(CanonicalValueType.OBJECT));
+    properties.put("taskAggregation", TypeDescriptor.nullable(CanonicalValueType.OBJECT));
     return CanonicalSchema.strict(properties, nodeSpecific.requiredProperties());
   }
 }

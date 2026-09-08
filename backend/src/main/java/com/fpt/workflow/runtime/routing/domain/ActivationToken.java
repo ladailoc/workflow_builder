@@ -45,6 +45,9 @@ public class ActivationToken {
   @Column(name = "cycle_id", nullable = false)
   private UUID cycleId;
 
+  @Column(nullable = false)
+  private int iteration;
+
   @Column(name = "item_token", length = 256)
   private String itemToken;
 
@@ -76,6 +79,7 @@ public class ActivationToken {
       String activationKey,
       String pathToken,
       UUID cycleId,
+      int iteration,
       String itemToken,
       UUID splitScopeId,
       UUID joinScopeId,
@@ -97,6 +101,8 @@ public class ActivationToken {
     }
     this.pathToken = pathToken;
     this.cycleId = Objects.requireNonNull(cycleId, "cycleId");
+    if (iteration < 0) throw new IllegalArgumentException("iteration must not be negative");
+    this.iteration = iteration;
     this.itemToken = itemToken;
     this.splitScopeId = splitScopeId;
     this.joinScopeId = joinScopeId;
@@ -114,6 +120,7 @@ public class ActivationToken {
       String activationKey,
       String pathToken,
       UUID cycleId,
+      int iteration,
       String itemToken,
       UUID splitScopeId,
       UUID joinScopeId,
@@ -128,6 +135,38 @@ public class ActivationToken {
         activationKey,
         pathToken,
         cycleId,
+        iteration,
+        itemToken,
+        splitScopeId,
+        joinScopeId,
+        createdAt);
+  }
+
+  public static ActivationToken pending(
+      UUID id,
+      UUID routingDecisionId,
+      UUID eventId,
+      UUID sourceNodeExecutionId,
+      UUID edgeId,
+      UUID targetNodeDefinitionId,
+      String activationKey,
+      String pathToken,
+      UUID cycleId,
+      String itemToken,
+      UUID splitScopeId,
+      UUID joinScopeId,
+      Instant createdAt) {
+    return pending(
+        id,
+        routingDecisionId,
+        eventId,
+        sourceNodeExecutionId,
+        edgeId,
+        targetNodeDefinitionId,
+        activationKey,
+        pathToken,
+        cycleId,
+        0,
         itemToken,
         splitScopeId,
         joinScopeId,
@@ -192,6 +231,10 @@ public class ActivationToken {
 
   public UUID getCycleId() {
     return cycleId;
+  }
+
+  public int getIteration() {
+    return iteration;
   }
 
   public String getItemToken() {

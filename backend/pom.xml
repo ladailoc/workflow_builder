@@ -23,6 +23,7 @@
         <archunit.version>1.4.1</archunit.version>
         <testcontainers.version>1.21.3</testcontainers.version>
         <spotless.version>2.46.1</spotless.version>
+        <argLine>-Duser.timezone=UTC -XX:+EnableDynamicAgentLoading</argLine>
     </properties>
 
     <dependencyManagement>
@@ -115,7 +116,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>-Duser.timezone=UTC</argLine>
+                    <argLine>-Duser.timezone=UTC -XX:+EnableDynamicAgentLoading</argLine>
                 </configuration>
             </plugin>
             <plugin>
