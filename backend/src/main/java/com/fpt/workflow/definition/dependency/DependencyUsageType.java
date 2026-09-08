@@ -1,0 +1,14 @@
+package com.fpt.workflow.definition.dependency;
+
+public enum DependencyUsageType {
+  INPUT_BINDING,
+  EDGE_CONDITION,
+  PARTICIPANT_RESOLVER,
+  MULTI_INSTANCE_COLLECTION,
+  MULTI_INSTANCE_SUBJECT,
+  VARIABLE,
+  NOTIFICATION,
+  INTEGRATION_MAPPING,
+  FORM,
+  OTHER_TYPED_REFERENCE
+}
