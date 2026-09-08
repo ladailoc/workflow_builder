@@ -66,6 +66,7 @@ public class EventLifecycleService {
   private final UuidGenerator uuidGenerator;
   private final PlatformClock clock;
   private final ObjectMapper objectMapper;
+  private final com.fpt.workflow.runtime.subworkflow.service.SubWorkflowService subWorkflowService;
 
   public EventLifecycleService(
       EventRepository eventRepository,
@@ -78,6 +79,34 @@ public class EventLifecycleService {
       UuidGenerator uuidGenerator,
       PlatformClock clock,
       ObjectMapper objectMapper) {
+    this(
+        eventRepository,
+        nodeExecutionRepository,
+        nodeRepository,
+        registry,
+        taskCancellationPort,
+        auditRepository,
+        actorProvider,
+        uuidGenerator,
+        clock,
+        objectMapper,
+        null);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public EventLifecycleService(
+      EventRepository eventRepository,
+      NodeExecutionRepository nodeExecutionRepository,
+      NodeDefinitionRepository nodeRepository,
+      NodeTypeRegistry registry,
+      ActiveTaskCancellationPort taskCancellationPort,
+      AuditEventRepository auditRepository,
+      ActorContextProvider actorProvider,
+      UuidGenerator uuidGenerator,
+      PlatformClock clock,
+      ObjectMapper objectMapper,
+      @org.springframework.context.annotation.Lazy
+          com.fpt.workflow.runtime.subworkflow.service.SubWorkflowService subWorkflowService) {
     this.eventRepository = eventRepository;
     this.nodeExecutionRepository = nodeExecutionRepository;
     this.nodeRepository = nodeRepository;
@@ -88,6 +117,7 @@ public class EventLifecycleService {
     this.uuidGenerator = uuidGenerator;
     this.clock = clock;
     this.objectMapper = objectMapper;
+    this.subWorkflowService = subWorkflowService;
   }
 
   @Transactional
@@ -159,6 +189,11 @@ public class EventLifecycleService {
       }
     }
     eventRepository.save(event);
+    if (subWorkflowService != null
+        && event.getEventType() == com.fpt.workflow.runtime.domain.EventType.CHILD
+        && TERMINAL_EVENT_STATUSES.contains(event.getStatus())) {
+      subWorkflowService.onChildEventTerminal(event, null, null);
+    }
     return event.getStatus();
   }
 
@@ -182,6 +217,9 @@ public class EventLifecycleService {
         execution.cancel(now);
         nodeExecutionRepository.save(execution);
         taskCancellationPort.cancelActiveTasks(execution.getId(), now);
+        if (subWorkflowService != null) {
+          subWorkflowService.handleParentCancellation(execution.getId(), now);
+        }
       }
     }
 

@@ -21,6 +21,7 @@ import com.fpt.workflow.runtime.activation.ActivationRequest;
 import com.fpt.workflow.runtime.activation.NodeActivationService;
 import com.fpt.workflow.runtime.domain.Event;
 import com.fpt.workflow.runtime.domain.NodeExecution;
+import com.fpt.workflow.runtime.domain.RuntimeWaitReason;
 import com.fpt.workflow.runtime.repository.EventRepository;
 import com.fpt.workflow.runtime.routing.RoutingResult;
 import com.fpt.workflow.runtime.routing.RoutingService;
@@ -301,7 +302,7 @@ class SystemActionExecutionIT {
   }
 
   @Test
-  void testNonIdempotentPolicy_noBlindAutomaticRetry() {
+  void testNonIdempotentUncertainOutcome_requiresManualReconciliationWithoutRetry() {
     Fixture f =
         setupFixture(
             "NON_IDEMPOTENT_POST",
@@ -320,27 +321,32 @@ class SystemActionExecutionIT {
     CorrelationId corr = new CorrelationId(uuidGenerator.generate());
     CommandId cmd = new CommandId(uuidGenerator.generate());
 
-    SystemActionResult result =
-        systemActionExecutionService.execute(f.systemActionExecution().getId(), corr, cmd);
+    var result =
+        systemActionExecutionService.executeDurableAttempt(
+            f.systemActionExecution().getId(), 1, corr, cmd);
 
     // Non-idempotent action must NOT perform blind automatic retry: exactly 1 call!
     assertThat(calls.get()).isEqualTo(1);
-    assertThat(result.outcomePort()).isEqualTo("ERROR");
+    assertThat(result.terminal()).isTrue();
+    assertThat(result.terminalResult().outcomePort()).isEqualTo("MANUAL_RECONCILIATION");
+    assertThat(result.terminalResult().routingResult()).isNull();
 
     IntegrationExecution execution =
         executionRepository.findByNodeExecutionId(f.systemActionExecution().getId()).orElseThrow();
-    assertThat(execution.getStatus()).isEqualTo(IntegrationExecutionStatus.FAILED);
+    assertThat(execution.getStatus()).isEqualTo(IntegrationExecutionStatus.MANUAL_RECONCILIATION);
     assertThat(execution.getErrorCategory()).isEqualTo(IntegrationErrorCategory.LOST_RESPONSE);
+    assertThat(result.terminalResult().nodeExecution().getStatus())
+        .isEqualTo(NodeExecutionStatus.WAITING);
+    assertThat(result.terminalResult().nodeExecution().getWaitReason())
+        .isEqualTo(RuntimeWaitReason.MANUAL_RECONCILIATION);
 
     List<IntegrationAttempt> attempts =
         attemptRepository.findAllByIntegrationExecutionIdOrderByAttemptNumberAsc(execution.getId());
     assertThat(attempts).hasSize(1);
     assertThat(attempts.get(0).getStatus()).isEqualTo(AttemptStatus.FAILURE);
 
-    // Routed downstream via ERROR port
-    assertThat(result.routingResult().activations()).hasSize(1);
-    assertThat(result.routingResult().activations().get(0).getNodeDefinitionId())
-        .isEqualTo(f.errorEndNodeId());
+    assertThat(eventRepository.findById(f.event().getId()).orElseThrow().getWaitReason())
+        .isEqualTo(RuntimeWaitReason.MANUAL_RECONCILIATION);
   }
 
   // ────────────────────────────────────────────────────────────────────────────

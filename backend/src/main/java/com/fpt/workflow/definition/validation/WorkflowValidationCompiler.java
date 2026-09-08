@@ -52,6 +52,7 @@ public class WorkflowValidationCompiler {
   private final ControlledCycleAnalyzer cycleAnalyzer;
   private final ConnectorRegistry connectorRegistry;
   private final ActorContextProvider actorContextProvider;
+  private final SubWorkflowRecursionValidator recursionValidator;
 
   @Autowired
   public WorkflowValidationCompiler(
@@ -62,7 +63,8 @@ public class WorkflowValidationCompiler {
       ObjectMapper objectMapper,
       ControlledCycleAnalyzer cycleAnalyzer,
       @Autowired(required = false) ConnectorRegistry connectorRegistry,
-      @Autowired(required = false) ActorContextProvider actorContextProvider) {
+      @Autowired(required = false) ActorContextProvider actorContextProvider,
+      @Autowired(required = false) SubWorkflowRecursionValidator recursionValidator) {
     this.nodeTypeRegistry = nodeTypeRegistry;
     this.formEngine = formEngine;
     this.expressionEngine = expressionEngine;
@@ -71,6 +73,7 @@ public class WorkflowValidationCompiler {
     this.cycleAnalyzer = cycleAnalyzer;
     this.connectorRegistry = connectorRegistry;
     this.actorContextProvider = actorContextProvider;
+    this.recursionValidator = recursionValidator;
   }
 
   public WorkflowValidationCompiler(
@@ -87,6 +90,7 @@ public class WorkflowValidationCompiler {
         canonicalJson,
         objectMapper,
         cycleAnalyzer,
+        null,
         null,
         null);
   }
@@ -114,6 +118,9 @@ public class WorkflowValidationCompiler {
                         cycleIssue.message(),
                         "Declare a bounded reworkPolicy with compatible scope",
                         null)));
+    if (recursionValidator != null) {
+      recursionValidator.validate(definition, issues);
+    }
     JsonNode snapshot = canonicalJson.compile(definition);
     return new ValidationCompilation(
         definition.version().getId(),

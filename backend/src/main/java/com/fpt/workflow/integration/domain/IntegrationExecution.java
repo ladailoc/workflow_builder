@@ -123,6 +123,15 @@ public class IntegrationExecution {
     this.updatedAt = now;
   }
 
+  public void markManualReconciliation(
+      IntegrationErrorCategory errorCategory, String sanitizedResponseJson, Instant now) {
+    this.status = IntegrationExecutionStatus.MANUAL_RECONCILIATION;
+    this.errorCategory = Objects.requireNonNull(errorCategory, "errorCategory");
+    this.sanitizedResponseJson = sanitizedResponseJson;
+    this.updatedAt = Objects.requireNonNull(now, "now");
+    this.completedAt = null;
+  }
+
   public UUID getId() {
     return id;
   }

@@ -18,7 +18,7 @@ public class CoreNodeTypeConfiguration {
   private static final CanonicalSchema EMPTY_SCHEMA = CanonicalSchema.strict(Map.of(), Set.of());
 
   @Bean
-  NodeTypeProvider startNodeTypeProvider() {
+  public NodeTypeProvider startNodeTypeProvider() {
     return provider(
         NodeType.START,
         Set.of(NodeCapability.ENTRY, NodeCapability.OUTPUT),
@@ -26,11 +26,12 @@ public class CoreNodeTypeConfiguration {
         EMPTY_SCHEMA,
         Set.of("STARTED"),
         EMPTY_SCHEMA,
-        "control");
+        "control",
+        new StartNodeHandler());
   }
 
   @Bean
-  NodeTypeProvider endNodeTypeProvider() {
+  public NodeTypeProvider endNodeTypeProvider() {
     CanonicalSchema config =
         CanonicalSchema.strict(
             Map.of("outcome", TypeDescriptor.nullable(CanonicalValueType.STRING)), Set.of());
@@ -41,22 +42,23 @@ public class CoreNodeTypeConfiguration {
         config,
         Set.of("COMPLETED"),
         config,
-        "control");
+        "control",
+        new EndNodeHandler());
   }
 
   @Bean
-  NodeTypeProvider approvalNodeTypeProvider() {
+  public NodeTypeProvider approvalNodeTypeProvider() {
     return humanTaskProvider(
         NodeType.APPROVAL, Set.of("APPROVED", "REJECTED", "REVISION_REQUESTED"));
   }
 
   @Bean
-  NodeTypeProvider reviewNodeTypeProvider() {
+  public NodeTypeProvider reviewNodeTypeProvider() {
     return humanTaskProvider(NodeType.REVIEW, Set.of("SUBMITTED", "RETURNED"));
   }
 
   @Bean
-  NodeTypeProvider conditionNodeTypeProvider() {
+  public NodeTypeProvider conditionNodeTypeProvider() {
     CanonicalSchema config =
         CanonicalSchema.strict(
             Map.of("expression", TypeDescriptor.required(CanonicalValueType.OBJECT)),
@@ -68,11 +70,14 @@ public class CoreNodeTypeConfiguration {
         EMPTY_SCHEMA,
         Set.of("TRUE", "FALSE", "ERROR"),
         config,
-        "routing");
+        "routing",
+        new ConditionNodeHandler(
+            new com.fasterxml.jackson.databind.ObjectMapper(),
+            new com.fpt.workflow.resolver.expression.SafeExpressionEngine()));
   }
 
   @Bean
-  NodeTypeProvider joinNodeTypeProvider() {
+  public NodeTypeProvider joinNodeTypeProvider() {
     CanonicalSchema config =
         CanonicalSchema.strict(
             Map.of(
@@ -86,11 +91,25 @@ public class CoreNodeTypeConfiguration {
         EMPTY_SCHEMA,
         Set.of("DEFAULT"),
         config,
-        "control");
+        "control",
+        new ContractOnlyNodeHandler(NodeType.JOIN));
   }
 
   @Bean
-  NodeTypeProvider systemActionNodeTypeProvider() {
+  public NodeTypeProvider parallelSplitNodeTypeProvider() {
+    return provider(
+        NodeType.PARALLEL_SPLIT,
+        Set.of(NodeCapability.ROUTING, NodeCapability.OUTPUT),
+        EMPTY_SCHEMA,
+        EMPTY_SCHEMA,
+        Set.of("SPLIT"),
+        EMPTY_SCHEMA,
+        "control",
+        new ParallelSplitNodeHandler());
+  }
+
+  @Bean
+  public NodeTypeProvider systemActionNodeTypeProvider() {
     CanonicalSchema config =
         CanonicalSchema.strict(
             Map.of(
@@ -106,7 +125,52 @@ public class CoreNodeTypeConfiguration {
         EMPTY_SCHEMA,
         Set.of("SUCCESS", "ERROR"),
         config,
-        "integration");
+        "integration",
+        new SystemActionNodeHandler());
+  }
+
+  @Bean
+  public NodeTypeProvider subWorkflowNodeTypeProvider() {
+    CanonicalSchema config =
+        CanonicalSchema.strict(
+            Map.of(
+                "childWorkflowDefinitionKey", TypeDescriptor.required(CanonicalValueType.STRING),
+                "executionMode", TypeDescriptor.nullable(CanonicalValueType.STRING),
+                "cancellationPolicy", TypeDescriptor.nullable(CanonicalValueType.STRING),
+                "inputMappings", TypeDescriptor.nullable(CanonicalValueType.OBJECT),
+                "outputMappings", TypeDescriptor.nullable(CanonicalValueType.OBJECT)),
+            Set.of("childWorkflowDefinitionKey"));
+    return provider(
+        NodeType.SUB_WORKFLOW,
+        Set.of(NodeCapability.OUTPUT),
+        EMPTY_SCHEMA,
+        CanonicalSchema.open(),
+        Set.of("COMPLETED", "FAILED", "CANCELLED"),
+        config,
+        "sub-workflow",
+        new SubWorkflowNodeHandler());
+  }
+
+  @Bean
+  public NodeTypeProvider notificationNodeTypeProvider() {
+    CanonicalSchema config =
+        CanonicalSchema.strict(
+            Map.of(
+                "channel", TypeDescriptor.required(CanonicalValueType.STRING),
+                "participant", TypeDescriptor.required(CanonicalValueType.OBJECT),
+                "template", TypeDescriptor.required(CanonicalValueType.OBJECT),
+                "maxAttempts", TypeDescriptor.nullable(CanonicalValueType.INTEGER),
+                "allowAfterTerminal", TypeDescriptor.nullable(CanonicalValueType.BOOLEAN)),
+            Set.of("channel", "participant", "template"));
+    return provider(
+        NodeType.NOTIFICATION,
+        Set.of(NodeCapability.PARTICIPANT, NodeCapability.OUTPUT),
+        CanonicalSchema.open(),
+        EMPTY_SCHEMA,
+        Set.of("QUEUED"),
+        config,
+        "notification",
+        new NotificationNodeHandler());
   }
 
   private static NodeTypeProvider humanTaskProvider(NodeType nodeType, Set<String> outputPorts) {
@@ -131,7 +195,8 @@ public class CoreNodeTypeConfiguration {
         EMPTY_SCHEMA,
         outputPorts,
         config,
-        "human-task");
+        "human-task",
+        new ApprovalNodeHandler(nodeType));
   }
 
   private static NodeTypeProvider provider(
@@ -141,18 +206,11 @@ public class CoreNodeTypeConfiguration {
       CanonicalSchema outputSchema,
       Set<String> outputPorts,
       CanonicalSchema configSchema,
-      String category) {
+      String category,
+      NodeHandler handler) {
     CanonicalSchema effectiveConfigSchema = withRuntimeConfiguration(configSchema);
     ObjectNode uiSchema = JsonNodeFactory.instance.objectNode();
     uiSchema.put("category", category);
-    NodeHandler handler =
-        switch (nodeType) {
-          case START -> new StartNodeHandler();
-          case END -> new EndNodeHandler();
-          case APPROVAL, REVIEW -> new ApprovalNodeHandler(nodeType);
-          case SYSTEM_ACTION -> new SystemActionNodeHandler();
-          default -> new ContractOnlyNodeHandler(nodeType);
-        };
     NodeTypeManifest manifest =
         new NodeTypeManifest(
             nodeType,

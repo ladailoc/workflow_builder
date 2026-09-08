@@ -75,6 +75,7 @@ public class NodeActivationService {
   private final ObjectMapper objectMapper;
   private final com.fpt.workflow.runtime.multiinstance.service.MultiInstanceService
       multiInstanceService;
+  private final com.fpt.workflow.runtime.subworkflow.service.SubWorkflowService subWorkflowService;
 
   public NodeActivationService(
       EventRepository eventRepository,
@@ -108,6 +109,7 @@ public class NodeActivationService {
         uuidGenerator,
         clock,
         objectMapper,
+        null,
         null);
   }
 
@@ -129,8 +131,9 @@ public class NodeActivationService {
       PlatformClock clock,
       ObjectMapper objectMapper,
       @org.springframework.context.annotation.Lazy
-          com.fpt.workflow.runtime.multiinstance.service.MultiInstanceService
-              multiInstanceService) {
+          com.fpt.workflow.runtime.multiinstance.service.MultiInstanceService multiInstanceService,
+      @org.springframework.context.annotation.Lazy
+          com.fpt.workflow.runtime.subworkflow.service.SubWorkflowService subWorkflowService) {
     this.eventRepository = eventRepository;
     this.executionRepository = executionRepository;
     this.nodeRepository = nodeRepository;
@@ -147,6 +150,7 @@ public class NodeActivationService {
     this.clock = clock;
     this.objectMapper = objectMapper;
     this.multiInstanceService = multiInstanceService;
+    this.subWorkflowService = subWorkflowService;
   }
 
   @Transactional
@@ -238,16 +242,22 @@ public class NodeActivationService {
       participantHook.onActivation(event, node, execution, beforeActivation);
     }
 
-    NodeExecutionResult result =
-        manifest
-            .handler()
-            .execute(
-                new NodeHandlerContext(
-                    execution.getId(),
-                    node.getNodeKey(),
-                    input,
-                    node.getConfigJson(),
-                    runtimeServices));
+    NodeExecutionResult result;
+    if (subWorkflowService != null && subWorkflowService.isSubWorkflowNode(node)) {
+      result =
+          subWorkflowService.activateSubWorkflow(event, node, execution, input, request, scope);
+    } else {
+      result =
+          manifest
+              .handler()
+              .execute(
+                  new NodeHandlerContext(
+                      execution.getId(),
+                      node.getNodeKey(),
+                      input,
+                      node.getConfigJson(),
+                      runtimeServices));
+    }
     applyResult(event, node, manifest, execution, result, request, scope);
     eventRepository.save(event);
     execution = executionRepository.saveAndFlush(execution);

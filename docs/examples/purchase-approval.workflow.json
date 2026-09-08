@@ -1,0 +1,42 @@
+{
+  "requestType": "PURCHASE_APPROVAL",
+  "sampleTicket": {
+    "amount": 150000000,
+    "currency": "VND"
+  },
+  "nodes": [
+    {"key":"start","type":"START","config":{"routingMode":"SINGLE_BY_PORT"}},
+    {"key":"managerApproval","type":"APPROVAL","config":{"participant":{"type":"MANAGER_OF","subject":"ticket.creator"},"allowedActions":["APPROVE","REJECT"],"routingMode":"SINGLE_BY_PORT"}},
+    {"key":"vendorVerification","type":"SUB_WORKFLOW","config":{"childWorkflowDefinitionKey":"VENDOR_VERIFICATION","executionMode":"WAIT_FOR_COMPLETION","cancellationPolicy":"PROPAGATE","inputMappings":{},"outputMappings":{},"routingMode":"SINGLE_BY_PORT"}},
+    {"key":"riskCondition","type":"CONDITION","config":{"inputBindings":[],"expression":{"kind":"OPERATOR","operator":"EQ","operands":[{"kind":"REFERENCE","path":{"value":"variables.riskLevel"}},{"kind":"LITERAL","value":"HIGH","type":{"type":"STRING","nullable":false}}]},"routingMode":"SINGLE_BY_PORT"}},
+    {"key":"directorPreReview","type":"REVIEW","config":{"participant":{"type":"MANAGER_OF","subject":"ticket.creator","depth":2},"allowedActions":["SUBMIT","RETURN"],"routingMode":"SINGLE_BY_PORT"}},
+    {"key":"parallelReviews","type":"PARALLEL_SPLIT","config":{"routingMode":"ALL_OUTGOING"}},
+    {"key":"financeReview","type":"REVIEW","config":{"participant":{"type":"GROUP","groupKey":"FINANCE_REVIEWERS"},"allowedActions":["SUBMIT","RETURN"],"routingMode":"SINGLE_BY_PORT"}},
+    {"key":"legalReview","type":"REVIEW","config":{"participant":{"type":"GROUP","groupKey":"LEGAL_REVIEWERS"},"allowedActions":["SUBMIT","RETURN"],"routingMode":"SINGLE_BY_PORT"}},
+    {"key":"reviewsJoin","type":"JOIN","config":{"policy":"AND","routingMode":"SINGLE_BY_PORT"}},
+    {"key":"createPurchaseOrder","type":"SYSTEM_ACTION","config":{"connectorKey":"ERP","actionKey":"CREATE_PURCHASE_ORDER","actionVersion":2,"credentialRef":"ERP_PROD","inputBindings":[],"routingMode":"SINGLE_BY_PORT"}},
+    {"key":"notifyCreator","type":"NOTIFICATION","config":{"channel":"EMAIL","participant":{"type":"CREATOR"},"template":{"templateKey":"PURCHASE_ORDER_CREATED","templateVersion":1},"maxAttempts":5,"allowAfterTerminal":true,"routingMode":"SINGLE_BY_PORT"}},
+    {"key":"end","type":"END","config":{"outcome":"PURCHASE_ORDER_CREATED"}}
+  ],
+  "edges": [
+    {"source":"start","port":"STARTED","target":"managerApproval"},
+    {"source":"managerApproval","port":"APPROVED","target":"vendorVerification"},
+    {"source":"vendorVerification","port":"COMPLETED","target":"riskCondition"},
+    {"source":"riskCondition","port":"TRUE","target":"directorPreReview"},
+    {"source":"riskCondition","port":"FALSE","target":"parallelReviews"},
+    {"source":"directorPreReview","port":"SUBMITTED","target":"parallelReviews"},
+    {"source":"parallelReviews","port":"SPLIT","target":"financeReview"},
+    {"source":"parallelReviews","port":"SPLIT","target":"legalReview"},
+    {"source":"financeReview","port":"SUBMITTED","target":"reviewsJoin"},
+    {"source":"legalReview","port":"SUBMITTED","target":"reviewsJoin"},
+    {"source":"reviewsJoin","port":"DEFAULT","target":"createPurchaseOrder"},
+    {"source":"createPurchaseOrder","port":"SUCCESS","target":"notifyCreator"},
+    {"source":"notifyCreator","port":"QUEUED","target":"end"}
+  ],
+  "externalContracts": {
+    "vendorVersionResolution": "AT_SUBWORKFLOW_ACTIVATION",
+    "erpActionVersion": 2,
+    "erpIdempotencyRequired": true,
+    "uncertainNonIdempotentOutcome": "MANUAL_RECONCILIATION"
+  }
+}

@@ -197,6 +197,13 @@ public class Event {
     transition(EventStatus.WAITING, null, Objects.requireNonNull(reason, "reason"), null);
   }
 
+  public void changeWaitReason(RuntimeWaitReason reason) {
+    if (status != EventStatus.WAITING) {
+      throw new IllegalStateException("Only a waiting Event can change wait reason");
+    }
+    this.waitReason = Objects.requireNonNull(reason, "reason");
+  }
+
   public void complete(String outcome, Instant endedAt) {
     transition(
         EventStatus.COMPLETED,

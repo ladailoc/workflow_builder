@@ -59,12 +59,106 @@ public class SystemActionExecutionService {
 
   public SystemActionResult execute(
       UUID nodeExecutionId, CorrelationId correlationId, CommandId commandId) {
+    int attemptNumber = 1;
+    while (true) {
+      SystemActionAttemptOutcome outcome =
+          executeDurableAttempt(nodeExecutionId, attemptNumber, correlationId, commandId);
+      if (outcome.terminal()) return outcome.terminalResult();
+      attemptNumber++;
+    }
+  }
+
+  /** Executes exactly one externally-visible attempt for a leased durable job. */
+  public SystemActionAttemptOutcome executeDurableAttempt(
+      UUID nodeExecutionId, int attemptNumber, CorrelationId correlationId, CommandId commandId) {
+    if (attemptNumber <= 0) throw new IllegalArgumentException("attemptNumber must be positive");
     NodeExecution nodeExecution =
         nodeExecutionRepo
             .findById(nodeExecutionId)
             .orElseThrow(
                 () -> new IllegalArgumentException("NodeExecution not found: " + nodeExecutionId));
-    return execute(nodeExecution.getEventId(), nodeExecutionId, correlationId, commandId);
+    NodeDefinition nodeDefinition =
+        nodeDefinitionRepo.findById(nodeExecution.getNodeDefinitionId()).orElseThrow();
+    JsonNode config = nodeDefinition.getConfigJson();
+    String connectorKey = config.path("connectorKey").asText();
+    String actionKey = config.path("actionKey").asText();
+    int actionVersion = config.path("actionVersion").asInt(1);
+    String credentialRef = config.path("credentialRef").asText(null);
+    ConnectorActionVersion action =
+        connectorRegistry.requireActionVersion(connectorKey, actionKey, actionVersion);
+    RetryPolicy retryPolicy =
+        parseRetryPolicy(action.getRetryPolicyJson(), action.getIdempotencyPolicyJson());
+    JsonNode executionConfig = parseExecutionConfig(action.getExecutionConfigJson());
+    JsonNode inputData = nodeExecution.getInputJson();
+    String idempotencyKey =
+        "idemp:" + nodeExecutionId + ":" + connectorKey + ":" + actionKey + ":" + actionVersion;
+    String logicalIdentity =
+        "event:"
+            + nodeExecution.getEventId()
+            + ":node:"
+            + nodeExecutionId
+            + ":action:"
+            + connectorKey
+            + "/"
+            + actionKey
+            + ":v"
+            + actionVersion;
+    IntegrationExecution execution =
+        txService.startOrResumeExecutionTx(
+            nodeExecution.getEventId(),
+            nodeExecutionId,
+            connectorKey,
+            actionKey,
+            actionVersion,
+            logicalIdentity,
+            idempotencyKey,
+            inputData,
+            attemptNumber);
+    if (execution.getStatus()
+        != com.fpt.workflow.integration.domain.IntegrationExecutionStatus.RUNNING) {
+      return SystemActionAttemptOutcome.idempotentReplay();
+    }
+    IntegrationCallRequest request =
+        new IntegrationCallRequest(
+            execution.getId(),
+            connectorKey,
+            actionKey,
+            actionVersion,
+            idempotencyKey,
+            inputData,
+            credentialRef,
+            executionConfig);
+    IntegrationCallResponse response;
+    try {
+      response = actionClient.execute(request);
+    } catch (Exception ex) {
+      response = mapExceptionToResponse(ex);
+    }
+    txService.recordAttemptResultTx(execution.getId(), attemptNumber, response);
+    if (!response.success()
+        && !isIdempotent(action.getRetryPolicyJson(), action.getIdempotencyPolicyJson())
+        && isUncertain(response.errorCategory())) {
+      return SystemActionAttemptOutcome.terminal(
+          txService.transitionToManualReconciliationTx(execution.getId(), response));
+    }
+    boolean async =
+        config.path("asyncCallback").asBoolean(false)
+            || "ASYNC_CALLBACK".equalsIgnoreCase(config.path("pattern").asText(""))
+            || "ASYNC_CALLBACK".equalsIgnoreCase(executionConfig.path("pattern").asText(""));
+    if (async && response.success()) {
+      return SystemActionAttemptOutcome.terminal(
+          txService.transitionToWaitingCallbackTx(
+              execution.getId(), callbackCorrelationService.generateCorrelationId(), response));
+    }
+    if (!response.success() && retryPolicy.canRetry(response.errorCategory(), attemptNumber)) {
+      var error = objectMapper.createObjectNode();
+      error.put("category", response.errorCategory().name());
+      error.put("message", response.errorMessage());
+      return SystemActionAttemptOutcome.retry(
+          java.time.Duration.ofMillis(retryPolicy.backoffMs()), error);
+    }
+    return SystemActionAttemptOutcome.terminal(
+        txService.completeExecutionTx(execution.getId(), response, correlationId, commandId));
   }
 
   public SystemActionResult execute(
@@ -74,140 +168,34 @@ public class SystemActionExecutionService {
             .findById(nodeExecutionId)
             .orElseThrow(
                 () -> new IllegalArgumentException("NodeExecution not found: " + nodeExecutionId));
-    NodeDefinition nodeDefinition =
-        nodeDefinitionRepo
-            .findById(nodeExecution.getNodeDefinitionId())
-            .orElseThrow(
-                () ->
-                    new IllegalStateException(
-                        "NodeDefinition not found: " + nodeExecution.getNodeDefinitionId()));
-
-    JsonNode config = nodeDefinition.getConfigJson();
-    String connectorKey = config.path("connectorKey").asText();
-    String actionKey = config.path("actionKey").asText();
-    int actionVersion = config.path("actionVersion").asInt(1);
-    String credentialRef = config.path("credentialRef").asText(null);
-
-    ConnectorActionVersion actionVersionDef =
-        connectorRegistry.requireActionVersion(connectorKey, actionKey, actionVersion);
-
-    RetryPolicy retryPolicy =
-        parseRetryPolicy(
-            actionVersionDef.getRetryPolicyJson(), actionVersionDef.getIdempotencyPolicyJson());
-    JsonNode executionConfig = parseExecutionConfig(actionVersionDef.getExecutionConfigJson());
-    JsonNode inputData = nodeExecution.getInputJson();
-
-    String logicalActionIdentity =
-        "event:"
-            + eventId
-            + ":node:"
-            + nodeExecutionId
-            + ":action:"
-            + connectorKey
-            + "/"
-            + actionKey
-            + ":v"
-            + actionVersion;
-    // Logical idempotency identity reused across all retries of this node execution
-    String idempotencyKey =
-        "idemp:" + nodeExecutionId + ":" + connectorKey + ":" + actionKey + ":" + actionVersion;
-
-    boolean isAsyncCallback =
-        config.path("asyncCallback").asBoolean(false)
-            || "ASYNC_CALLBACK".equalsIgnoreCase(config.path("pattern").asText(""))
-            || "ASYNC_CALLBACK".equalsIgnoreCase(executionConfig.path("pattern").asText(""));
-    String callbackCorrelationId =
-        isAsyncCallback ? callbackCorrelationService.generateCorrelationId() : null;
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // TX1: persist running execution + initial attempt -> COMMIT
-    // ──────────────────────────────────────────────────────────────────────────
-    IntegrationExecution execution =
-        txService.startExecutionTx(
-            eventId,
-            nodeExecutionId,
-            connectorKey,
-            actionKey,
-            actionVersion,
-            logicalActionIdentity,
-            idempotencyKey,
-            inputData);
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // External network call (ZERO database locks / outside any transaction)
-    // ──────────────────────────────────────────────────────────────────────────
-    int attemptNumber = 1;
-    IntegrationCallResponse lastResponse = null;
-
-    while (true) {
-      if (attemptNumber > 1) {
-        // Start next attempt in its own independent transaction
-        txService.startAttemptTx(execution.getId(), attemptNumber, inputData);
-      }
-
-      IntegrationCallRequest callRequest =
-          new IntegrationCallRequest(
-              execution.getId(),
-              connectorKey,
-              actionKey,
-              actionVersion,
-              idempotencyKey,
-              inputData,
-              credentialRef,
-              executionConfig);
-
-      try {
-        lastResponse = actionClient.execute(callRequest);
-      } catch (Exception ex) {
-        lastResponse = mapExceptionToResponse(ex);
-      }
-
-      // Record attempt result in its own independent transaction
-      txService.recordAttemptResultTx(execution.getId(), attemptNumber, lastResponse);
-
-      if (lastResponse.success()) {
-        break;
-      }
-
-      // Evaluate retry policy: non-idempotent actions have no blind automatic retry
-      if (!retryPolicy.canRetry(lastResponse.errorCategory(), attemptNumber)) {
-        break;
-      }
-
-      if (retryPolicy.backoffMs() > 0) {
-        try {
-          Thread.sleep(retryPolicy.backoffMs());
-        } catch (InterruptedException ex) {
-          Thread.currentThread().interrupt();
-          break;
-        }
-      }
-
-      attemptNumber++;
+    if (!nodeExecution.getEventId().equals(eventId)) {
+      throw new IllegalArgumentException("NodeExecution does not belong to Event: " + eventId);
     }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // TX2: persist result/outcome + continuation intent -> COMMIT
-    // ──────────────────────────────────────────────────────────────────────────
-    if (isAsyncCallback && lastResponse != null && lastResponse.success()) {
-      return txService.transitionToWaitingCallbackTx(
-          execution.getId(), callbackCorrelationId, lastResponse);
-    }
-    return txService.completeExecutionTx(execution.getId(), lastResponse, correlationId, commandId);
+    return execute(nodeExecutionId, correlationId, commandId);
   }
 
   private RetryPolicy parseRetryPolicy(JsonNode retryNode, JsonNode idempotencyNode) {
-    boolean idempotent = true;
-    if (idempotencyNode != null && idempotencyNode.has("idempotent")) {
-      idempotent = idempotencyNode.get("idempotent").asBoolean(true);
-    } else if (retryNode != null && retryNode.has("idempotent")) {
-      idempotent = retryNode.get("idempotent").asBoolean(true);
-    }
+    boolean idempotent = isIdempotent(retryNode, idempotencyNode);
     RetryPolicy base = RetryPolicy.fromJson(retryNode);
     if (!idempotent) {
       return new RetryPolicy(false, 0, 0, java.util.Set.of());
     }
     return base;
+  }
+
+  private boolean isIdempotent(JsonNode retryNode, JsonNode idempotencyNode) {
+    if (idempotencyNode != null && idempotencyNode.has("idempotent")) {
+      return idempotencyNode.get("idempotent").asBoolean(true);
+    }
+    return retryNode == null
+        || !retryNode.has("idempotent")
+        || retryNode.get("idempotent").asBoolean(true);
+  }
+
+  private boolean isUncertain(IntegrationErrorCategory category) {
+    return category == IntegrationErrorCategory.LOST_RESPONSE
+        || category == IntegrationErrorCategory.TIMEOUT
+        || category == IntegrationErrorCategory.NETWORK_ERROR;
   }
 
   private JsonNode parseExecutionConfig(JsonNode node) {

@@ -126,6 +126,45 @@ public class SystemActionTransactionService {
   }
 
   @Transactional(propagation = Propagation.REQUIRES_NEW)
+  public IntegrationExecution startOrResumeExecutionTx(
+      UUID eventId,
+      UUID nodeExecutionId,
+      String connectorKey,
+      String actionKey,
+      int actionVersion,
+      String logicalActionIdentity,
+      String idempotencyKey,
+      JsonNode rawRequest,
+      int attemptNumber) {
+    var existing = executionRepo.findByNodeExecutionId(nodeExecutionId);
+    if (existing.isEmpty()) {
+      if (attemptNumber != 1) {
+        throw new IllegalStateException("First durable integration attempt must be number 1");
+      }
+      return startExecutionTx(
+          eventId,
+          nodeExecutionId,
+          connectorKey,
+          actionKey,
+          actionVersion,
+          logicalActionIdentity,
+          idempotencyKey,
+          rawRequest);
+    }
+    IntegrationExecution execution = existing.orElseThrow();
+    if (execution.getStatus()
+        != com.fpt.workflow.integration.domain.IntegrationExecutionStatus.RUNNING) {
+      return execution;
+    }
+    if (attemptRepo
+        .findByIntegrationExecutionIdAndAttemptNumber(execution.getId(), attemptNumber)
+        .isEmpty()) {
+      startAttemptTx(execution.getId(), attemptNumber, rawRequest);
+    }
+    return execution;
+  }
+
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
   public void startAttemptTx(UUID executionId, int attemptNumber, JsonNode rawRequest) {
     Instant now = clock.now();
     JsonNode sanitizedRequest = PayloadSanitizer.sanitize(rawRequest);
@@ -297,6 +336,41 @@ public class SystemActionTransactionService {
     NodeExecution savedNodeExecution = nodeExecutionRepo.saveAndFlush(nodeExecution);
 
     return new SystemActionResult(savedExecution, savedNodeExecution, "WAITING_CALLBACK", null);
+  }
+
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  public SystemActionResult transitionToManualReconciliationTx(
+      UUID executionId, IntegrationCallResponse uncertainResponse) {
+    Instant now = clock.now();
+    IntegrationExecution execution =
+        executionRepo
+            .findById(executionId)
+            .orElseThrow(
+                () -> new IllegalStateException("IntegrationExecution not found: " + executionId));
+    JsonNode sanitizedResponse = PayloadSanitizer.sanitize(uncertainResponse.payload());
+    execution.markManualReconciliation(
+        uncertainResponse.errorCategory(),
+        sanitizedResponse == null ? null : sanitizedResponse.toString(),
+        now);
+    execution = executionRepo.saveAndFlush(execution);
+    UUID nodeExecutionId = execution.getNodeExecutionId();
+    UUID eventId = execution.getEventId();
+
+    NodeExecution nodeExecution =
+        nodeExecutionRepo
+            .findByIdForUpdate(nodeExecutionId)
+            .orElseThrow(
+                () -> new IllegalStateException("NodeExecution not found: " + nodeExecutionId));
+    nodeExecution.changeWaitReason(RuntimeWaitReason.MANUAL_RECONCILIATION);
+    nodeExecution = nodeExecutionRepo.saveAndFlush(nodeExecution);
+
+    Event event =
+        eventRepo
+            .findByIdForUpdate(eventId)
+            .orElseThrow(() -> new IllegalStateException("Event not found: " + eventId));
+    event.changeWaitReason(RuntimeWaitReason.MANUAL_RECONCILIATION);
+    eventRepo.saveAndFlush(event);
+    return new SystemActionResult(execution, nodeExecution, "MANUAL_RECONCILIATION", null);
   }
 
   private List<VariableMapping> decodeMappings(JsonNode config) {

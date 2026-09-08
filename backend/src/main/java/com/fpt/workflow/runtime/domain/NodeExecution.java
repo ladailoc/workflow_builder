@@ -172,6 +172,13 @@ public class NodeExecution {
     this.waitReason = Objects.requireNonNull(reason, "reason");
   }
 
+  public void changeWaitReason(RuntimeWaitReason reason) {
+    if (status != NodeExecutionStatus.WAITING) {
+      throw new IllegalStateException("Only a waiting NodeExecution can change wait reason");
+    }
+    this.waitReason = Objects.requireNonNull(reason, "reason");
+  }
+
   public void complete(String outcomePort, JsonNode outputJson, Instant endedAt) {
     transition(NodeExecutionStatus.COMPLETED);
     this.outcomePort = RuntimeValues.key(outcomePort, "outcomePort");

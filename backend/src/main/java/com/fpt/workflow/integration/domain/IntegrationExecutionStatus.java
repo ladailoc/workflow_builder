@@ -4,5 +4,6 @@ public enum IntegrationExecutionStatus {
   RUNNING,
   COMPLETED,
   FAILED,
-  WAITING_CALLBACK
+  WAITING_CALLBACK,
+  MANUAL_RECONCILIATION
 }

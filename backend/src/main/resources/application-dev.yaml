@@ -3,9 +3,9 @@ spring:
     activate:
       on-profile: dev
   datasource:
-    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:workflow_platform}
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5433}/${POSTGRES_DB:workflow_platform}
     username: ${POSTGRES_USER:workflow}
-    password: ${POSTGRES_PASSWORD:change-me-for-local-development}
+    password: ${POSTGRES_PASSWORD:workflow123}
     hikari:
       connection-init-sql: SET TIME ZONE 'UTC'
       connection-timeout: ${DB_POOL_CONNECTION_TIMEOUT_MS:30000}

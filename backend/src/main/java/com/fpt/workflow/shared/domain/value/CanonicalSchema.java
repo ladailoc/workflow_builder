@@ -39,4 +39,13 @@ public record CanonicalSchema(
       Map<String, TypeDescriptor> properties, Set<String> requiredProperties) {
     return new CanonicalSchema(properties, requiredProperties, false);
   }
+
+  public static CanonicalSchema open(
+      Map<String, TypeDescriptor> properties, Set<String> requiredProperties) {
+    return new CanonicalSchema(properties, requiredProperties, true);
+  }
+
+  public static CanonicalSchema open() {
+    return new CanonicalSchema(Map.of(), Set.of(), true);
+  }
 }

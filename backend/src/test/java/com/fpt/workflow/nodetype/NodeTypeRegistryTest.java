@@ -25,8 +25,11 @@ class NodeTypeRegistryTest {
                 configuration.approvalNodeTypeProvider(),
                 configuration.reviewNodeTypeProvider(),
                 configuration.conditionNodeTypeProvider(),
+                configuration.parallelSplitNodeTypeProvider(),
                 configuration.joinNodeTypeProvider(),
-                configuration.systemActionNodeTypeProvider()));
+                configuration.systemActionNodeTypeProvider(),
+                configuration.subWorkflowNodeTypeProvider(),
+                configuration.notificationNodeTypeProvider()));
   }
 
   @Test
