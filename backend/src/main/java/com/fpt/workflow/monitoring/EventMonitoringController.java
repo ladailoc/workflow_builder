@@ -13,6 +13,12 @@ public class EventMonitoringController {
     this.service = service;
   }
 
+  @GetMapping
+  @PreAuthorize("isAuthenticated()")
+  public java.util.List<EventMonitoringService.EventSummaryView> list() {
+    return service.listEvents();
+  }
+
   @GetMapping("/{eventId}/monitoring")
   @PreAuthorize("isAuthenticated()")
   public EventMonitoringService.EventMonitoringView get(@PathVariable UUID eventId) {

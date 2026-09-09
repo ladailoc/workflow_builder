@@ -2,7 +2,13 @@ export interface TicketView {
   id: string;
   requestTypeId: string;
   creatorId: string;
-  status: "DRAFT" | "SUBMITTED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED" | "REJECTED";
+  status:
+    | "DRAFT"
+    | "SUBMITTED"
+    | "IN_PROGRESS"
+    | "COMPLETED"
+    | "CANCELLED"
+    | "REJECTED";
   dataJson: Record<string, unknown>;
   dataRevision: number;
   currentRevisionId: string | null;
@@ -63,7 +69,8 @@ export interface TaskView {
   id: string;
   nodeExecutionId: string;
   itemExecutionId?: string | null;
-  status: "READY" | "CLAIMED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED" | "EXPIRED";
+  status:
+    "READY" | "CLAIMED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED" | "EXPIRED";
   outcome?: string | null;
   assigneeId?: string | null;
   assigneeName?: string | null;
@@ -120,6 +127,23 @@ export interface EventMonitoringView {
     status: string;
     checksum: string;
   };
+  graph: {
+    nodes: Array<{
+      id: string;
+      key: string;
+      type: string;
+      name?: string | null;
+      position?: Record<string, unknown> | null;
+    }>;
+    edges: Array<{
+      id: string;
+      sourceNodeId: string;
+      sourcePort: string;
+      targetNodeId: string;
+      label?: string | null;
+      transitionType: string;
+    }>;
+  };
   status: string;
   outcome?: string | null;
   nodeExecutions: NodeOccurrence[];
@@ -138,7 +162,8 @@ export interface TaskItem {
   eventId?: string;
   title: string;
   description?: string | null;
-  status: "READY" | "CLAIMED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED" | "EXPIRED";
+  status:
+    "READY" | "CLAIMED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED" | "EXPIRED";
   outcome?: string | null;
   priority: number;
   assigneeId?: string | null;
@@ -151,7 +176,13 @@ export interface TaskItem {
 }
 
 export interface TaskActionCommand {
-  action: "claim" | "complete" | "approve" | "reject" | "request-revision" | "reassign";
+  action:
+    | "claim"
+    | "complete"
+    | "approve"
+    | "reject"
+    | "request-revision"
+    | "reassign";
   commandId: string;
   expectedVersion: number;
   comment?: string;

@@ -16,6 +16,28 @@ export function apiUrl(path: `/${string}`): string {
   return `${baseUrl}${path}`;
 }
 
+export interface ClientActorInfo {
+  actorId: string;
+  principalName?: string;
+  roles?: readonly string[];
+  permissions?: readonly string[];
+}
+
+let currentActorInfo: ClientActorInfo | null = {
+  actorId: "10000000-0000-4000-8000-000000000001",
+  principalName: "Alice User",
+  roles: ["USER"],
+  permissions: ["REQUEST_CATALOG_ACCESS", "TASK_ACTION_ACCESS"],
+};
+
+export function setActiveApiActor(actor: ClientActorInfo | null): void {
+  currentActorInfo = actor;
+}
+
+export function getActiveApiActor(): ClientActorInfo | null {
+  return currentActorInfo;
+}
+
 export interface ApiRequestOptions extends Omit<RequestInit, "body"> {
   actorId?: string;
   commandId?: string;
@@ -55,14 +77,48 @@ async function request<T>(
     requestHeaders.set("Content-Type", "application/json");
   }
 
-  if (actorId) {
-    requestHeaders.set("X-Actor-Id", actorId);
+  const effectiveActorId = actorId ?? currentActorInfo?.actorId;
+  if (effectiveActorId && !requestHeaders.has("X-Actor-Id")) {
+    requestHeaders.set("X-Actor-Id", effectiveActorId);
   }
+  if (currentActorInfo?.principalName && !requestHeaders.has("X-Actor-Name")) {
+    requestHeaders.set("X-Actor-Name", currentActorInfo.principalName);
+  }
+  if (
+    currentActorInfo?.roles &&
+    currentActorInfo.roles.length > 0 &&
+    !requestHeaders.has("X-Actor-Roles")
+  ) {
+    requestHeaders.set("X-Actor-Roles", currentActorInfo.roles.join(","));
+  }
+  if (
+    currentActorInfo?.permissions &&
+    currentActorInfo.permissions.length > 0 &&
+    !requestHeaders.has("X-Actor-Permissions")
+  ) {
+    requestHeaders.set("X-Actor-Permissions", currentActorInfo.permissions.join(","));
+  }
+
+  const effectiveCorrelationId =
+    correlationId ??
+    requestHeaders.get("X-Correlation-Id") ??
+    (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : undefined);
+  if (effectiveCorrelationId && !requestHeaders.has("X-Correlation-Id")) {
+    requestHeaders.set("X-Correlation-Id", effectiveCorrelationId);
+  }
+
   if (commandId) {
     requestHeaders.set("X-Command-Id", commandId);
-  }
-  if (correlationId) {
-    requestHeaders.set("X-Correlation-Id", correlationId);
+  } else if (
+    !requestHeaders.has("X-Command-Id") &&
+    init.method &&
+    ["POST", "PUT", "PATCH"].includes(init.method.toUpperCase()) &&
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    requestHeaders.set("X-Command-Id", crypto.randomUUID());
   }
 
   const url = apiUrl(path);

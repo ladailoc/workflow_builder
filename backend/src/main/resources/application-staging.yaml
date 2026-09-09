@@ -1,0 +1,23 @@
+spring:
+  config:
+    activate:
+      on-profile: staging
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://${POSTGRES_HOST:postgres}:${POSTGRES_PORT:5432}/${POSTGRES_DB:workflow_staging}}
+    username: ${DATABASE_USERNAME:${POSTGRES_USER:workflow_staging}}
+    password: ${DATABASE_PASSWORD:${POSTGRES_PASSWORD:staging_workflow_secret_2026}}
+    hikari:
+      connection-init-sql: SET TIME ZONE 'UTC'
+      connection-timeout: ${DB_POOL_CONNECTION_TIMEOUT_MS:30000}
+      idle-timeout: ${DB_POOL_IDLE_TIMEOUT_MS:300000}
+      initialization-fail-timeout: 1
+      max-lifetime: ${DB_POOL_MAX_LIFETIME_MS:1800000}
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      pool-name: WorkflowPlatformStagingPool
+      validation-timeout: ${DB_POOL_VALIDATION_TIMEOUT_MS:5000}
+
+platform:
+  security:
+    cors:
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,https://staging.workflow.local}

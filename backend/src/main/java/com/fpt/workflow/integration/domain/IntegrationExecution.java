@@ -149,6 +149,18 @@ public class IntegrationExecution {
     this.completedAt = null;
   }
 
+  public void resolveManually(String sanitizedResponseJson, Instant now) {
+    if (status != IntegrationExecutionStatus.MANUAL_RECONCILIATION) {
+      throw new IllegalStateException(
+          "Only an integration awaiting manual reconciliation can be resolved");
+    }
+    this.status = IntegrationExecutionStatus.COMPLETED;
+    this.errorCategory = IntegrationErrorCategory.NONE;
+    this.sanitizedResponseJson = sanitizedResponseJson;
+    this.updatedAt = Objects.requireNonNull(now, "now");
+    this.completedAt = now;
+  }
+
   public UUID getId() {
     return id;
   }

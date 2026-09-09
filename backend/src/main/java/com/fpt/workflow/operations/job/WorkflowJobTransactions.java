@@ -109,6 +109,25 @@ public class WorkflowJobTransactions {
         == 1;
   }
 
+  /**
+   * Explicit operator recovery for a DEAD job. Attempts remain cumulative and the retry grants one
+   * additional attempt; optimistic locking prevents two operators from reviving the same failure.
+   */
+  @Transactional
+  public boolean retryDead(UUID id, long expectedVersion) {
+    if (expectedVersion < 0) {
+      throw new IllegalArgumentException("expectedVersion must not be negative");
+    }
+    Instant now = clock.now();
+    return jdbc.update(
+            "UPDATE workflow_jobs SET status='RETRY', max_attempts=GREATEST(max_attempts,attempts+1), next_run_at=?, lease_owner=NULL, lease_until=NULL, completed_at=NULL, updated_at=?, lock_version=lock_version+1 WHERE id=? AND status='DEAD' AND lock_version=?",
+            ts(now),
+            ts(now),
+            id,
+            expectedVersion)
+        == 1;
+  }
+
   private static String required(String value, String name) {
     if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " is required");
     return value.trim();

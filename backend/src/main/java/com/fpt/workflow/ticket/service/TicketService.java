@@ -208,6 +208,19 @@ public class TicketService {
     return aggregate(requireOwnedTicket(ticketId));
   }
 
+  @TransactionalQuery
+  @PreAuthorize("isAuthenticated()")
+  public List<TicketDtos.TicketView> listMyTickets() {
+    ActorContext actor = actorContextProvider.requireActor();
+    List<Ticket> tickets;
+    if (actor.hasRole(RoleKey.ADMIN) || actor.hasRole(RoleKey.OPERATOR)) {
+      tickets = ticketRepository.findAllByOrderByCreatedAtDesc();
+    } else {
+      tickets = ticketRepository.findAllByCreatorIdOrderByCreatedAtDesc(actor.actorId());
+    }
+    return tickets.stream().map(TicketDtos.TicketView::from).toList();
+  }
+
   private Ticket requireOwnedTicket(UUID ticketId) {
     Ticket ticket =
         ticketRepository
@@ -295,6 +308,8 @@ public class TicketService {
   }
 
   private TicketDtos.AggregateView aggregate(Ticket ticket) {
+    List<Event> events = eventRepository.findAllByTicketIdOrderByStartedAtAsc(ticket.getId());
+    UUID currentEventId = events.isEmpty() ? null : events.get(events.size() - 1).getId();
     return new TicketDtos.AggregateView(
         TicketDtos.TicketView.from(ticket),
         revisionRepository.findAllByTicketIdOrderByRevisionNoAsc(ticket.getId()).stream()
@@ -302,7 +317,8 @@ public class TicketService {
             .toList(),
         subjectRepository.findAllByTicketIdOrderByCreatedAtAsc(ticket.getId()).stream()
             .map(TicketDtos.SubjectView::from)
-            .toList());
+            .toList(),
+        currentEventId);
   }
 
   private record SubjectIdentity(String subjectType, UUID subjectRefId, String roleKey) {}

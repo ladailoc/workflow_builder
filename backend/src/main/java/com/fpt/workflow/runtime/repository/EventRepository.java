@@ -1,6 +1,7 @@
 package com.fpt.workflow.runtime.repository;
 
 import com.fpt.workflow.runtime.domain.Event;
+import com.fpt.workflow.shared.domain.lifecycle.EventStatus;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -15,4 +16,6 @@ public interface EventRepository extends JpaRepository<Event, UUID> {
   java.util.Optional<Event> findByIdForUpdate(@Param("id") UUID id);
 
   List<Event> findAllByTicketIdOrderByStartedAtAsc(UUID ticketId);
+
+  List<Event> findAllByStatusOrderByStartedAtAsc(EventStatus status);
 }

@@ -99,9 +99,20 @@ public class FileService {
   }
 
   private static String safeName(String name) {
-    if (name == null || name.isBlank())
+    if (name == null || name.isBlank()) {
       throw new IllegalArgumentException("originalName is required");
-    return name.replace('\\', '_').replace('/', '_').trim();
+    }
+    if (name.contains("..") || name.indexOf(0) != -1) {
+      throw new IllegalArgumentException("Invalid file name: path traversal characters detected");
+    }
+    String cleaned = name.replace('\\', '_').replace('/', '_').trim();
+    while (cleaned.startsWith(".")) {
+      cleaned = cleaned.substring(1).trim();
+    }
+    if (cleaned.isBlank()) {
+      throw new IllegalArgumentException("Invalid file name after sanitization");
+    }
+    return cleaned;
   }
 
   private static String sha256(byte[] bytes) {

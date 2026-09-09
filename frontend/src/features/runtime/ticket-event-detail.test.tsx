@@ -71,6 +71,7 @@ const MOCK_EVENT_VIEW: EventMonitoringView = {
     status: "PUBLISHED",
     checksum: "chk-123",
   },
+  graph: { nodes: [], edges: [] },
   status: "RUNNING",
   outcome: "PENDING_APPROVAL",
   nodeExecutions: [
@@ -130,7 +131,9 @@ describe("TicketDetailView Component", () => {
   it("renders ticket business data, status, and event link", () => {
     render(<TicketDetailView aggregate={MOCK_TICKET_AGGREGATE} />);
 
-    expect(screen.getByTestId("ticket-status-badge")).toHaveTextContent("IN_PROGRESS");
+    expect(screen.getByTestId("ticket-status-badge")).toHaveTextContent(
+      "IN_PROGRESS",
+    );
     expect(screen.getByText("MacBook Pro 16")).toBeInTheDocument();
     expect(screen.getByText("3500")).toBeInTheDocument();
 
@@ -164,7 +167,9 @@ describe("EventDetailView Component", () => {
       </AuthSessionProvider>,
     );
 
-    expect(screen.getByTestId("event-status-badge")).toHaveTextContent("RUNNING");
+    expect(screen.getByTestId("event-status-badge")).toHaveTextContent(
+      "RUNNING",
+    );
     expect(screen.getByText("Start Node")).toBeInTheDocument();
     expect(screen.getByText("Security Audit SubWorkflow")).toBeInTheDocument();
 
@@ -173,8 +178,12 @@ describe("EventDetailView Component", () => {
     expect(childLink).toHaveAttribute("href", "/events/child-event-9999");
 
     // Ordinary user does NOT see privileged technical execution context
-    expect(screen.getByTestId("unprivileged-hidden-notice")).toBeInTheDocument();
-    expect(screen.queryByTestId("privileged-graph-section")).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId("unprivileged-hidden-notice"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("privileged-graph-section"),
+    ).not.toBeInTheDocument();
   });
 
   it("shows privileged execution context to operator / admin users", () => {

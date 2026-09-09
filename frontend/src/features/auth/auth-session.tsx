@@ -4,10 +4,12 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
+import { setActiveApiActor } from "@/shared/api/client";
 
 import {
   ANONYMOUS_SESSION,
@@ -49,6 +51,19 @@ export function AuthSessionProvider({
       actor: PRESET_ACTORS[1],
     };
   });
+
+  useEffect(() => {
+    if (session.status === "authenticated" && session.actor) {
+      setActiveApiActor({
+        actorId: session.actor.actorId,
+        principalName: session.actor.principalName,
+        roles: session.actor.roles,
+        permissions: session.actor.permissions,
+      });
+    } else {
+      setActiveApiActor(null);
+    }
+  }, [session]);
 
   const switchActor = useCallback((actor: SessionActor) => {
     setSession({ status: "authenticated", actor });

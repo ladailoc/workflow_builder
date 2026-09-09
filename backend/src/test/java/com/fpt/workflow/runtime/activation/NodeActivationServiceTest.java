@@ -186,6 +186,45 @@ class NodeActivationServiceTest {
   }
 
   @Test
+  void retryCreatesANewOccurrenceFromTheFailedInputSnapshot() {
+    var originalInput = mapper.createObjectNode().put("approvedAmount", 42);
+    NodeExecution failed =
+        NodeExecution.create(
+            UUID.randomUUID(),
+            eventId,
+            nodeId,
+            "original",
+            cycleId,
+            3,
+            "parallel/finance",
+            "item-7",
+            UUID.randomUUID(),
+            null,
+            originalInput,
+            event.getStartedTicketRevisionId(),
+            NOW);
+    failed.markReady();
+    failed.fail(mapper.createObjectNode().put("code", "FAILED"), NOW);
+    when(executions.findByIdForUpdate(failed.getId())).thenReturn(Optional.of(failed));
+
+    NodeExecution retry =
+        service.retry(
+            failed.getId(),
+            failed.getLockVersion(),
+            new CorrelationId(UUID.randomUUID()),
+            new CommandId(UUID.randomUUID()));
+
+    assertThat(retry.getId()).isNotEqualTo(failed.getId());
+    assertThat(retry.getInputJson()).isEqualTo(originalInput);
+    assertThat(retry.getIteration()).isEqualTo(3);
+    assertThat(retry.getPathToken()).isEqualTo("parallel/finance");
+    assertThat(retry.getItemToken()).isEqualTo("item-7");
+    assertThat(failed.getStatus())
+        .isEqualTo(com.fpt.workflow.shared.domain.lifecycle.NodeExecutionStatus.FAILED);
+    verify(handler, times(1)).execute(any());
+  }
+
+  @Test
   void rejectsNewActivationForTerminalEvent() {
     event.markRunning();
     event.complete("DONE", NOW);

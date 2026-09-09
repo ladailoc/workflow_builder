@@ -1,0 +1,23 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DATABASE_USERNAME}
+    password: ${DATABASE_PASSWORD}
+    hikari:
+      connection-init-sql: SET TIME ZONE 'UTC'
+      connection-timeout: ${DB_POOL_CONNECTION_TIMEOUT_MS:15000}
+      idle-timeout: ${DB_POOL_IDLE_TIMEOUT_MS:300000}
+      initialization-fail-timeout: 1
+      max-lifetime: ${DB_POOL_MAX_LIFETIME_MS:1800000}
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:30}
+      minimum-idle: ${DB_POOL_MIN_IDLE:10}
+      pool-name: WorkflowPlatformProdPool
+      validation-timeout: ${DB_POOL_VALIDATION_TIMEOUT_MS:3000}
+
+platform:
+  security:
+    cors:
+      allowed-origins: ${CORS_ALLOWED_ORIGINS}

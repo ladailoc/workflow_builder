@@ -126,6 +126,38 @@ class DurableJobOutboxIT {
   }
 
   @Test
+  void operatorRetryPreservesAttemptHistoryAndGrantsOneAdditionalAttempt() {
+    WorkflowJob job =
+        jobTransactions.enqueue(
+            "TEST",
+            "EVENT",
+            UUID.randomUUID(),
+            mapper.createObjectNode(),
+            1,
+            java.time.Instant.now(),
+            "operator-retry:" + UUID.randomUUID());
+    WorkflowJob running = jobTransactions.claim("worker", 1, Duration.ofMinutes(1)).getFirst();
+    jobTransactions.fail(
+        running.getId(),
+        "worker",
+        mapper.createObjectNode().put("code", "PERMANENT"),
+        Duration.ZERO,
+        true);
+
+    WorkflowJob dead = jobs.findById(job.getId()).orElseThrow();
+    assertThat(jobTransactions.retryDead(dead.getId(), dead.getLockVersion())).isTrue();
+
+    WorkflowJob retried = jobs.findById(job.getId()).orElseThrow();
+    assertThat(retried.getStatus()).isEqualTo(WorkflowJobStatus.RETRY);
+    assertThat(retried.getAttempts()).isEqualTo(1);
+    assertThat(retried.getMaxAttempts()).isEqualTo(2);
+    assertThat(jobTransactions.claim("recovery-worker", 1, Duration.ofMinutes(1)))
+        .extracting(WorkflowJob::getId)
+        .containsExactly(job.getId());
+    assertThat(jobTransactions.retryDead(dead.getId(), dead.getLockVersion())).isFalse();
+  }
+
+  @Test
   void outboxPublisherCrashIsReclaimableAndDeduplicated() {
     String key = "outbox:" + UUID.randomUUID();
     OutboxEvent first =

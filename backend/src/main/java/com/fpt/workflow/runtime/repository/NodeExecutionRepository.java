@@ -1,6 +1,7 @@
 package com.fpt.workflow.runtime.repository;
 
 import com.fpt.workflow.runtime.domain.NodeExecution;
+import com.fpt.workflow.shared.domain.lifecycle.NodeExecutionStatus;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -21,4 +22,6 @@ public interface NodeExecutionRepository extends JpaRepository<NodeExecution, UU
 
   List<NodeExecution> findAllByEventIdAndNodeDefinitionIdOrderByCreatedAtAsc(
       UUID eventId, UUID nodeDefinitionId);
+
+  List<NodeExecution> findAllByStatusOrderByCreatedAtAsc(NodeExecutionStatus status);
 }

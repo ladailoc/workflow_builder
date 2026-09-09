@@ -236,6 +236,7 @@ public class CoreNodeTypeConfiguration {
     properties.put("multiInstance", TypeDescriptor.nullable(CanonicalValueType.OBJECT));
     properties.put("sla", TypeDescriptor.nullable(CanonicalValueType.OBJECT));
     properties.put("taskAggregation", TypeDescriptor.nullable(CanonicalValueType.OBJECT));
+    properties.put("failure", TypeDescriptor.nullable(CanonicalValueType.OBJECT));
     return CanonicalSchema.strict(properties, nodeSpecific.requiredProperties());
   }
 }

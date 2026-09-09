@@ -24,25 +24,54 @@ spring:
       hibernate:
         jdbc:
           time_zone: UTC
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: ${MAX_FILE_SIZE:25MB}
+      max-request-size: ${MAX_REQUEST_SIZE:50MB}
+  lifecycle:
+    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:30s}
 
 server:
   port: ${BACKEND_PORT:8080}
+  shutdown: graceful
+  forward-headers-strategy: framework
+  tomcat:
+    connection-timeout: ${HTTP_CONNECTION_TIMEOUT:20s}
+    keep-alive-timeout: ${HTTP_KEEP_ALIVE_TIMEOUT:15s}
+    max-connections: ${HTTP_MAX_CONNECTIONS:8192}
+    threads:
+      max: ${HTTP_THREADS_MAX:200}
+      min-spare: ${HTTP_THREADS_MIN_SPARE:10}
 
 platform:
   api-prefix: /api/v1
   transaction:
     command-timeout-seconds: ${COMMAND_TRANSACTION_TIMEOUT_SECONDS:10}
+  security:
+    cors:
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+  files:
+    local-root: ${PLATFORM_FILES_ROOT:${java.io.tmpdir}/workflow-platform-files}
+    max-file-size-bytes: ${MAX_FILE_SIZE_BYTES:26214400}
 
 management:
   endpoint:
     health:
       probes:
         enabled: true
-      show-details: never
+      show-details: ${MANAGEMENT_HEALTH_SHOW_DETAILS:always}
+      group:
+        readiness:
+          include: db,workflowPlatform
+        liveness:
+          include: ping
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics
   health:
     db:
+      enabled: true
+    workflowPlatform:
       enabled: true

@@ -32,6 +32,8 @@ import com.fpt.workflow.runtime.routing.RoutingService;
 import com.fpt.workflow.shared.UuidGenerator;
 import com.fpt.workflow.shared.domain.CommandId;
 import com.fpt.workflow.shared.domain.CorrelationId;
+import com.fpt.workflow.shared.domain.lifecycle.EventStatus;
+import com.fpt.workflow.shared.domain.lifecycle.NodeExecutionStatus;
 import com.fpt.workflow.shared.time.PlatformClock;
 import java.time.Instant;
 import java.util.List;
@@ -405,6 +407,87 @@ public class SystemActionTransactionService {
     event.changeWaitReason(RuntimeWaitReason.MANUAL_RECONCILIATION);
     eventRepo.saveAndFlush(event);
     return new SystemActionResult(execution, nodeExecution, "MANUAL_RECONCILIATION", null);
+  }
+
+  /** Completes an explicitly configured manual reconciliation and routes only by its edge port. */
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  public SystemActionResult resolveManualReconciliationTx(
+      UUID executionId,
+      long expectedVersion,
+      String outcomePort,
+      JsonNode operatorOutput,
+      CorrelationId correlationId,
+      CommandId commandId) {
+    if (!List.of("SUCCESS", "ERROR").contains(outcomePort)) {
+      throw new IllegalArgumentException("Manual integration outcome must be SUCCESS or ERROR");
+    }
+    IntegrationExecution execution =
+        executionRepo
+            .findByIdForUpdate(executionId)
+            .orElseThrow(
+                () ->
+                    new IllegalArgumentException("IntegrationExecution not found: " + executionId));
+    if (execution.getLockVersion() != expectedVersion) {
+      throw new com.fpt.workflow.shared.api.CommandConflictException(
+          "STALE_EXPECTED_VERSION", "IntegrationExecution version does not match If-Match");
+    }
+    UUID eventId = execution.getEventId();
+    UUID nodeExecutionId = execution.getNodeExecutionId();
+    Event event =
+        eventRepo
+            .findByIdForUpdate(eventId)
+            .orElseThrow(() -> new IllegalStateException("Event not found: " + eventId));
+    if (List.of(
+            EventStatus.COMPLETED,
+            EventStatus.FAILED,
+            EventStatus.CANCELLED,
+            EventStatus.TERMINATED)
+        .contains(event.getStatus())) {
+      throw new IllegalStateException("Terminal Event wins over manual recovery");
+    }
+    NodeExecution nodeExecution =
+        nodeExecutionRepo
+            .findByIdForUpdate(nodeExecutionId)
+            .orElseThrow(
+                () -> new IllegalStateException("NodeExecution not found: " + nodeExecutionId));
+    if (nodeExecution.getStatus() != NodeExecutionStatus.WAITING
+        || nodeExecution.getWaitReason() != RuntimeWaitReason.MANUAL_RECONCILIATION) {
+      throw new IllegalStateException("Integration node is not awaiting manual reconciliation");
+    }
+    NodeDefinition node =
+        nodeDefinitionRepo.findById(nodeExecution.getNodeDefinitionId()).orElseThrow();
+    if (!"SYSTEM_ACTION".equals(node.getNodeType())) {
+      throw new IllegalStateException("Manual integration recovery requires a SYSTEM_ACTION node");
+    }
+    JsonNode sanitized = PayloadSanitizer.sanitize(operatorOutput);
+    ObjectNode output =
+        sanitized instanceof ObjectNode object
+            ? object.deepCopy()
+            : JsonNodeFactory.instance.objectNode().set("result", sanitized);
+    output.put("manualRecovery", true);
+    execution.resolveManually(output.toString(), clock.now());
+    execution = executionRepo.saveAndFlush(execution);
+    nodeExecution.complete(outcomePort, output, clock.now());
+    nodeExecution = nodeExecutionRepo.saveAndFlush(nodeExecution);
+
+    List<VariableMapping> mappings = decodeMappings(node.getConfigJson());
+    if (!mappings.isEmpty()) {
+      RuntimeScope scope =
+          RuntimeScope.occurrence(
+              nodeExecution.getCycleId(),
+              nodeExecution.getPathToken(),
+              nodeExecution.getItemToken());
+      EventContext afterOutput = contextBuilder.build(event.getId(), scope);
+      variableMapper.apply(
+          event,
+          variableRepo.findAllByWorkflowVersionIdOrderByKeyAsc(event.getWorkflowVersionId()),
+          mappings,
+          afterOutput);
+      eventRepo.saveAndFlush(event);
+    }
+    audit(execution, "MANUAL_RECOVERY", correlationId, commandId, clock.now());
+    RoutingResult routing = routingService.route(nodeExecution.getId(), correlationId, commandId);
+    return new SystemActionResult(execution, nodeExecution, outcomePort, routing);
   }
 
   private void audit(

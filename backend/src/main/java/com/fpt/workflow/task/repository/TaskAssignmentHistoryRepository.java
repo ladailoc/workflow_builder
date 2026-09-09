@@ -9,4 +9,7 @@ public interface TaskAssignmentHistoryRepository
     extends JpaRepository<TaskAssignmentHistory, UUID> {
 
   List<TaskAssignmentHistory> findAllByTaskIdOrderByCreatedAtAsc(UUID taskId);
+
+  List<TaskAssignmentHistory> findAllByTaskIdInOrderByCreatedAtAsc(
+      java.util.Collection<UUID> taskIds);
 }

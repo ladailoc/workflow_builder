@@ -17,6 +17,18 @@ public interface TaskExecutionRepository extends JpaRepository<TaskExecution, UU
 
   List<TaskExecution> findAllByNodeExecutionIdOrderByCreatedAtAsc(UUID nodeExecutionId);
 
+  List<TaskExecution> findAllByNodeExecutionIdInOrderByCreatedAtAsc(
+      java.util.Collection<UUID> nodeExecutionIds);
+
   List<TaskExecution> findAllByAssigneeIdAndStatusOrderByDueAtAsc(
       UUID assigneeId, TaskStatus status);
+
+  List<TaskExecution> findAllByAssigneeIdOrderByCreatedAtDesc(UUID assigneeId);
+
+  List<TaskExecution> findAllByAssigneeIdAndStatusOrderByCreatedAtDesc(
+      UUID assigneeId, TaskStatus status);
+
+  List<TaskExecution> findAllByOrderByCreatedAtDesc();
+
+  List<TaskExecution> findAllByStatusOrderByCreatedAtDesc(TaskStatus status);
 }

@@ -120,11 +120,19 @@ public final class TicketDtos {
   }
 
   public record AggregateView(
-      TicketView ticket, List<RevisionView> revisions, List<SubjectView> subjects) {
+      TicketView ticket,
+      List<RevisionView> revisions,
+      List<SubjectView> subjects,
+      UUID currentEventId) {
 
     public AggregateView {
       revisions = List.copyOf(revisions);
       subjects = List.copyOf(subjects);
+    }
+
+    public AggregateView(
+        TicketView ticket, List<RevisionView> revisions, List<SubjectView> subjects) {
+      this(ticket, revisions, subjects, null);
     }
   }
 }

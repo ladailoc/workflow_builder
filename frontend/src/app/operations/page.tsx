@@ -1,6 +1,7 @@
 "use client";
 
 import { AuthRouteGuard } from "@/features/auth";
+import { OperatorConsole } from "@/features/operations";
 
 export default function OperationsPage() {
   return (
@@ -11,15 +12,11 @@ export default function OperationsPage() {
             Operations & Health
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Monitor dead jobs, outbox events, failed dispatches, and manual reconciliations.
+            Monitor dead jobs, outbox events, failed dispatches, and manual
+            reconciliations.
           </p>
         </div>
-        <div
-          data-testid="operations-container"
-          className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs"
-        >
-          <p className="text-sm text-slate-600">Operations monitor ready.</p>
-        </div>
+        <OperatorConsole />
       </div>
     </AuthRouteGuard>
   );

@@ -155,6 +155,51 @@ public class NodeActivationService {
 
   @Transactional
   public NodeExecution activate(ActivationRequest request) {
+    return activate(request, null, false);
+  }
+
+  /**
+   * Replays a failed occurrence as a new occurrence while preserving the immutable input snapshot
+   * and scope identity. The failed historical row is never revived or mutated.
+   */
+  @Transactional
+  public NodeExecution retry(
+      UUID failedNodeExecutionId,
+      long expectedVersion,
+      com.fpt.workflow.shared.domain.CorrelationId correlationId,
+      com.fpt.workflow.shared.domain.CommandId commandId) {
+    NodeExecution failed =
+        executionRepository
+            .findByIdForUpdate(failedNodeExecutionId)
+            .orElseThrow(
+                () ->
+                    new IllegalArgumentException(
+                        "NodeExecution not found: " + failedNodeExecutionId));
+    if (failed.getStatus() != com.fpt.workflow.shared.domain.lifecycle.NodeExecutionStatus.FAILED) {
+      throw new IllegalStateException("Only a failed NodeExecution can be retried");
+    }
+    if (failed.getLockVersion() != expectedVersion) {
+      throw new com.fpt.workflow.shared.api.CommandConflictException(
+          "STALE_EXPECTED_VERSION", "NodeExecution version does not match If-Match");
+    }
+    ActivationRequest request =
+        new ActivationRequest(
+            failed.getEventId(),
+            failed.getNodeDefinitionId(),
+            new ActivationKey("operator-retry:" + failed.getId() + ":" + commandId.value()),
+            failed.getCycleId(),
+            failed.getIteration(),
+            failed.getPathToken(),
+            failed.getItemToken(),
+            failed.getSplitScopeId(),
+            failed.getJoinScopeId(),
+            correlationId,
+            commandId);
+    return activate(request, failed.getInputJson(), true);
+  }
+
+  private NodeExecution activate(
+      ActivationRequest request, JsonNode preservedInputSnapshot, boolean preserveInput) {
     Event event =
         eventRepository
             .findByIdForUpdate(request.eventId())
@@ -183,8 +228,15 @@ public class NodeActivationService {
     RuntimeScope scope =
         RuntimeScope.occurrence(request.cycleId(), request.pathToken(), request.itemToken());
     EventContext beforeActivation = contextBuilder.build(event.getId(), scope);
-    ObjectNode input =
-        bindingResolver.resolve(decodeInputs(node.getConfigJson()), beforeActivation);
+    ObjectNode input;
+    if (preserveInput) {
+      if (preservedInputSnapshot == null || !preservedInputSnapshot.isObject()) {
+        throw new IllegalStateException("A failed occurrence has no replayable input snapshot");
+      }
+      input = (ObjectNode) preservedInputSnapshot.deepCopy();
+    } else {
+      input = bindingResolver.resolve(decodeInputs(node.getConfigJson()), beforeActivation);
+    }
     Instant now = clock.now();
     NodeExecution execution =
         NodeExecution.create(

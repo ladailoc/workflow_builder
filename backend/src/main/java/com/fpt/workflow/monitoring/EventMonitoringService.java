@@ -1,7 +1,11 @@
 package com.fpt.workflow.monitoring;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fpt.workflow.definition.domain.EdgeDefinition;
+import com.fpt.workflow.definition.domain.NodeDefinition;
 import com.fpt.workflow.definition.domain.WorkflowVersion;
+import com.fpt.workflow.definition.repository.EdgeDefinitionRepository;
+import com.fpt.workflow.definition.repository.NodeDefinitionRepository;
 import com.fpt.workflow.definition.repository.WorkflowVersionRepository;
 import com.fpt.workflow.resolver.domain.ParticipantSnapshot;
 import com.fpt.workflow.resolver.repository.ParticipantSnapshotRepository;
@@ -26,6 +30,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class EventMonitoringService {
   private final EventRepository events;
   private final WorkflowVersionRepository versions;
+  private final NodeDefinitionRepository nodeDefinitions;
+  private final EdgeDefinitionRepository edgeDefinitions;
   private final NodeExecutionRepository nodes;
   private final TaskExecutionRepository tasks;
   private final ParticipantSnapshotRepository participants;
@@ -38,6 +44,8 @@ public class EventMonitoringService {
   public EventMonitoringService(
       EventRepository events,
       WorkflowVersionRepository versions,
+      NodeDefinitionRepository nodeDefinitions,
+      EdgeDefinitionRepository edgeDefinitions,
       NodeExecutionRepository nodes,
       TaskExecutionRepository tasks,
       ParticipantSnapshotRepository participants,
@@ -48,6 +56,8 @@ public class EventMonitoringService {
       ActorContextProvider actors) {
     this.events = events;
     this.versions = versions;
+    this.nodeDefinitions = nodeDefinitions;
+    this.edgeDefinitions = edgeDefinitions;
     this.nodes = nodes;
     this.tasks = tasks;
     this.participants = participants;
@@ -66,15 +76,30 @@ public class EventMonitoringService {
             .orElseThrow(() -> new IllegalArgumentException("Event not found: " + eventId));
     authorize(event);
     WorkflowVersion version = versions.findById(event.getWorkflowVersionId()).orElseThrow();
-    List<NodeOccurrence> occurrences = new ArrayList<>();
+    GraphView graph =
+        new GraphView(
+            nodeDefinitions.findAllByWorkflowVersionIdOrderByNodeKeyAsc(version.getId()).stream()
+                .map(GraphNode::from)
+                .toList(),
+            edgeDefinitions
+                .findAllByWorkflowVersionIdOrderByPriorityAscIdAsc(version.getId())
+                .stream()
+                .map(GraphEdge::from)
+                .toList());
+    List<NodeExecution> eventNodes = nodes.findAllByEventIdOrderByCreatedAtAsc(eventId);
+    List<NodeOccurrence> occurrences = eventNodes.stream().map(NodeOccurrence::from).toList();
     List<TaskView> taskViews = new ArrayList<>();
     List<AssignmentView> assignmentViews = new ArrayList<>();
-    for (NodeExecution node : nodes.findAllByEventIdOrderByCreatedAtAsc(eventId)) {
-      occurrences.add(NodeOccurrence.from(node));
-      for (TaskExecution task : tasks.findAllByNodeExecutionIdOrderByCreatedAtAsc(node.getId())) {
-        taskViews.add(TaskView.from(task));
-        for (TaskAssignmentHistory h : assignments.findAllByTaskIdOrderByCreatedAtAsc(task.getId()))
-          assignmentViews.add(AssignmentView.from(h));
+    if (!eventNodes.isEmpty()) {
+      List<UUID> nodeIds = eventNodes.stream().map(NodeExecution::getId).toList();
+      List<TaskExecution> eventTasks = tasks.findAllByNodeExecutionIdInOrderByCreatedAtAsc(nodeIds);
+      taskViews = eventTasks.stream().map(TaskView::from).toList();
+      if (!eventTasks.isEmpty()) {
+        List<UUID> taskIds = eventTasks.stream().map(TaskExecution::getId).toList();
+        assignmentViews =
+            assignments.findAllByTaskIdInOrderByCreatedAtAsc(taskIds).stream()
+                .map(AssignmentView::from)
+                .toList();
       }
     }
     List<ParticipantView> participantViews =
@@ -102,6 +127,7 @@ public class EventMonitoringService {
             version.getVersionNo(),
             version.getStatus().name(),
             version.getChecksum()),
+        graph,
         event.getStatus().name(),
         event.getOutcome(),
         List.copyOf(occurrences),
@@ -112,6 +138,43 @@ public class EventMonitoringService {
         List.copyOf(timeline),
         contexts.build(eventId).maskedValue());
   }
+
+  @Transactional(readOnly = true)
+  public List<EventSummaryView> listEvents() {
+    ActorContext actor = actors.requireActor();
+    List<Event> eventList;
+    if (actor.hasRole(RoleKey.OPERATOR) || actor.hasRole(RoleKey.ADMIN)) {
+      eventList =
+          events.findAll(
+              org.springframework.data.domain.Sort.by(
+                  org.springframework.data.domain.Sort.Direction.DESC, "startedAt"));
+    } else {
+      List<Ticket> myTickets = tickets.findAllByCreatorIdOrderByCreatedAtDesc(actor.actorId());
+      Set<UUID> myTicketIds =
+          myTickets.stream().map(Ticket::getId).collect(java.util.stream.Collectors.toSet());
+      eventList =
+          events
+              .findAll(
+                  org.springframework.data.domain.Sort.by(
+                      org.springframework.data.domain.Sort.Direction.DESC, "startedAt"))
+              .stream()
+              .filter(e -> myTicketIds.contains(e.getTicketId()))
+              .toList();
+    }
+    return eventList.stream()
+        .map(
+            e ->
+                new EventSummaryView(
+                    e.getId(),
+                    e.getTicketId(),
+                    e.getStatus().name(),
+                    e.getOutcome(),
+                    e.getStartedAt()))
+        .toList();
+  }
+
+  public record EventSummaryView(
+      UUID id, UUID ticketId, String status, String outcome, Instant createdAt) {}
 
   private void authorize(Event event) {
     ActorContext actor = actors.requireActor();
@@ -126,6 +189,7 @@ public class EventMonitoringService {
       UUID eventId,
       UUID ticketId,
       VersionView workflowVersion,
+      GraphView graph,
       String status,
       String outcome,
       List<NodeOccurrence> nodeExecutions,
@@ -138,6 +202,37 @@ public class EventMonitoringService {
 
   public record VersionView(
       UUID id, UUID definitionId, int versionNo, String status, String checksum) {}
+
+  public record GraphView(List<GraphNode> nodes, List<GraphEdge> edges) {}
+
+  public record GraphNode(UUID id, String key, String type, String name, JsonNode position) {
+    static GraphNode from(NodeDefinition node) {
+      return new GraphNode(
+          node.getId(),
+          node.getNodeKey(),
+          node.getNodeType(),
+          node.getName(),
+          node.getPositionJson());
+    }
+  }
+
+  public record GraphEdge(
+      UUID id,
+      UUID sourceNodeId,
+      String sourcePort,
+      UUID targetNodeId,
+      String label,
+      String transitionType) {
+    static GraphEdge from(EdgeDefinition edge) {
+      return new GraphEdge(
+          edge.getId(),
+          edge.getSourceNodeId(),
+          edge.getSourcePort(),
+          edge.getTargetNodeId(),
+          edge.getLabel(),
+          edge.getTransitionType().name());
+    }
+  }
 
   public record NodeOccurrence(
       UUID id,

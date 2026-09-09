@@ -5,6 +5,8 @@ import static org.mockito.Mockito.*;
 
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fpt.workflow.definition.domain.WorkflowVersion;
+import com.fpt.workflow.definition.repository.EdgeDefinitionRepository;
+import com.fpt.workflow.definition.repository.NodeDefinitionRepository;
 import com.fpt.workflow.definition.repository.WorkflowVersionRepository;
 import com.fpt.workflow.resolver.repository.ParticipantSnapshotRepository;
 import com.fpt.workflow.runtime.context.*;
@@ -24,6 +26,8 @@ class EventMonitoringServiceTest {
   void returnsExactVersionOccurrencesAndOnlyMaskedContext() {
     var events = mock(EventRepository.class);
     var versions = mock(WorkflowVersionRepository.class);
+    var nodeDefinitions = mock(NodeDefinitionRepository.class);
+    var edgeDefinitions = mock(EdgeDefinitionRepository.class);
     var nodes = mock(NodeExecutionRepository.class);
     var tasks = mock(TaskExecutionRepository.class);
     var participants = mock(ParticipantSnapshotRepository.class);
@@ -92,6 +96,10 @@ class EventMonitoringServiceTest {
             now.plusSeconds(1));
     when(events.findById(eventId)).thenReturn(Optional.of(event));
     when(versions.findById(versionId)).thenReturn(Optional.of(version));
+    when(nodeDefinitions.findAllByWorkflowVersionIdOrderByNodeKeyAsc(versionId))
+        .thenReturn(List.of());
+    when(edgeDefinitions.findAllByWorkflowVersionIdOrderByPriorityAscIdAsc(versionId))
+        .thenReturn(List.of());
     when(tickets.findById(ticketId)).thenReturn(Optional.of(ticket));
     when(nodes.findAllByEventIdOrderByCreatedAtAsc(eventId)).thenReturn(List.of(first, repeated));
     when(tasks.findAllByNodeExecutionIdOrderByCreatedAtAsc(any())).thenReturn(List.of());
@@ -107,6 +115,8 @@ class EventMonitoringServiceTest {
         new EventMonitoringService(
             events,
             versions,
+            nodeDefinitions,
+            edgeDefinitions,
             nodes,
             tasks,
             participants,
@@ -119,6 +129,7 @@ class EventMonitoringServiceTest {
     assertThat(view.workflowVersion().id()).isEqualTo(versionId);
     assertThat(view.workflowVersion().versionNo()).isEqualTo(7);
     assertThat(view.workflowVersion().checksum()).isEqualTo("exact-checksum");
+    assertThat(view.graph().nodes()).isEmpty();
     assertThat(view.nodeExecutions()).hasSize(2);
     assertThat(view.nodeExecutions())
         .extracting(EventMonitoringService.NodeOccurrence::iteration)

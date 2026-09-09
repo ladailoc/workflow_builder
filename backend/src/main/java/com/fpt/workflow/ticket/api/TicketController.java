@@ -59,6 +59,11 @@ public class TicketController {
         id, new CommandId(commandId), new ExpectedVersion(expectedVersion), request);
   }
 
+  @GetMapping
+  public java.util.List<TicketDtos.TicketView> list() {
+    return ticketService.listMyTickets();
+  }
+
   @GetMapping("/{id}")
   public TicketDtos.AggregateView get(@PathVariable UUID id) {
     return ticketService.get(id);

@@ -234,6 +234,16 @@ public class EventLifecycleService {
   @Transactional
   public Event terminateEvent(
       UUID eventId, CommandId commandId, CorrelationId correlationId, String reason) {
+    return terminateEvent(eventId, commandId, correlationId, reason, null);
+  }
+
+  @Transactional
+  public Event terminateEvent(
+      UUID eventId,
+      CommandId commandId,
+      CorrelationId correlationId,
+      String reason,
+      Long expectedVersion) {
     if (reason == null || reason.isBlank()) {
       throw new IllegalArgumentException("Termination reason is mandatory");
     }
@@ -245,6 +255,10 @@ public class EventLifecycleService {
         eventRepository
             .findByIdForUpdate(eventId)
             .orElseThrow(() -> new IllegalArgumentException("Event not found: " + eventId));
+    if (expectedVersion != null && event.getLockVersion() != expectedVersion) {
+      throw new com.fpt.workflow.shared.api.CommandConflictException(
+          "STALE_EXPECTED_VERSION", "Event version does not match If-Match");
+    }
     if (TERMINAL_EVENT_STATUSES.contains(event.getStatus())) {
       throw new IllegalStateException("Cannot terminate terminal Event: " + event.getStatus());
     }

@@ -35,14 +35,14 @@ export const ANONYMOUS_SESSION: AuthSession = {
 
 export const PRESET_ACTORS: readonly SessionActor[] = [
   {
-    actorId: "usr-enduser-001",
+    actorId: "10000000-0000-4000-8000-000000000001",
     principalName: "Alice User",
     email: "alice@company.com",
     roles: ["USER"],
     permissions: ["REQUEST_CATALOG_ACCESS", "TASK_ACTION_ACCESS"],
   },
   {
-    actorId: "usr-wfowner-002",
+    actorId: "20000000-0000-4000-8000-000000000002",
     principalName: "Bob Owner",
     email: "bob.owner@company.com",
     roles: ["WORKFLOW_OWNER"],
@@ -53,7 +53,7 @@ export const PRESET_ACTORS: readonly SessionActor[] = [
     ],
   },
   {
-    actorId: "usr-operator-003",
+    actorId: "30000000-0000-4000-8000-000000000003",
     principalName: "Charlie Ops",
     email: "charlie.ops@company.com",
     roles: ["OPERATOR"],
@@ -64,7 +64,7 @@ export const PRESET_ACTORS: readonly SessionActor[] = [
     ],
   },
   {
-    actorId: "usr-admin-004",
+    actorId: "40000000-0000-4000-8000-000000000004",
     principalName: "Diana Admin",
     email: "diana.admin@company.com",
     roles: ["ADMIN"],
