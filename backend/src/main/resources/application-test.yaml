@@ -12,3 +12,7 @@ spring:
       pool-name: WorkflowPlatformTestPool
       validation-timeout: 5000
 
+platform:
+  jobs:
+    worker:
+      enabled: false

@@ -2,6 +2,7 @@ package com.fpt.workflow.ticket.service;
 
 import com.fpt.workflow.definition.domain.RequestType;
 import com.fpt.workflow.definition.repository.RequestTypeRepository;
+import com.fpt.workflow.operations.job.WorkflowJobTransactions;
 import com.fpt.workflow.runtime.domain.Event;
 import com.fpt.workflow.runtime.repository.EventRepository;
 import com.fpt.workflow.security.ActorContext;
@@ -47,6 +48,7 @@ public class TicketService {
   private final UuidGenerator uuidGenerator;
   private final PlatformClock clock;
   private final EventRepository eventRepository;
+  private final WorkflowJobTransactions jobs;
 
   public TicketService(
       TicketRepository ticketRepository,
@@ -57,7 +59,8 @@ public class TicketService {
       ActorContextProvider actorContextProvider,
       UuidGenerator uuidGenerator,
       PlatformClock clock,
-      EventRepository eventRepository) {
+      EventRepository eventRepository,
+      WorkflowJobTransactions jobs) {
     this.ticketRepository = ticketRepository;
     this.revisionRepository = revisionRepository;
     this.subjectRepository = subjectRepository;
@@ -67,6 +70,7 @@ public class TicketService {
     this.uuidGenerator = uuidGenerator;
     this.clock = clock;
     this.eventRepository = eventRepository;
+    this.jobs = jobs;
   }
 
   @TransactionalCommand
@@ -149,19 +153,34 @@ public class TicketService {
     ticket.submit(revision.getId(), revisionNo, revision.getDataSnapshotJson(), now);
     ticketRepository.saveAndFlush(ticket);
     revisionRepository.saveAndFlush(revision);
-    eventRepository.saveAndFlush(
-        Event.createRoot(
-            uuidGenerator.generate(),
-            ticket.getId(),
-            formContract.workflowVersionId(),
-            revision.getId(),
-            null,
-            null,
-            "TICKET_SUBMIT",
-            commandId.toString(),
-            objectNode(),
-            actor.actorId(),
-            now));
+    Event event =
+        eventRepository.saveAndFlush(
+            Event.createRoot(
+                uuidGenerator.generate(),
+                ticket.getId(),
+                formContract.workflowVersionId(),
+                revision.getId(),
+                null,
+                null,
+                "TICKET_SUBMIT",
+                commandId.toString(),
+                objectNode(),
+                actor.actorId(),
+                now));
+    UUID cycleId = uuidGenerator.generate();
+    UUID correlationId = uuidGenerator.generate();
+    jobs.enqueue(
+        "EVENT_START",
+        "EVENT",
+        event.getId(),
+        objectNode()
+            .put("eventId", event.getId().toString())
+            .put("cycleId", cycleId.toString())
+            .put("correlationId", correlationId.toString())
+            .put("commandId", commandId.toString()),
+        5,
+        now,
+        "event-start:" + event.getId());
     return aggregate(ticket);
   }
 

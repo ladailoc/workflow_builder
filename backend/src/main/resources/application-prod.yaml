@@ -18,6 +18,12 @@ spring:
       validation-timeout: ${DB_POOL_VALIDATION_TIMEOUT_MS:3000}
 
 platform:
+  jobs:
+    worker:
+      enabled: true
+      fixed-delay-ms: ${WORKFLOW_JOB_POLL_INTERVAL_MS:1000}
+      batch-size: ${WORKFLOW_JOB_BATCH_SIZE:20}
+      lease-seconds: ${WORKFLOW_JOB_LEASE_SECONDS:30}
   security:
     cors:
       allowed-origins: ${CORS_ALLOWED_ORIGINS}
