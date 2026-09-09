@@ -79,6 +79,7 @@ public class RoutingService {
   private final com.fpt.workflow.runtime.join.service.JoinService joinService;
   private final AuditEventRepository auditRepository;
   private final ActorContextProvider actorProvider;
+  private final com.fpt.workflow.runtime.lifecycle.EventLifecycleService eventLifecycleService;
   private final ReworkRuntimePlanner reworkPlanner = new ReworkRuntimePlanner();
 
   public RoutingService(
@@ -109,6 +110,7 @@ public class RoutingService {
         uuidGenerator,
         clock,
         objectMapper,
+        null,
         null,
         null,
         null);
@@ -145,6 +147,7 @@ public class RoutingService {
         objectMapper,
         joinService,
         null,
+        null,
         null);
   }
 
@@ -168,7 +171,10 @@ public class RoutingService {
       @org.springframework.beans.factory.annotation.Autowired(required = false)
           AuditEventRepository auditRepository,
       @org.springframework.beans.factory.annotation.Autowired(required = false)
-          ActorContextProvider actorProvider) {
+          ActorContextProvider actorProvider,
+      @org.springframework.context.annotation.Lazy
+          @org.springframework.beans.factory.annotation.Autowired(required = false)
+          com.fpt.workflow.runtime.lifecycle.EventLifecycleService eventLifecycleService) {
     this.executionRepository = executionRepository;
     this.eventRepository = eventRepository;
     this.nodeRepository = nodeRepository;
@@ -185,6 +191,7 @@ public class RoutingService {
     this.joinService = joinService;
     this.auditRepository = auditRepository;
     this.actorProvider = actorProvider;
+    this.eventLifecycleService = eventLifecycleService;
   }
 
   /**
@@ -330,6 +337,9 @@ public class RoutingService {
     // Activate tokens (idempotency guaranteed by activation_key UNIQUE on node_executions)
     RoutingResult result = activateTokens(tokens, event, source, mode, correlationId, commandId);
     recordAudit(event, source, result, correlationId, commandId);
+    if (eventLifecycleService != null) {
+      eventLifecycleService.syncEventStatus(event.getId());
+    }
     return result;
   }
 
@@ -346,7 +356,11 @@ public class RoutingService {
       CommandId commandId) {
 
     List<ActivationToken> allTokens = tokenRepository.findAllByRoutingDecisionId(decision.getId());
-    return activateTokens(allTokens, event, source, mode, correlationId, commandId);
+    RoutingResult result = activateTokens(allTokens, event, source, mode, correlationId, commandId);
+    if (eventLifecycleService != null) {
+      eventLifecycleService.syncEventStatus(event.getId());
+    }
+    return result;
   }
 
   private RoutingResult activateTokens(
@@ -400,12 +414,26 @@ public class RoutingService {
                   token.getJoinScopeId(),
                   correlationId,
                   commandId));
-      downstream.add(ne);
+      if (ne != null) {
+        downstream.add(ne);
+      }
       selectedEdgeIds.add(token.getEdgeId());
 
       if (token.isPending()) {
         token.markActivated(now);
         tokenRepository.save(token);
+      }
+
+      NodeDefinition targetDef =
+          nodeRepository.findById(token.getTargetNodeDefinitionId()).orElse(null);
+      if (ne != null && ne.getStatus() == NodeExecutionStatus.COMPLETED && targetDef != null) {
+        Optional<NodeTypeManifest> targetManifest = registry.find(parseNodeType(targetDef));
+        if (targetManifest.isPresent()
+            && !targetManifest.get().supportedCapabilities().contains(NodeCapability.TERMINAL)) {
+          RoutingResult cascaded = route(ne.getId(), correlationId, commandId);
+          downstream.addAll(cascaded.activations());
+          selectedEdgeIds.addAll(cascaded.selectedEdgeIds());
+        }
       }
     }
 

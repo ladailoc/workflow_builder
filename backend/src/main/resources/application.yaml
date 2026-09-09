@@ -54,6 +54,9 @@ platform:
   files:
     local-root: ${PLATFORM_FILES_ROOT:${java.io.tmpdir}/workflow-platform-files}
     max-file-size-bytes: ${MAX_FILE_SIZE_BYTES:26214400}
+  seed:
+    demo:
+      enabled: ${PLATFORM_SEED_DEMO_ENABLED:false}
 
 management:
   endpoint:

@@ -162,11 +162,17 @@ public class CoreNodeTypeConfiguration {
                 "maxAttempts", TypeDescriptor.nullable(CanonicalValueType.INTEGER),
                 "allowAfterTerminal", TypeDescriptor.nullable(CanonicalValueType.BOOLEAN)),
             Set.of("channel", "participant", "template"));
+    CanonicalSchema output =
+        CanonicalSchema.strict(
+            Map.of(
+                "dispatch", TypeDescriptor.required(CanonicalValueType.STRING),
+                "dedupKey", TypeDescriptor.required(CanonicalValueType.STRING)),
+            Set.of("dispatch", "dedupKey"));
     return provider(
         NodeType.NOTIFICATION,
         Set.of(NodeCapability.PARTICIPANT, NodeCapability.OUTPUT),
         CanonicalSchema.open(),
-        EMPTY_SCHEMA,
+        output,
         Set.of("QUEUED"),
         config,
         "notification",

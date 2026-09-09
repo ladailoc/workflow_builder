@@ -571,6 +571,27 @@ public class WorkflowValidationCompiler {
       List<CompilerIssue> issues) {
     outgoing.forEach(
         (nodeId, edges) -> {
+          NodeDefinition node = nodes.get(nodeId);
+          boolean isAllOutgoing =
+              node != null
+                  && ("PARALLEL_SPLIT".equals(node.getNodeType())
+                      || "ALL_OUTGOING"
+                          .equals(node.getConfigJson().path("routingMode").asText(null)));
+          if (isAllOutgoing) {
+            Set<Integer> priorities = new HashSet<>();
+            boolean duplicatePriority =
+                edges.stream().anyMatch(edge -> !priorities.add(edge.getPriority()));
+            if (duplicatePriority) {
+              issue(
+                  issues,
+                  "ROUTING_NON_DETERMINISTIC",
+                  node,
+                  "/routes",
+                  "Routes have duplicate priorities",
+                  "Use unique priorities for parallel branch edges");
+            }
+            return;
+          }
           Map<String, List<EdgeDefinition>> byPort = new HashMap<>();
           edges.forEach(
               edge ->

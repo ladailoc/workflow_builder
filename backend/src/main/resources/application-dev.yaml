@@ -18,6 +18,9 @@ spring:
       validation-timeout: ${DB_POOL_VALIDATION_TIMEOUT_MS:5000}
 
 platform:
+  seed:
+    demo:
+      enabled: true
   jobs:
     worker:
       enabled: true
