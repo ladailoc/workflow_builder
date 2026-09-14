@@ -109,6 +109,27 @@ public class StoredFile {
     scanStatus = Objects.requireNonNull(result);
   }
 
+  /**
+   * Tombstones the file after retention expiry (P2-14): bytes were purged from object storage;
+   * this metadata row intentionally remains for audit/timeline and never exposes storage keys
+   * through public APIs again.
+   */
+  public void recordRetentionPurge(Instant purgedAt) {
+    Objects.requireNonNull(purgedAt, "purgedAt");
+    if (scanStatus == FileScanStatus.RETENTION_PURGED) {
+      return; // idempotent
+    }
+    if (scanStatus == FileScanStatus.QUARANTINED || scanStatus == FileScanStatus.REJECTED) {
+      throw new IllegalStateException(
+          "Quarantined/rejected files are not purged by the retention worker");
+    }
+    scanStatus = FileScanStatus.RETENTION_PURGED;
+    metadataJson = metadataJson.deepCopy();
+    com.fasterxml.jackson.databind.node.ObjectNode metadata =
+        (com.fasterxml.jackson.databind.node.ObjectNode) metadataJson;
+    metadata.put("retentionPurgedAt", purgedAt.toString());
+  }
+
   public FileRef toRef() {
     return new FileRef(
         id,
