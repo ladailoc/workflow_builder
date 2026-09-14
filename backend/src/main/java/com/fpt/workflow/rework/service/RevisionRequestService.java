@@ -11,11 +11,12 @@ import com.fpt.workflow.operations.audit.AuditEvent;
 import com.fpt.workflow.operations.audit.AuditEventRepository;
 import com.fpt.workflow.rework.domain.*;
 import com.fpt.workflow.rework.repository.*;
-import com.fpt.workflow.runtime.activation.*;
 import com.fpt.workflow.runtime.domain.Event;
 import com.fpt.workflow.runtime.domain.NodeExecution;
 import com.fpt.workflow.runtime.repository.EventRepository;
 import com.fpt.workflow.runtime.repository.NodeExecutionRepository;
+import com.fpt.workflow.runtime.routing.RoutingResult;
+import com.fpt.workflow.runtime.routing.RoutingService;
 import com.fpt.workflow.security.ActorContext;
 import com.fpt.workflow.security.ActorContextProvider;
 import com.fpt.workflow.security.RoleKey;
@@ -23,6 +24,7 @@ import com.fpt.workflow.shared.UuidGenerator;
 import com.fpt.workflow.shared.domain.CommandId;
 import com.fpt.workflow.shared.domain.CorrelationId;
 import com.fpt.workflow.shared.domain.lifecycle.EventStatus;
+import com.fpt.workflow.shared.domain.lifecycle.NodeExecutionStatus;
 import com.fpt.workflow.shared.domain.lifecycle.TaskStatus;
 import com.fpt.workflow.shared.time.PlatformClock;
 import com.fpt.workflow.task.domain.TaskExecution;
@@ -54,11 +56,21 @@ public class RevisionRequestService {
   private final EdgeDefinitionRepository edges;
   private final TicketRepository tickets;
   private final TicketRevisionRepository revisions;
-  private final NodeActivationService activationService;
+  private final RoutingService routingService;
   private final AuditEventRepository audits;
   private final ActorContextProvider actors;
   private final UuidGenerator uuids;
   private final PlatformClock clock;
+  private RevisionInputRemapPort inputRemaps;
+
+  /**
+   * Category-owned remap of the pinned mapping contract. Optional: legacy (non-category) runtime
+   * revisions keep the historical TicketRevision-only behavior.
+   */
+  @org.springframework.beans.factory.annotation.Autowired(required = false)
+  void setInputRemaps(RevisionInputRemapPort inputRemaps) {
+    this.inputRemaps = inputRemaps;
+  }
 
   public RevisionRequestService(
       RevisionRequestRepository requests,
@@ -71,7 +83,7 @@ public class RevisionRequestService {
       EdgeDefinitionRepository edges,
       TicketRepository tickets,
       TicketRevisionRepository revisions,
-      NodeActivationService activationService,
+      RoutingService routingService,
       AuditEventRepository audits,
       ActorContextProvider actors,
       UuidGenerator uuids,
@@ -86,11 +98,32 @@ public class RevisionRequestService {
     this.edges = edges;
     this.tickets = tickets;
     this.revisions = revisions;
-    this.activationService = activationService;
+    this.routingService = routingService;
     this.audits = audits;
     this.actors = actors;
     this.uuids = uuids;
     this.clock = clock;
+  }
+
+  @Transactional(readOnly = true)
+  public RevisionRequest require(UUID requestId) {
+    return requests
+        .findById(requestId)
+        .orElseThrow(() -> new IllegalArgumentException("Revision request not found: " + requestId));
+  }
+
+  /** Replay-stable projection of the revision chain produced by the submit command. */
+  public com.fpt.workflow.rework.dto.RevisionRequestDtos.RevisionSubmitView view(
+      RevisionRequest request) {
+    Event event = events.findById(request.getEventId()).orElseThrow();
+    Ticket ticket = tickets.findById(event.getTicketId()).orElseThrow();
+    return new com.fpt.workflow.rework.dto.RevisionRequestDtos.RevisionSubmitView(
+        ticket.getId(),
+        ticket.getDataRevision(),
+        ticket.getCurrentRevisionId(),
+        request.getFormSubmissionId(),
+        request.getTicketRevisionId(),
+        request.getInputRevision());
   }
 
   @Transactional
@@ -116,19 +149,35 @@ public class RevisionRequestService {
       throw new IllegalStateException("Event is terminal");
     NodeDefinition sourceNode = nodes.findById(source.getNodeDefinitionId()).orElseThrow();
     requireConfiguredAction(sourceNode);
-    NodeDefinition target = nodes.findById(targetNodeId).orElseThrow();
+    List<com.fpt.workflow.definition.domain.EdgeDefinition> validReworkEdges =
+        edges.findAllByWorkflowVersionIdOrderByPriorityAscIdAsc(event.getWorkflowVersionId()).stream()
+            .filter(
+                edge ->
+                    edge.getSourceNodeId().equals(sourceNode.getId())
+                        && "REVISION_REQUESTED".equalsIgnoreCase(edge.getSourcePort())
+                        && (edge.getTransitionType() == TransitionType.REWORK
+                            || edge.getTransitionType() == TransitionType.RETURN))
+            .toList();
+    UUID resolvedTargetNodeId;
+    if (targetNodeId == null) {
+      List<UUID> configuredTargets =
+          validReworkEdges.stream().map(edge -> edge.getTargetNodeId()).distinct().toList();
+      if (configuredTargets.size() != 1) {
+        throw new IllegalArgumentException(
+            configuredTargets.isEmpty()
+                ? "REQUEST_REVISION requires an explicit REWORK/RETURN edge"
+                : "targetNodeId is required when REQUEST_REVISION has multiple rework targets");
+      }
+      resolvedTargetNodeId = configuredTargets.getFirst();
+    } else {
+      resolvedTargetNodeId = targetNodeId;
+    }
+    NodeDefinition target = nodes.findById(resolvedTargetNodeId).orElseThrow();
     if (!target.getWorkflowVersionId().equals(event.getWorkflowVersionId()))
       throw new IllegalArgumentException("Revision target is outside the Event WorkflowVersion");
     boolean validRework =
-        edges
-            .findAllByWorkflowVersionIdOrderByPriorityAscIdAsc(event.getWorkflowVersionId())
-            .stream()
-            .anyMatch(
-                edge ->
-                    edge.getSourceNodeId().equals(sourceNode.getId())
-                        && edge.getTargetNodeId().equals(targetNodeId)
-                        && (edge.getTransitionType() == TransitionType.REWORK
-                            || edge.getTransitionType() == TransitionType.RETURN));
+        validReworkEdges.stream()
+            .anyMatch(edge -> edge.getTargetNodeId().equals(resolvedTargetNodeId));
     if (!validRework)
       throw new IllegalArgumentException("Revision target requires an explicit REWORK/RETURN edge");
 
@@ -140,7 +189,7 @@ public class RevisionRequestService {
                 event.getId(),
                 task.getId(),
                 actor.actorId(),
-                targetNodeId,
+                resolvedTargetNodeId,
                 source.getCycleId(),
                 comment,
                 now));
@@ -175,6 +224,19 @@ public class RevisionRequestService {
       String changeReason,
       CorrelationId correlationId,
       CommandId commandId) {
+    return submit(
+        requestId, submittedValues, replacementTicketData, changeReason, null, correlationId, commandId);
+  }
+
+  @Transactional
+  public NodeExecution submit(
+      UUID requestId,
+      Map<String, JsonNode> submittedValues,
+      JsonNode replacementTicketData,
+      String changeReason,
+      Long expectedVersion,
+      CorrelationId correlationId,
+      CommandId commandId) {
     ActorContext actor = actors.requireActor();
     RevisionRequest request =
         requests
@@ -189,6 +251,12 @@ public class RevisionRequestService {
     Ticket ticket = tickets.findByIdForUpdate(event.getTicketId()).orElseThrow();
     if (!ticket.getCreatorId().equals(actor.actorId()) && !actor.hasRole(RoleKey.ADMIN))
       throw new AccessDeniedException("Only the Ticket creator can submit a revision");
+    // Optimistic locking is verified AFTER authorization so an unauthorized caller cannot probe
+    // the request's current version through a 409 STALE_EXPECTED_VERSION response.
+    if (expectedVersion != null && request.getLockVersion() != expectedVersion) {
+      throw new com.fpt.workflow.shared.api.CommandConflictException(
+          "STALE_EXPECTED_VERSION", "RevisionRequest lock version does not match If-Match");
+    }
     Map<String, JsonNode> supplied =
         submittedValues == null ? Map.of() : Map.copyOf(submittedValues);
     List<RevisionRequestedField> definitions =
@@ -228,31 +296,61 @@ public class RevisionRequestService {
       ticket.recordBusinessRevision(revision.getId(), revisionNo, replacementTicketData, now);
       revisions.save(revision);
       tickets.save(ticket);
+      // §7.5: where the pinned Category policy permits remapping, rerun the SAME mapping contract
+      // and append a NEW immutable WorkflowInputRevision. The Event keeps its exact
+      // WorkflowVersion; the new rework occurrence sees the new revision, old occurrences keep
+      // their already-resolved inputs.
+      if (inputRemaps != null) {
+        inputRemaps
+            .remap(event.getId(), event.getWorkflowVersionId(), ticket.getId(),
+                revision.getId(), replacementTicketData, actor.actorId(), now)
+            .ifPresent(
+                remapped ->
+                    request.bindRemap(revision.getId(), remapped.formSubmissionId(), remapped.inputRevision()));
+        requests.saveAndFlush(request);
+      }
     }
     request.submit(now);
     requests.saveAndFlush(request);
     audit(request, "REVISION_RESUBMITTED", actor, correlationId, commandId, now);
+    TaskExecution sourceTask =
+        tasks.findByIdForUpdate(request.getSourceTaskId()).orElseThrow();
     NodeExecution source =
-        executions
-            .findById(tasks.findById(request.getSourceTaskId()).orElseThrow().getNodeExecutionId())
-            .orElseThrow();
-    UUID nextCycle =
-        UUID.nameUUIDFromBytes(
-            (request.getCycleId() + ":" + request.getId())
-                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
-    return activationService.activate(
-        new ActivationRequest(
-            event.getId(),
-            request.getTargetNodeId(),
-            new ActivationKey("revision:" + request.getId()),
-            nextCycle,
-            source.getIteration() + 1,
-            source.getPathToken(),
-            source.getItemToken(),
-            source.getSplitScopeId(),
-            source.getJoinScopeId(),
-            correlationId,
-            commandId));
+        executions.findByIdForUpdate(sourceTask.getNodeExecutionId()).orElseThrow();
+    ObjectNode routingOutput = JsonNodeFactory.instance.objectNode();
+    routingOutput.put("revisionRequestId", request.getId().toString());
+    routingOutput.put("targetNodeId", request.getTargetNodeId().toString());
+    routingOutput.put("submittedBy", actor.actorId().toString());
+    if (source.getStatus() != NodeExecutionStatus.COMPLETED) {
+      source.complete("REVISION_REQUESTED", routingOutput, now);
+      executions.saveAndFlush(source);
+    }
+    if (sourceTask.getStatus() != TaskStatus.COMPLETED
+        && sourceTask.getStatus() != TaskStatus.CANCELLED
+        && sourceTask.getStatus() != TaskStatus.EXPIRED) {
+      sourceTask.cancel(
+          com.fpt.workflow.shared.domain.lifecycle.BusinessOutcome.of("REVISION_REQUESTED"), now);
+      tasks.saveAndFlush(sourceTask);
+    }
+
+    RoutingResult routed = routingService.route(source.getId(), correlationId, commandId);
+    if (routed.activations().isEmpty()) {
+      Event refreshedEvent = events.findById(event.getId()).orElse(event);
+      if (refreshedEvent.getStatus() == EventStatus.FAILED) {
+        throw new IllegalStateException("REWORK_ITERATION_LIMIT_EXCEEDED");
+      }
+    }
+    return routed.activations().stream()
+        .filter(activation -> activation.getNodeDefinitionId().equals(request.getTargetNodeId()))
+        .findFirst()
+        .orElseGet(
+            () ->
+                routed.activations().stream()
+                    .findFirst()
+                    .orElseThrow(
+                        () ->
+                            new IllegalStateException(
+                                "Revision submission produced no downstream activation")));
   }
 
   private void requireActiveTaskActor(TaskExecution task, ActorContext actor) {

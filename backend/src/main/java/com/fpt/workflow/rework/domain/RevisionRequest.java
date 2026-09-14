@@ -27,6 +27,15 @@ public class RevisionRequest {
 
   @Column private String comment;
 
+  @Column(name = "form_submission_id")
+  private UUID formSubmissionId;
+
+  @Column(name = "input_revision")
+  private Long inputRevision;
+
+  @Column(name = "ticket_revision_id")
+  private UUID ticketRevisionId;
+
   @Enumerated(EnumType.STRING)
   @Column(nullable = false, length = 32)
   private RevisionRequestStatus status;
@@ -72,6 +81,19 @@ public class RevisionRequest {
     completedAt = Objects.requireNonNull(at);
   }
 
+  /** Binds the submitted revision to the new business revision and its remapped input revision. */
+  public void bindRemap(UUID ticketRevisionId, UUID formSubmissionId, long inputRevision) {
+    if (status != RevisionRequestStatus.SUBMITTED && status != RevisionRequestStatus.OPEN)
+      throw new IllegalStateException("Revision request is terminal");
+    if (this.inputRevision != null || this.formSubmissionId != null)
+      throw new IllegalStateException("Revision remap is already recorded");
+    if (inputRevision < 1)
+      throw new IllegalArgumentException("inputRevision must be positive");
+    this.ticketRevisionId = Objects.requireNonNull(ticketRevisionId, "ticketRevisionId");
+    this.formSubmissionId = Objects.requireNonNull(formSubmissionId, "formSubmissionId");
+    this.inputRevision = inputRevision;
+  }
+
   public UUID getId() {
     return id;
   }
@@ -111,6 +133,10 @@ public class RevisionRequest {
   public Instant getCompletedAt() {
     return completedAt;
   }
+
+  public UUID getFormSubmissionId() { return formSubmissionId; }
+  public Long getInputRevision() { return inputRevision; }
+  public UUID getTicketRevisionId() { return ticketRevisionId; }
 
   public long getLockVersion() {
     return lockVersion;

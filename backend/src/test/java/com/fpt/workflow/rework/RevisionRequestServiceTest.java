@@ -13,9 +13,11 @@ import com.fpt.workflow.operations.audit.AuditEventRepository;
 import com.fpt.workflow.rework.domain.*;
 import com.fpt.workflow.rework.repository.*;
 import com.fpt.workflow.rework.service.RevisionRequestService;
-import com.fpt.workflow.runtime.activation.NodeActivationService;
 import com.fpt.workflow.runtime.domain.*;
 import com.fpt.workflow.runtime.repository.*;
+import com.fpt.workflow.runtime.routing.RoutingMode;
+import com.fpt.workflow.runtime.routing.RoutingResult;
+import com.fpt.workflow.runtime.routing.RoutingService;
 import com.fpt.workflow.security.*;
 import com.fpt.workflow.shared.UuidGenerator;
 import com.fpt.workflow.shared.domain.*;
@@ -44,7 +46,7 @@ class RevisionRequestServiceTest {
   private final EdgeDefinitionRepository edges = mock(EdgeDefinitionRepository.class);
   private final TicketRepository tickets = mock(TicketRepository.class);
   private final TicketRevisionRepository revisions = mock(TicketRevisionRepository.class);
-  private final NodeActivationService activation = mock(NodeActivationService.class);
+  private final RoutingService routing = mock(RoutingService.class);
   private final AuditEventRepository audits = mock(AuditEventRepository.class);
   private final ActorContextProvider actors = mock(ActorContextProvider.class);
   private final AtomicReference<ActorContext> currentActor = new AtomicReference<>();
@@ -53,6 +55,7 @@ class RevisionRequestServiceTest {
   private UUID creator, reviewer, versionId, eventId, taskId, sourceNodeId, targetNodeId;
   private RevisionRequest request;
   private Ticket ticket;
+  private Event event;
   private NodeExecution source;
 
   @BeforeEach
@@ -82,7 +85,7 @@ class RevisionRequestServiceTest {
             edges,
             tickets,
             revisions,
-            activation,
+            routing,
             audits,
             actors,
             uuids,
@@ -93,7 +96,7 @@ class RevisionRequestServiceTest {
         Ticket.createDraft(
             ticketId, UUID.randomUUID(), creator, object().put("score", 1), now.minusSeconds(10));
     ticket.submit(revisionId, 1, ticket.getDataJson(), now.minusSeconds(9));
-    Event event =
+    event =
         Event.createRoot(
             eventId,
             ticketId,
@@ -159,6 +162,7 @@ class RevisionRequestServiceTest {
     when(tasks.findByIdForUpdate(taskId)).thenReturn(Optional.of(task));
     when(tasks.findById(taskId)).thenReturn(Optional.of(task));
     when(executions.findById(source.getId())).thenReturn(Optional.of(source));
+    when(executions.findByIdForUpdate(source.getId())).thenReturn(Optional.of(source));
     when(events.findById(eventId)).thenReturn(Optional.of(event));
     when(events.findByIdForUpdate(eventId)).thenReturn(Optional.of(event));
     when(nodes.findById(sourceNodeId)).thenReturn(Optional.of(sourceNode));
@@ -220,7 +224,8 @@ class RevisionRequestServiceTest {
             object(),
             ticket.getCurrentRevisionId(),
             now);
-    when(activation.activate(any())).thenReturn(next);
+    when(routing.route(eq(source.getId()), any(), any()))
+        .thenReturn(new RoutingResult(RoutingMode.SINGLE_BY_PORT, List.of(edgeId()), List.of(next)));
 
     currentActor.set(actor(creator));
     JsonNode changed = object().put("score", 2);
@@ -243,14 +248,10 @@ class RevisionRequestServiceTest {
                     revision.getRevisionNo() == 2
                         && revision.getDataSnapshotJson().equals(changed)));
     verify(values).save(argThat(value -> value.getValueJson().asText().equals("updated evidence")));
-    verify(activation)
-        .activate(
-            argThat(
-                activationRequest ->
-                    activationRequest.iteration() == 1
-                        && activationRequest.itemToken().equals("employee-B")
-                        && activationRequest.targetNodeDefinitionId().equals(targetNodeId)));
-    assertThat(source.getStatus().name()).isEqualTo("WAITING");
+    verify(routing).route(eq(source.getId()), any(), any());
+    verify(executions).saveAndFlush(source);
+    assertThat(source.getStatus().name()).isEqualTo("COMPLETED");
+    assertThat(source.getOutcomePort()).isEqualTo("REVISION_REQUESTED");
   }
 
   @Test
@@ -277,6 +278,72 @@ class RevisionRequestServiceTest {
         .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
   }
 
+  @Test
+  void duplicateSubmitThrowsIllegalStateExceptionAndDoesNotIncrementTwice() {
+    currentActor.set(actor(creator));
+    RevisionRequest submittedRequest =
+        RevisionRequest.open(
+            UUID.randomUUID(),
+            eventId,
+            taskId,
+            creator,
+            targetNodeId,
+            UUID.randomUUID(),
+            "already submitted",
+            now.minusSeconds(10));
+    submittedRequest.submit(now.minusSeconds(5));
+    when(requests.findByIdForUpdate(submittedRequest.getId()))
+        .thenReturn(Optional.of(submittedRequest));
+
+    assertThatThrownBy(
+            () ->
+                service.submit(
+                    submittedRequest.getId(),
+                    Map.of(),
+                    null,
+                    "reason",
+                    correlation(),
+                    command()))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("Revision request is terminal");
+  }
+
+  @Test
+  void reworkExhaustionFailsEventAndThrowsStableCode() {
+    currentActor.set(actor(reviewer));
+    request =
+        service.open(
+            taskId,
+            targetNodeId,
+            "Please rework",
+            List.of(),
+            correlation(),
+            command());
+    when(requests.findByIdForUpdate(request.getId())).thenReturn(Optional.of(request));
+    when(fields.findAllByRevisionRequestIdOrderByOrdinalAsc(request.getId()))
+        .thenReturn(List.of());
+
+    when(routing.route(eq(source.getId()), any(), any()))
+        .thenAnswer(
+            invocation -> {
+              event.fail(now);
+              return new RoutingResult(RoutingMode.SINGLE_BY_PORT, List.of(), List.of());
+            });
+
+    currentActor.set(actor(creator));
+    assertThatThrownBy(
+            () ->
+                service.submit(
+                    request.getId(),
+                    Map.of(),
+                    null,
+                    "Resubmitted",
+                    correlation(),
+                    command()))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("REWORK_ITERATION_LIMIT_EXCEEDED");
+  }
+
   private NodeDefinition node(UUID id, String key, JsonNode config) {
     return NodeDefinition.create(
         id, versionId, key, "REVIEW", key, null, 1, config, null, null, object());
@@ -292,6 +359,10 @@ class RevisionRequestServiceTest {
 
   private CommandId command() {
     return new CommandId(UUID.randomUUID());
+  }
+
+  private UUID edgeId() {
+    return UUID.randomUUID();
   }
 
   private static ObjectNode object() {
