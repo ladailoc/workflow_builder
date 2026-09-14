@@ -39,6 +39,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import com.fpt.workflow.definition.repository.EdgeDefinitionRepository;
+import com.fpt.workflow.runtime.lifecycle.NoOpTicketLifecycleSyncPort;
+import com.fpt.workflow.runtime.lifecycle.TicketLifecycleSyncPort;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -63,6 +67,8 @@ public class SystemActionTransactionService {
   private final UuidGenerator uuidGenerator;
   private final PlatformClock clock;
   private final ObjectMapper objectMapper;
+  private final EdgeDefinitionRepository edgeRepo;
+  private final TicketLifecycleSyncPort ticketLifecycleSyncPort;
 
   public SystemActionTransactionService(
       IntegrationExecutionRepository executionRepo,
@@ -78,6 +84,41 @@ public class SystemActionTransactionService {
       UuidGenerator uuidGenerator,
       PlatformClock clock,
       ObjectMapper objectMapper) {
+    this(
+        executionRepo,
+        attemptRepo,
+        auditRepo,
+        nodeExecutionRepo,
+        nodeDefinitionRepo,
+        eventRepo,
+        variableRepo,
+        variableMapper,
+        contextBuilder,
+        routingService,
+        uuidGenerator,
+        clock,
+        objectMapper,
+        null,
+        new NoOpTicketLifecycleSyncPort());
+  }
+
+  @Autowired
+  public SystemActionTransactionService(
+      IntegrationExecutionRepository executionRepo,
+      IntegrationAttemptRepository attemptRepo,
+      AuditEventRepository auditRepo,
+      NodeExecutionRepository nodeExecutionRepo,
+      NodeDefinitionRepository nodeDefinitionRepo,
+      EventRepository eventRepo,
+      WorkflowVariableRepository variableRepo,
+      EventVariableMapper variableMapper,
+      EventContextBuilder contextBuilder,
+      @Lazy RoutingService routingService,
+      UuidGenerator uuidGenerator,
+      PlatformClock clock,
+      ObjectMapper objectMapper,
+      @Autowired(required = false) EdgeDefinitionRepository edgeRepo,
+      @Autowired(required = false) TicketLifecycleSyncPort ticketLifecycleSyncPort) {
     this.executionRepo = Objects.requireNonNull(executionRepo, "executionRepo");
     this.attemptRepo = Objects.requireNonNull(attemptRepo, "attemptRepo");
     this.auditRepo = Objects.requireNonNull(auditRepo, "auditRepo");
@@ -91,6 +132,9 @@ public class SystemActionTransactionService {
     this.uuidGenerator = Objects.requireNonNull(uuidGenerator, "uuidGenerator");
     this.clock = Objects.requireNonNull(clock, "clock");
     this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
+    this.edgeRepo = edgeRepo;
+    this.ticketLifecycleSyncPort =
+        ticketLifecycleSyncPort != null ? ticketLifecycleSyncPort : new NoOpTicketLifecycleSyncPort();
   }
 
   /**
@@ -252,7 +296,7 @@ public class SystemActionTransactionService {
     String responseJson = sanitizedResponse != null ? sanitizedResponse.toString() : null;
 
     if (finalResponse.success()) {
-      execution.markCompleted(responseJson, now);
+      execution.markSucceeded(responseJson, finalResponse.externalRequestId(), now);
     } else {
       execution.markFailed(finalResponse.errorCategory(), responseJson, now);
     }
@@ -296,6 +340,9 @@ public class SystemActionTransactionService {
         outputObject.setAll(obj);
       } else if (sanitizedResponse != null) {
         outputObject.set("result", sanitizedResponse);
+      }
+      if (finalResponse.externalRequestId() != null && !finalResponse.externalRequestId().isBlank()) {
+        outputObject.put("externalRequestId", finalResponse.externalRequestId());
       }
     } else {
       outcomePort = "ERROR";
@@ -488,6 +535,386 @@ public class SystemActionTransactionService {
     audit(execution, "MANUAL_RECOVERY", correlationId, commandId, clock.now());
     RoutingResult routing = routingService.route(nodeExecution.getId(), correlationId, commandId);
     return new SystemActionResult(execution, nodeExecution, outcomePort, routing);
+  }
+
+  /** Resumes an execution awaiting external callback and routes downstream. */
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  public SystemActionResult resumeExternalTx(
+      UUID executionId,
+      long expectedVersion,
+      String outcomePort,
+      JsonNode operatorOutput,
+      CorrelationId correlationId,
+      CommandId commandId) {
+    IntegrationExecution execution =
+        executionRepo
+            .findByIdForUpdate(executionId)
+            .orElseThrow(
+                () ->
+                    new IllegalArgumentException("IntegrationExecution not found: " + executionId));
+    if (execution.getLockVersion() != expectedVersion) {
+      throw new com.fpt.workflow.shared.api.CommandConflictException(
+          "STALE_EXPECTED_VERSION", "IntegrationExecution version does not match If-Match");
+    }
+    UUID eventId = execution.getEventId();
+    UUID nodeExecutionId = execution.getNodeExecutionId();
+    Event event =
+        eventRepo
+            .findByIdForUpdate(eventId)
+            .orElseThrow(() -> new IllegalStateException("Event not found: " + eventId));
+    if (List.of(
+            EventStatus.COMPLETED,
+            EventStatus.FAILED,
+            EventStatus.CANCELLED,
+            EventStatus.TERMINATED)
+        .contains(event.getStatus())) {
+      throw new IllegalStateException("Terminal Event wins over external resume");
+    }
+    NodeExecution nodeExecution =
+        nodeExecutionRepo
+            .findByIdForUpdate(nodeExecutionId)
+            .orElseThrow(
+                () -> new IllegalStateException("NodeExecution not found: " + nodeExecutionId));
+    if (nodeExecution.getStatus() != NodeExecutionStatus.WAITING
+        || nodeExecution.getWaitReason() != RuntimeWaitReason.EXTERNAL_CALLBACK) {
+      throw new IllegalStateException("Integration node is not awaiting external callback");
+    }
+    NodeDefinition node =
+        nodeDefinitionRepo.findById(nodeExecution.getNodeDefinitionId()).orElseThrow();
+
+    JsonNode sanitized = PayloadSanitizer.sanitize(operatorOutput);
+    ObjectNode output =
+        sanitized instanceof ObjectNode object
+            ? object.deepCopy()
+            : JsonNodeFactory.instance.objectNode().set("result", sanitized);
+    output.put("resumedExternal", true);
+
+    String effectivePort = (outcomePort != null && !outcomePort.isBlank()) ? outcomePort : "SUCCESS";
+    if ("SUCCESS".equalsIgnoreCase(effectivePort)) {
+      execution.markCompleted(output.toString(), clock.now());
+    } else {
+      execution.markFailed(
+          com.fpt.workflow.integration.domain.IntegrationErrorCategory.CLIENT_ERROR,
+          output.toString(),
+          clock.now());
+    }
+    execution = executionRepo.saveAndFlush(execution);
+
+    nodeExecution.complete(effectivePort, output, clock.now());
+    nodeExecution = nodeExecutionRepo.saveAndFlush(nodeExecution);
+
+    List<VariableMapping> mappings = decodeMappings(node.getConfigJson());
+    if (!mappings.isEmpty()) {
+      RuntimeScope scope =
+          RuntimeScope.occurrence(
+              nodeExecution.getCycleId(),
+              nodeExecution.getPathToken(),
+              nodeExecution.getItemToken());
+      EventContext afterOutput = contextBuilder.build(event.getId(), scope);
+      variableMapper.apply(
+          event,
+          variableRepo.findAllByWorkflowVersionIdOrderByKeyAsc(event.getWorkflowVersionId()),
+          mappings,
+          afterOutput);
+      eventRepo.saveAndFlush(event);
+    }
+    audit(execution, "RESUME_EXTERNAL", correlationId, commandId, clock.now());
+    RoutingResult routing = routingService.route(nodeExecution.getId(), correlationId, commandId);
+    return new SystemActionResult(execution, nodeExecution, effectivePort, routing);
+  }
+
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  public SystemActionResult failNodeOnIntegrationFailureTx(
+      UUID executionId,
+      IntegrationCallResponse response,
+      CorrelationId correlationId,
+      CommandId commandId) {
+    Instant now = clock.now();
+    IntegrationExecution execution =
+        executionRepo
+            .findById(executionId)
+            .orElseThrow(
+                () -> new IllegalStateException("IntegrationExecution not found: " + executionId));
+    final UUID nodeExecutionId = execution.getNodeExecutionId();
+    JsonNode sanitizedResponse = PayloadSanitizer.sanitize(response.payload());
+    String responseJson = sanitizedResponse != null ? sanitizedResponse.toString() : null;
+
+    execution.markFailed(response.errorCategory(), responseJson, now);
+    execution = executionRepo.saveAndFlush(execution);
+    audit(execution, "INTEGRATION_NODE_FAILED", correlationId, commandId, now);
+
+    NodeExecution nodeExecution =
+        nodeExecutionRepo
+            .findByIdForUpdate(nodeExecutionId)
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "NodeExecution not found: " + nodeExecutionId));
+    ObjectNode nodeErrorJson = JsonNodeFactory.instance.objectNode();
+    nodeErrorJson.put(
+        "code",
+        response.errorCategory() != null
+            ? response.errorCategory().name()
+            : "INTEGRATION_FAILURE");
+    nodeErrorJson.put(
+        "message",
+        response.errorMessage() != null
+            ? response.errorMessage()
+            : "Integration execution failed");
+    nodeErrorJson.put("statusCode", response.statusCode());
+    if (response.externalRequestId() != null) {
+      nodeErrorJson.put("externalRequestId", response.externalRequestId());
+    }
+    if (sanitizedResponse != null) {
+      nodeErrorJson.set("details", sanitizedResponse);
+    }
+    nodeExecution.fail(nodeErrorJson, now);
+    nodeExecution = nodeExecutionRepo.saveAndFlush(nodeExecution);
+
+    return new SystemActionResult(execution, nodeExecution, "FAILED", null);
+  }
+
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  public SystemActionResult failEventOnIntegrationFailureTx(
+      UUID executionId,
+      IntegrationCallResponse response,
+      CorrelationId correlationId,
+      CommandId commandId) {
+    Instant now = clock.now();
+    IntegrationExecution execution =
+        executionRepo
+            .findById(executionId)
+            .orElseThrow(
+                () -> new IllegalStateException("IntegrationExecution not found: " + executionId));
+    final UUID nodeExecutionId = execution.getNodeExecutionId();
+    final UUID eventId = execution.getEventId();
+    JsonNode sanitizedResponse = PayloadSanitizer.sanitize(response.payload());
+    String responseJson = sanitizedResponse != null ? sanitizedResponse.toString() : null;
+
+    execution.markFailed(response.errorCategory(), responseJson, now);
+    execution = executionRepo.saveAndFlush(execution);
+    audit(execution, "INTEGRATION_EVENT_FAILED", correlationId, commandId, now);
+
+    NodeExecution nodeExecution =
+        nodeExecutionRepo
+            .findByIdForUpdate(nodeExecutionId)
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "NodeExecution not found: " + nodeExecutionId));
+    ObjectNode eventErrorJson = JsonNodeFactory.instance.objectNode();
+    eventErrorJson.put(
+        "code",
+        response.errorCategory() != null
+            ? response.errorCategory().name()
+            : "INTEGRATION_FAILURE");
+    eventErrorJson.put(
+        "message",
+        response.errorMessage() != null
+            ? response.errorMessage()
+            : "Integration execution failed");
+    eventErrorJson.put("statusCode", response.statusCode());
+    if (response.externalRequestId() != null) {
+      eventErrorJson.put("externalRequestId", response.externalRequestId());
+    }
+    if (sanitizedResponse != null) {
+      eventErrorJson.set("details", sanitizedResponse);
+    }
+    nodeExecution.fail(eventErrorJson, now);
+    nodeExecution = nodeExecutionRepo.saveAndFlush(nodeExecution);
+
+    Event event =
+        eventRepo
+            .findByIdForUpdate(eventId)
+            .orElseThrow(
+                () -> new IllegalStateException("Event not found: " + eventId));
+    event.fail(now);
+    eventRepo.saveAndFlush(event);
+
+    if (event.getTicketId() != null && ticketLifecycleSyncPort != null) {
+      ticketLifecycleSyncPort.syncTicketStatus(
+          event.getTicketId(), EventStatus.FAILED, "INTEGRATION_FAILURE", now);
+    }
+
+    return new SystemActionResult(execution, nodeExecution, "FAILED", null);
+  }
+
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  public SystemActionResult continueWithWarningTx(
+      UUID executionId,
+      IntegrationCallResponse response,
+      CorrelationId correlationId,
+      CommandId commandId) {
+    Instant now = clock.now();
+    IntegrationExecution execution =
+        executionRepo
+            .findById(executionId)
+            .orElseThrow(
+                () -> new IllegalStateException("IntegrationExecution not found: " + executionId));
+    final UUID nodeExecutionId = execution.getNodeExecutionId();
+    final UUID eventId = execution.getEventId();
+    JsonNode sanitizedResponse = PayloadSanitizer.sanitize(response.payload());
+    String responseJson = sanitizedResponse != null ? sanitizedResponse.toString() : null;
+
+    execution.markFailed(response.errorCategory(), responseJson, now);
+    execution = executionRepo.saveAndFlush(execution);
+    audit(execution, "ACTION_CONTINUED_WITH_WARNING", correlationId, commandId, now);
+
+    NodeExecution nodeExecution =
+        nodeExecutionRepo
+            .findByIdForUpdate(nodeExecutionId)
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "NodeExecution not found: " + nodeExecutionId));
+    Event event =
+        eventRepo
+            .findById(eventId)
+            .orElseThrow(() -> new IllegalStateException("Event not found: " + eventId));
+    NodeDefinition node =
+        nodeDefinitionRepo.findById(nodeExecution.getNodeDefinitionId()).orElseThrow();
+
+    ObjectNode outputObject = JsonNodeFactory.instance.objectNode();
+    outputObject.put("warning", true);
+    outputObject.put(
+        "warningMessage",
+        response.errorMessage() != null ? response.errorMessage() : "Action continued with warning");
+    outputObject.put(
+        "errorCategory",
+        response.errorCategory() != null ? response.errorCategory().name() : "CLIENT_ERROR");
+    outputObject.put("statusCode", response.statusCode());
+    if (sanitizedResponse != null) {
+      outputObject.set("details", sanitizedResponse);
+    }
+
+    String outcomePort = "WARNING";
+    if (edgeRepo != null) {
+      var warningEdges =
+          edgeRepo.findAllByWorkflowVersionIdAndSourceNodeIdAndSourcePortOrderByPriorityAscIdAsc(
+              event.getWorkflowVersionId(), node.getId(), "WARNING");
+      if (warningEdges.isEmpty()) {
+        outcomePort = "SUCCESS";
+      }
+    } else {
+      outcomePort = "SUCCESS";
+    }
+
+    nodeExecution.complete(outcomePort, outputObject, now);
+    nodeExecution = nodeExecutionRepo.saveAndFlush(nodeExecution);
+
+    List<VariableMapping> mappings = decodeMappings(node.getConfigJson());
+    if (!mappings.isEmpty()) {
+      RuntimeScope scope =
+          RuntimeScope.occurrence(
+              nodeExecution.getCycleId(),
+              nodeExecution.getPathToken(),
+              nodeExecution.getItemToken());
+      EventContext afterOutput = contextBuilder.build(event.getId(), scope);
+      List<WorkflowVariable> declarations =
+          variableRepo.findAllByWorkflowVersionIdOrderByKeyAsc(event.getWorkflowVersionId());
+      variableMapper.apply(event, declarations, mappings, afterOutput);
+      eventRepo.saveAndFlush(event);
+    }
+
+    RoutingResult routingResult =
+        routingService.route(nodeExecution.getId(), correlationId, commandId);
+    return new SystemActionResult(execution, nodeExecution, outcomePort, routingResult);
+  }
+
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  public SystemActionResult gotoNodeOnIntegrationFailureTx(
+      UUID executionId,
+      String targetNodeKey,
+      UUID targetNodeId,
+      IntegrationCallResponse response,
+      CorrelationId correlationId,
+      CommandId commandId) {
+    Instant now = clock.now();
+    IntegrationExecution execution =
+        executionRepo
+            .findById(executionId)
+            .orElseThrow(
+                () -> new IllegalStateException("IntegrationExecution not found: " + executionId));
+    final UUID nodeExecutionId = execution.getNodeExecutionId();
+    final UUID eventId = execution.getEventId();
+    JsonNode sanitizedResponse = PayloadSanitizer.sanitize(response.payload());
+    String responseJson = sanitizedResponse != null ? sanitizedResponse.toString() : null;
+
+    execution.markFailed(response.errorCategory(), responseJson, now);
+    execution = executionRepo.saveAndFlush(execution);
+    audit(execution, "ACTION_FAILED", correlationId, commandId, now);
+
+    NodeExecution nodeExecution =
+        nodeExecutionRepo
+            .findByIdForUpdate(nodeExecutionId)
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "NodeExecution not found: " + nodeExecutionId));
+    Event event =
+        eventRepo
+            .findById(eventId)
+            .orElseThrow(() -> new IllegalStateException("Event not found: " + eventId));
+    NodeDefinition node =
+        nodeDefinitionRepo.findById(nodeExecution.getNodeDefinitionId()).orElseThrow();
+
+    UUID resolvedTargetId = targetNodeId;
+    if (resolvedTargetId == null && targetNodeKey != null && !targetNodeKey.isBlank()) {
+      resolvedTargetId =
+          nodeDefinitionRepo
+              .findByWorkflowVersionIdAndNodeKey(event.getWorkflowVersionId(), targetNodeKey)
+              .map(NodeDefinition::getId)
+              .orElse(null);
+    }
+
+    ObjectNode outputObject = JsonNodeFactory.instance.objectNode();
+    outputObject.put(
+        "errorCategory",
+        response.errorCategory() != null ? response.errorCategory().name() : "CLIENT_ERROR");
+    outputObject.put("statusCode", response.statusCode());
+    outputObject.put(
+        "errorMessage",
+        response.errorMessage() != null ? response.errorMessage() : "Action execution failed");
+    if (resolvedTargetId != null) {
+      outputObject.put("targetNodeId", resolvedTargetId.toString());
+    }
+    if (targetNodeKey != null) {
+      outputObject.put("targetNodeKey", targetNodeKey);
+    }
+    if (sanitizedResponse != null) {
+      outputObject.set("details", sanitizedResponse);
+    }
+
+    String outcomePort = "ERROR";
+    if (edgeRepo != null) {
+      var gotoEdges =
+          edgeRepo.findAllByWorkflowVersionIdAndSourceNodeIdAndSourcePortOrderByPriorityAscIdAsc(
+              event.getWorkflowVersionId(), node.getId(), "GOTO");
+      if (!gotoEdges.isEmpty()) {
+        outcomePort = "GOTO";
+      }
+    }
+
+    nodeExecution.complete(outcomePort, outputObject, now);
+    nodeExecution = nodeExecutionRepo.saveAndFlush(nodeExecution);
+
+    List<VariableMapping> mappings = decodeMappings(node.getConfigJson());
+    if (!mappings.isEmpty()) {
+      RuntimeScope scope =
+          RuntimeScope.occurrence(
+              nodeExecution.getCycleId(),
+              nodeExecution.getPathToken(),
+              nodeExecution.getItemToken());
+      EventContext afterOutput = contextBuilder.build(event.getId(), scope);
+      List<WorkflowVariable> declarations =
+          variableRepo.findAllByWorkflowVersionIdOrderByKeyAsc(event.getWorkflowVersionId());
+      variableMapper.apply(event, declarations, mappings, afterOutput);
+      eventRepo.saveAndFlush(event);
+    }
+
+    RoutingResult routingResult =
+        routingService.route(nodeExecution.getId(), correlationId, commandId);
+    return new SystemActionResult(execution, nodeExecution, outcomePort, routingResult);
   }
 
   private void audit(

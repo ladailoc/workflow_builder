@@ -9,15 +9,31 @@ public record IntegrationCallResponse(
     int statusCode,
     JsonNode payload,
     IntegrationErrorCategory errorCategory,
-    String errorMessage) {
+    String errorMessage,
+    String externalRequestId) {
+
+  public IntegrationCallResponse(
+      boolean success,
+      int statusCode,
+      JsonNode payload,
+      IntegrationErrorCategory errorCategory,
+      String errorMessage) {
+    this(success, statusCode, payload, errorCategory, errorMessage, null);
+  }
 
   public static IntegrationCallResponse success(int statusCode, JsonNode payload) {
+    return success(statusCode, payload, null);
+  }
+
+  public static IntegrationCallResponse success(
+      int statusCode, JsonNode payload, String externalRequestId) {
     return new IntegrationCallResponse(
         true,
         statusCode,
         payload != null ? payload : JsonNodeFactory.instance.objectNode(),
         IntegrationErrorCategory.NONE,
-        null);
+        null,
+        externalRequestId);
   }
 
   public static IntegrationCallResponse failure(
@@ -25,12 +41,22 @@ public record IntegrationCallResponse(
       int statusCode,
       String errorMessage,
       JsonNode payload) {
+    return failure(errorCategory, statusCode, errorMessage, payload, null);
+  }
+
+  public static IntegrationCallResponse failure(
+      IntegrationErrorCategory errorCategory,
+      int statusCode,
+      String errorMessage,
+      JsonNode payload,
+      String externalRequestId) {
     return new IntegrationCallResponse(
         false,
         statusCode,
         payload != null ? payload : JsonNodeFactory.instance.objectNode(),
         errorCategory != null ? errorCategory : IntegrationErrorCategory.CLIENT_ERROR,
-        errorMessage);
+        errorMessage,
+        externalRequestId);
   }
 
   public static IntegrationCallResponse serviceUnavailable(String message) {

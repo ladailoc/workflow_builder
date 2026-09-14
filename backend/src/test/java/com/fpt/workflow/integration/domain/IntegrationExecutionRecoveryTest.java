@@ -29,7 +29,8 @@ class IntegrationExecutionRecoveryTest {
 
     execution.resolveManually("{\"orderId\":\"PO-42\"}", now.plusSeconds(2));
 
-    assertThat(execution.getStatus()).isEqualTo(IntegrationExecutionStatus.COMPLETED);
+    assertThat(execution.getStatus()).isEqualTo(IntegrationExecutionStatus.SUCCEEDED);
+    assertThat(execution.getStatus().isSucceeded()).isTrue();
     assertThat(execution.getCompletedAt()).isEqualTo(now.plusSeconds(2));
     assertThatThrownBy(() -> execution.resolveManually("{}", now.plusSeconds(3)))
         .isInstanceOf(IllegalStateException.class)

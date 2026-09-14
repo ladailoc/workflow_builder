@@ -2,6 +2,7 @@ package com.fpt.workflow.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -31,6 +32,7 @@ import com.fpt.workflow.security.RoleKey;
 import com.fpt.workflow.shared.UuidGenerator;
 import com.fpt.workflow.shared.domain.CommandId;
 import com.fpt.workflow.shared.domain.CorrelationId;
+import com.fpt.workflow.shared.domain.lifecycle.EventStatus;
 import com.fpt.workflow.shared.domain.lifecycle.NodeExecutionStatus;
 import java.net.SocketTimeoutException;
 import java.time.Instant;
@@ -111,7 +113,8 @@ class SystemActionExecutionIT {
     // 2. IntegrationExecution verification
     IntegrationExecution execution =
         executionRepository.findByNodeExecutionId(f.systemActionExecution().getId()).orElseThrow();
-    assertThat(execution.getStatus()).isEqualTo(IntegrationExecutionStatus.COMPLETED);
+    assertThat(execution.getStatus()).isEqualTo(IntegrationExecutionStatus.SUCCEEDED);
+    assertThat(execution.getStatus().isSucceeded()).isTrue();
     assertThat(execution.getConnectorKey()).isEqualTo(f.connectorKey());
     assertThat(execution.getActionKey()).isEqualTo("ORDER_API");
     assertThat(execution.getActionVersion()).isEqualTo(1);
@@ -170,7 +173,8 @@ class SystemActionExecutionIT {
 
     IntegrationExecution execution =
         executionRepository.findByNodeExecutionId(f.systemActionExecution().getId()).orElseThrow();
-    assertThat(execution.getStatus()).isEqualTo(IntegrationExecutionStatus.COMPLETED);
+    assertThat(execution.getStatus()).isEqualTo(IntegrationExecutionStatus.SUCCEEDED);
+    assertThat(execution.getStatus().isSucceeded()).isTrue();
 
     List<IntegrationAttempt> attempts =
         attemptRepository.findAllByIntegrationExecutionIdOrderByAttemptNumberAsc(execution.getId());
@@ -387,6 +391,311 @@ class SystemActionExecutionIT {
     assertThat(result.terminalResult().outcomePort()).isEqualTo("MANUAL_RECONCILIATION");
   }
 
+  @Test
+  void testSucceededAndExternalRequestId_persistsCorrectly() {
+    Fixture f = setupFixture("ORDER_API", true, 0, 0, List.of());
+
+    actionClient.setTestDelegate(
+        req -> {
+          ObjectNode response = objectMapper.createObjectNode();
+          response.put("orderId", "ORD-12345");
+          return IntegrationCallResponse.success(200, response, "EXT-REQ-9999");
+        });
+
+    CorrelationId corr = new CorrelationId(uuidGenerator.generate());
+    CommandId cmd = new CommandId(uuidGenerator.generate());
+
+    SystemActionResult result =
+        systemActionExecutionService.execute(f.systemActionExecution().getId(), corr, cmd);
+
+    assertThat(result.outcomePort()).isEqualTo("SUCCESS");
+    assertThat(result.nodeExecution().getStatus()).isEqualTo(NodeExecutionStatus.COMPLETED);
+    assertThat(result.nodeExecution().getOutputJson().path("externalRequestId").asText())
+        .isEqualTo("EXT-REQ-9999");
+
+    IntegrationExecution execution =
+        executionRepository.findByNodeExecutionId(f.systemActionExecution().getId()).orElseThrow();
+    assertThat(execution.getStatus()).isEqualTo(IntegrationExecutionStatus.SUCCEEDED);
+    assertThat(execution.getStatus().isSucceeded()).isTrue();
+    assertThat(execution.getExternalRequestId()).isEqualTo("EXT-REQ-9999");
+  }
+
+  @Test
+  void testFailNodeStrategy_stopsBranchAndDoesNotFailEvent() {
+    Fixture f =
+        setupFixture(
+            "FAIL_NODE_API",
+            true,
+            0,
+            0,
+            List.of(),
+            cfg -> cfg.put("failureStrategy", "FAIL_NODE"),
+            null);
+
+    actionClient.setTestDelegate(
+        req ->
+            IntegrationCallResponse.failure(
+                IntegrationErrorCategory.HTTP_5XX, 500, "Critical server error", null));
+
+    CorrelationId corr = new CorrelationId(uuidGenerator.generate());
+    CommandId cmd = new CommandId(uuidGenerator.generate());
+
+    SystemActionResult result =
+        systemActionExecutionService.execute(f.systemActionExecution().getId(), corr, cmd);
+
+    assertThat(result.outcomePort()).isEqualTo("FAILED");
+    assertThat(result.nodeExecution().getStatus()).isEqualTo(NodeExecutionStatus.FAILED);
+    assertThat(result.routingResult()).isNull();
+
+    // Event does not fail (remains active/waiting on in-flight branches)
+    Event event = eventRepository.findById(f.event().getId()).orElseThrow();
+    assertThat(event.getStatus()).isNotEqualTo(EventStatus.FAILED);
+
+    IntegrationExecution execution =
+        executionRepository.findByNodeExecutionId(f.systemActionExecution().getId()).orElseThrow();
+    assertThat(execution.getStatus()).isEqualTo(IntegrationExecutionStatus.FAILED);
+  }
+
+  @Test
+  void testFailEventStrategy_failsEventAndSyncsTicketLifecycle() {
+    Fixture f =
+        setupFixture(
+            "FAIL_EVENT_API",
+            true,
+            0,
+            0,
+            List.of(),
+            cfg -> cfg.put("failureStrategy", "FAIL_EVENT"),
+            null);
+
+    actionClient.setTestDelegate(
+        req ->
+            IntegrationCallResponse.failure(
+                IntegrationErrorCategory.HTTP_5XX, 500, "Fatal outage", null));
+
+    CorrelationId corr = new CorrelationId(uuidGenerator.generate());
+    CommandId cmd = new CommandId(uuidGenerator.generate());
+
+    SystemActionResult result =
+        systemActionExecutionService.execute(f.systemActionExecution().getId(), corr, cmd);
+
+    assertThat(result.outcomePort()).isEqualTo("FAILED");
+    assertThat(result.nodeExecution().getStatus()).isEqualTo(NodeExecutionStatus.FAILED);
+
+    // Event is marked FAILED
+    Event event = eventRepository.findById(f.event().getId()).orElseThrow();
+    assertThat(event.getStatus()).isEqualTo(EventStatus.FAILED);
+
+    // Ticket is synchronized to REJECTED (canonical terminal ticket status on event failure)
+    String ticketStatus =
+        jdbcTemplate.queryForObject(
+            "SELECT status FROM tickets WHERE id = ?", String.class, f.event().getTicketId());
+    assertThat(ticketStatus).isEqualTo("REJECTED");
+  }
+
+  @Test
+  void testContinueWithWarningStrategy_producesObservableWarningAndRoutesDownstream() {
+    Fixture f =
+        setupFixture(
+            "NON_CRITICAL_API",
+            true,
+            0,
+            0,
+            List.of(),
+            cfg -> cfg.put("failureStrategy", "CONTINUE_WITH_WARNING"),
+            null);
+
+    actionClient.setTestDelegate(
+        req ->
+            IntegrationCallResponse.failure(
+                IntegrationErrorCategory.HTTP_4XX, 400, "Optional service degraded", null));
+
+    CorrelationId corr = new CorrelationId(uuidGenerator.generate());
+    CommandId cmd = new CommandId(uuidGenerator.generate());
+
+    SystemActionResult result =
+        systemActionExecutionService.execute(f.systemActionExecution().getId(), corr, cmd);
+
+    // Node completes and contains warning
+    assertThat(result.nodeExecution().getStatus()).isEqualTo(NodeExecutionStatus.COMPLETED);
+    assertThat(result.nodeExecution().getOutputJson().path("warning").asBoolean()).isTrue();
+    assertThat(result.nodeExecution().getOutputJson().path("warningMessage").asText())
+        .isEqualTo("Optional service degraded");
+
+    // Routes downstream
+    assertThat(result.routingResult()).isNotNull();
+    assertThat(result.routingResult().activations()).isNotEmpty();
+
+    // Audit logged
+    Integer auditCount =
+        jdbcTemplate.queryForObject(
+            "SELECT count(*) FROM audit_events WHERE event_type = 'ACTION_CONTINUED_WITH_WARNING'",
+            Integer.class);
+    assertThat(auditCount).isGreaterThan(0);
+  }
+
+  @Test
+  void testGotoNodeStrategy_routesToDesignatedTargetViaRoutingDecision() {
+    UUID targetNodeId = UUID.randomUUID();
+    Fixture f =
+        setupFixture(
+            "GOTO_API",
+            true,
+            0,
+            0,
+            List.of(),
+            cfg -> {
+              ObjectNode failurePolicy = cfg.putObject("failurePolicy");
+              failurePolicy.put("strategy", "GOTO_NODE");
+              failurePolicy.put("targetNodeKey", "error_reconciliation_node");
+            },
+            (versionId, sysActionNodeId) -> {
+              jdbcTemplate.update(
+                  "INSERT INTO workflow_nodes (id, workflow_version_id, node_key, node_type, name, config_schema_version, config_json, position_json) "
+                      + "VALUES (?, ?, 'error_reconciliation_node', 'END', 'Reconciliation', 1, '{}'::jsonb, '{}'::jsonb)",
+                  targetNodeId,
+                  versionId);
+
+              UUID edgeGotoId = UUID.randomUUID();
+              jdbcTemplate.update(
+                  "INSERT INTO workflow_edges (id, workflow_version_id, source_node_id, source_port, target_node_id, priority, is_default, transition_type, config_json) "
+                      + "VALUES (?, ?, ?, 'GOTO', ?, 0, true, 'CONDITIONAL', '{}'::jsonb)",
+                  edgeGotoId,
+                  versionId,
+                  sysActionNodeId,
+                  targetNodeId);
+            });
+
+    actionClient.setTestDelegate(
+        req ->
+            IntegrationCallResponse.failure(
+                IntegrationErrorCategory.HTTP_5XX, 500, "Remote service failure", null));
+
+    CorrelationId corr = new CorrelationId(uuidGenerator.generate());
+    CommandId cmd = new CommandId(uuidGenerator.generate());
+
+    SystemActionResult result =
+        systemActionExecutionService.execute(f.systemActionExecution().getId(), corr, cmd);
+
+    assertThat(result.nodeExecution().getStatus()).isEqualTo(NodeExecutionStatus.COMPLETED);
+    assertThat(result.routingResult()).isNotNull();
+    assertThat(result.routingResult().activations()).hasSize(1);
+    assertThat(result.routingResult().activations().get(0).getNodeDefinitionId())
+        .isEqualTo(targetNodeId);
+  }
+
+  @Test
+  void testFallbackActionStrategy_executesSecondaryActionOnFailure() {
+    Fixture f =
+        setupFixture(
+            "PRIMARY_API",
+            true,
+            0,
+            0,
+            List.of(),
+            cfg -> {
+              ObjectNode failurePolicy = cfg.putObject("failurePolicy");
+              failurePolicy.put("strategy", "FALLBACK_ACTION");
+              failurePolicy.put("fallbackConnectorKey", cfg.get("connectorKey").asText());
+              failurePolicy.put("fallbackActionKey", "BACKUP_API");
+              failurePolicy.put("fallbackActionVersion", 1);
+            },
+            null);
+
+    // Register fallback action on same connector
+    managementService.registerAction(f.connectorKey(), "BACKUP_API", "Backup Action", TECH_ADMIN);
+    managementService.publishActionVersion(
+        f.connectorKey(),
+        "BACKUP_API",
+        1,
+        objectMapper.createObjectNode(),
+        objectMapper.createObjectNode(),
+        objectMapper.createObjectNode(),
+        objectMapper.createObjectNode(),
+        objectMapper.createObjectNode(),
+        objectMapper.createObjectNode(),
+        objectMapper.createObjectNode(),
+        TECH_ADMIN);
+
+    actionClient.setTestDelegate(
+        req -> {
+          if ("PRIMARY_API".equals(req.actionKey())) {
+            return IntegrationCallResponse.serviceUnavailable("Primary endpoint offline");
+          } else if ("BACKUP_API".equals(req.actionKey())) {
+            ObjectNode res = objectMapper.createObjectNode();
+            res.put("resolvedBy", "BACKUP");
+            return IntegrationCallResponse.success(200, res);
+          }
+          return IntegrationCallResponse.failure(
+              IntegrationErrorCategory.CLIENT_ERROR, 400, "Unknown", null);
+        });
+
+    CorrelationId corr = new CorrelationId(uuidGenerator.generate());
+    CommandId cmd = new CommandId(uuidGenerator.generate());
+
+    SystemActionResult result =
+        systemActionExecutionService.execute(f.systemActionExecution().getId(), corr, cmd);
+
+    assertThat(result.outcomePort()).isEqualTo("SUCCESS");
+    assertThat(result.nodeExecution().getStatus()).isEqualTo(NodeExecutionStatus.COMPLETED);
+    assertThat(result.nodeExecution().getOutputJson().path("resolvedBy").asText())
+        .isEqualTo("BACKUP");
+  }
+
+  @Test
+  void testCreateManualTaskStrategy_transitionsToManualReconciliation() {
+    Fixture f =
+        setupFixture(
+            "MANUAL_TASK_API",
+            true,
+            0,
+            0,
+            List.of(),
+            cfg -> cfg.put("failureStrategy", "CREATE_MANUAL_TASK"),
+            null);
+
+    actionClient.setTestDelegate(
+        req ->
+            IntegrationCallResponse.failure(
+                IntegrationErrorCategory.HTTP_5XX, 500, "API permanently unreachable", null));
+
+    CorrelationId corr = new CorrelationId(uuidGenerator.generate());
+    CommandId cmd = new CommandId(uuidGenerator.generate());
+
+    SystemActionResult result =
+        systemActionExecutionService.execute(f.systemActionExecution().getId(), corr, cmd);
+
+    assertThat(result.outcomePort()).isEqualTo("MANUAL_RECONCILIATION");
+    assertThat(result.nodeExecution().getStatus()).isEqualTo(NodeExecutionStatus.WAITING);
+    assertThat(result.nodeExecution().getWaitReason())
+        .isEqualTo(RuntimeWaitReason.MANUAL_RECONCILIATION);
+
+    IntegrationExecution execution =
+        executionRepository.findByNodeExecutionId(f.systemActionExecution().getId()).orElseThrow();
+    assertThat(execution.getStatus()).isEqualTo(IntegrationExecutionStatus.MANUAL_RECONCILIATION);
+  }
+
+  @Test
+  void testBackwardCompatibility_completedStatusCanBeReadAndChecked() {
+    Fixture f = setupFixture("COMPAT_API", true, 0, 0, List.of());
+    UUID execId = UUID.randomUUID();
+    UUID eventId = f.event().getId();
+    UUID nodeExecId = f.systemActionExecution().getId();
+    UUID actionVerId = f.connectorActionVersionId();
+
+    jdbcTemplate.update(
+        "INSERT INTO integration_executions (id, event_id, node_execution_id, connector_key, action_key, action_version, connector_action_version_id, status, logical_action_identity, idempotency_key, created_at, updated_at, lock_version) "
+            + "VALUES (?, ?, ?, 'ERP', 'GET_DATA', 1, ?, 'COMPLETED', 'logical-comp', 'idemp-comp', now(), now(), 0)",
+        execId,
+        eventId,
+        nodeExecId,
+        actionVerId);
+
+    IntegrationExecution loaded = executionRepository.findById(execId).orElseThrow();
+    assertThat(loaded.getStatus()).isEqualTo(IntegrationExecutionStatus.COMPLETED);
+    assertThat(loaded.getStatus().isSucceeded()).isTrue();
+  }
+
   // ────────────────────────────────────────────────────────────────────────────
   // Fixture setup helper
   // ────────────────────────────────────────────────────────────────────────────
@@ -405,6 +714,18 @@ class SystemActionExecutionIT {
       int maxRetries,
       long backoffMs,
       List<String> retryableErrors) {
+    return setupFixture(
+        actionKey, idempotent, maxRetries, backoffMs, retryableErrors, null, null);
+  }
+
+  private Fixture setupFixture(
+      String actionKey,
+      boolean idempotent,
+      int maxRetries,
+      long backoffMs,
+      List<String> retryableErrors,
+      java.util.function.Consumer<ObjectNode> sysConfigCustomizer,
+      java.util.function.BiConsumer<UUID, UUID> extraGraphCustomizer) {
 
     String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
     String connectorKey = "CONN_" + suffix;
@@ -486,6 +807,9 @@ class SystemActionExecutionIT {
     sysConfig.put("actionVersion", 1);
     sysConfig.put("credentialRef", "vault://test/cred");
     sysConfig.put("routingMode", "SINGLE_BY_PORT");
+    if (sysConfigCustomizer != null) {
+      sysConfigCustomizer.accept(sysConfig);
+    }
 
     jdbcTemplate.update(
         "INSERT INTO workflow_nodes (id, workflow_version_id, node_key, node_type, name, config_schema_version, config_json, position_json) "
@@ -536,6 +860,10 @@ class SystemActionExecutionIT {
         verId,
         sysActionId,
         errorEndId);
+
+    if (extraGraphCustomizer != null) {
+      extraGraphCustomizer.accept(verId, sysActionId);
+    }
 
     jdbcTemplate.update(
         "UPDATE workflow_versions SET status = 'PUBLISHED', checksum = 'checksum', execution_package_json = '{}'::jsonb, published_by = ?, published_at = now() WHERE id = ?",

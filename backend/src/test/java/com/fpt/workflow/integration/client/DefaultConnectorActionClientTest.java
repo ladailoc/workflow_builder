@@ -29,4 +29,52 @@ class DefaultConnectorActionClientTest {
     assertThat(response.errorCategory()).isEqualTo(IntegrationErrorCategory.CONFIGURATION_ERROR);
     assertThat(response.errorMessage()).contains("No ConnectorActionClient adapter");
   }
+
+  @Test
+  void ssrfValidation_blocksForbiddenUrlEvenWithTestDelegate() {
+    var client = new DefaultConnectorActionClient();
+    client.setTestDelegate(req -> IntegrationCallResponse.success(200, JsonNodeFactory.instance.objectNode()));
+
+    var config = JsonNodeFactory.instance.objectNode();
+    config.put("url", "http://169.254.169.254/latest/meta-data");
+
+    var request =
+        new IntegrationCallRequest(
+            UUID.randomUUID(),
+            "ERP",
+            "METADATA",
+            1,
+            "idemp",
+            JsonNodeFactory.instance.objectNode(),
+            null,
+            config);
+
+    org.junit.jupiter.api.Assertions.assertThrows(
+        SecurityException.class, () -> client.execute(request));
+  }
+
+  @Test
+  void ssrfValidation_enforcesHostAllowlist() {
+    var client = new DefaultConnectorActionClient();
+    client.setTestDelegate(req -> IntegrationCallResponse.success(200, JsonNodeFactory.instance.objectNode()));
+
+    var config = JsonNodeFactory.instance.objectNode();
+    config.put("url", "https://evil.com/webhook");
+    var allowedHosts = config.putArray("allowedHosts");
+    allowedHosts.add("partner.org");
+
+    var request =
+        new IntegrationCallRequest(
+            UUID.randomUUID(),
+            "ERP",
+            "WEBHOOK",
+            1,
+            "idemp",
+            JsonNodeFactory.instance.objectNode(),
+            null,
+            config);
+
+    org.junit.jupiter.api.Assertions.assertThrows(
+        SecurityException.class, () -> client.execute(request));
+  }
 }

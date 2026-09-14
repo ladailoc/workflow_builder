@@ -12,6 +12,7 @@ import com.fpt.workflow.security.RoleKey;
 import com.fpt.workflow.shared.UuidGenerator;
 import com.fpt.workflow.shared.time.PlatformClock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
@@ -26,6 +27,22 @@ public class ConnectorManagementService {
   private final ConnectorActionVersionRepository versionRepository;
   private final UuidGenerator uuidGenerator;
   private final PlatformClock clock;
+  private final ConnectorUrlSecurityValidator urlSecurityValidator;
+
+  public ConnectorManagementService(
+      ConnectorDefinitionRepository connectorRepository,
+      ConnectorActionRepository actionRepository,
+      ConnectorActionVersionRepository versionRepository,
+      UuidGenerator uuidGenerator,
+      PlatformClock clock) {
+    this(
+        connectorRepository,
+        actionRepository,
+        versionRepository,
+        uuidGenerator,
+        clock,
+        new ConnectorUrlSecurityValidator());
+  }
 
   @Autowired
   public ConnectorManagementService(
@@ -33,12 +50,15 @@ public class ConnectorManagementService {
       ConnectorActionRepository actionRepository,
       ConnectorActionVersionRepository versionRepository,
       UuidGenerator uuidGenerator,
-      PlatformClock clock) {
+      PlatformClock clock,
+      @Autowired(required = false) ConnectorUrlSecurityValidator urlSecurityValidator) {
     this.connectorRepository = connectorRepository;
     this.actionRepository = actionRepository;
     this.versionRepository = versionRepository;
     this.uuidGenerator = uuidGenerator;
     this.clock = clock;
+    this.urlSecurityValidator =
+        urlSecurityValidator != null ? urlSecurityValidator : new ConnectorUrlSecurityValidator();
   }
 
   @Transactional
@@ -51,6 +71,7 @@ public class ConnectorManagementService {
       String credentialRef,
       ActorContext actor) {
     requireTechnicalAdmin(actor);
+    validateConfigUrls(configJson);
     if (connectorRepository.existsByKey(key)) {
       throw new IllegalStateException("Connector key already exists: " + key);
     }
@@ -105,6 +126,7 @@ public class ConnectorManagementService {
       JsonNode permissionPolicyJson,
       ActorContext actor) {
     requireTechnicalAdmin(actor);
+    validateConfigUrls(executionConfigJson);
 
     ConnectorDefinition connector =
         connectorRepository
@@ -148,6 +170,23 @@ public class ConnectorManagementService {
             permissionPolicyJson,
             now);
     return versionRepository.save(version);
+  }
+
+  private void validateConfigUrls(JsonNode config) {
+    if (config == null || config.isNull()) {
+      return;
+    }
+    for (String key : List.of("url", "baseUrl", "endpoint", "targetUrl")) {
+      if (config.hasNonNull(key)) {
+        String val = config.path(key).asText();
+        if (val != null
+            && (val.startsWith("http://")
+                || val.startsWith("https://")
+                || val.contains("://"))) {
+          urlSecurityValidator.validateUrl(val);
+        }
+      }
+    }
   }
 
   private void requireTechnicalAdmin(ActorContext actor) {

@@ -12,6 +12,7 @@ import com.fpt.workflow.integration.client.IntegrationCallResponse;
 import com.fpt.workflow.integration.domain.IntegrationErrorCategory;
 import com.fpt.workflow.integration.domain.IntegrationExecution;
 import com.fpt.workflow.integration.domain.IntegrationExecutionStatus;
+import com.fpt.workflow.integration.domain.IntegrationFailureStrategy;
 import com.fpt.workflow.integration.domain.RetryPolicy;
 import com.fpt.workflow.integration.repository.IntegrationExecutionRepository;
 import com.fpt.workflow.runtime.domain.NodeExecution;
@@ -179,6 +180,82 @@ public class SystemActionExecutionService {
       return SystemActionAttemptOutcome.retry(
           java.time.Duration.ofMillis(retryPolicy.backoffMs()), error);
     }
+    if (!response.success()) {
+      IntegrationFailureStrategy failureStrategy = parseFailureStrategy(config, executionConfig);
+      if (failureStrategy != null) {
+        switch (failureStrategy) {
+          case FALLBACK_ACTION -> {
+            String fallbackConnector = parseFallbackConnectorKey(config, executionConfig);
+            String fallbackActionKey = parseFallbackActionKey(config, executionConfig);
+            int fallbackVersion = parseFallbackActionVersion(config, executionConfig);
+            if (fallbackConnector != null && fallbackActionKey != null) {
+              ConnectorActionVersion fallbackAction =
+                  connectorRegistry.requireActionVersion(
+                      fallbackConnector, fallbackActionKey, fallbackVersion);
+              JsonNode fallbackExecConfig =
+                  parseExecutionConfig(fallbackAction.getExecutionConfigJson());
+              String fallbackIdempKey = idempotencyKey + ":fallback";
+              IntegrationCallRequest fallbackRequest =
+                  new IntegrationCallRequest(
+                      execution.getId(),
+                      fallbackConnector,
+                      fallbackActionKey,
+                      fallbackVersion,
+                      fallbackIdempKey,
+                      inputData,
+                      credentialRef,
+                      fallbackExecConfig);
+              txService.startAttemptTx(execution.getId(), attemptNumber + 1, inputData);
+              IntegrationCallResponse fallbackResponse;
+              try {
+                fallbackResponse = actionClient.execute(fallbackRequest);
+              } catch (Exception ex) {
+                fallbackResponse = mapExceptionToResponse(ex);
+              }
+              txService.recordAttemptResultTx(
+                  execution.getId(), attemptNumber + 1, fallbackResponse);
+              if (fallbackResponse.success()) {
+                return SystemActionAttemptOutcome.terminal(
+                    txService.completeExecutionTx(
+                        execution.getId(), fallbackResponse, correlationId, commandId));
+              }
+            }
+          }
+          case CREATE_MANUAL_TASK -> {
+            return SystemActionAttemptOutcome.terminal(
+                txService.transitionToManualReconciliationTx(
+                    execution.getId(), response, correlationId, commandId));
+          }
+          case FAIL_NODE -> {
+            return SystemActionAttemptOutcome.terminal(
+                txService.failNodeOnIntegrationFailureTx(
+                    execution.getId(), response, correlationId, commandId));
+          }
+          case FAIL_EVENT -> {
+            return SystemActionAttemptOutcome.terminal(
+                txService.failEventOnIntegrationFailureTx(
+                    execution.getId(), response, correlationId, commandId));
+          }
+          case CONTINUE_WITH_WARNING -> {
+            return SystemActionAttemptOutcome.terminal(
+                txService.continueWithWarningTx(
+                    execution.getId(), response, correlationId, commandId));
+          }
+          case GOTO_NODE -> {
+            String targetNodeKey = parseTargetNodeKey(config, executionConfig);
+            UUID targetNodeId = parseTargetNodeId(config, executionConfig);
+            return SystemActionAttemptOutcome.terminal(
+                txService.gotoNodeOnIntegrationFailureTx(
+                    execution.getId(),
+                    targetNodeKey,
+                    targetNodeId,
+                    response,
+                    correlationId,
+                    commandId));
+          }
+        }
+      }
+    }
     return SystemActionAttemptOutcome.terminal(
         txService.completeExecutionTx(execution.getId(), response, correlationId, commandId));
   }
@@ -245,5 +322,126 @@ public class SystemActionExecutionService {
         0,
         ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName(),
         null);
+  }
+
+  private IntegrationFailureStrategy parseFailureStrategy(JsonNode config, JsonNode executionConfig) {
+    if (config != null) {
+      if (config.hasNonNull("failureStrategy")) {
+        IntegrationFailureStrategy s =
+            IntegrationFailureStrategy.fromString(config.path("failureStrategy").asText());
+        if (s != null) return s;
+      }
+      if (config.hasNonNull("failurePolicy")) {
+        JsonNode fp = config.path("failurePolicy");
+        if (fp.hasNonNull("strategy")) {
+          IntegrationFailureStrategy s =
+              IntegrationFailureStrategy.fromString(fp.path("strategy").asText());
+          if (s != null) return s;
+        }
+      }
+    }
+    if (executionConfig != null) {
+      if (executionConfig.hasNonNull("failureStrategy")) {
+        IntegrationFailureStrategy s =
+            IntegrationFailureStrategy.fromString(executionConfig.path("failureStrategy").asText());
+        if (s != null) return s;
+      }
+      if (executionConfig.hasNonNull("failurePolicy")) {
+        JsonNode fp = executionConfig.path("failurePolicy");
+        if (fp.hasNonNull("strategy")) {
+          IntegrationFailureStrategy s =
+              IntegrationFailureStrategy.fromString(fp.path("strategy").asText());
+          if (s != null) return s;
+        }
+      }
+    }
+    return null;
+  }
+
+  private String parseTargetNodeKey(JsonNode config, JsonNode executionConfig) {
+    if (config != null) {
+      if (config.hasNonNull("targetNodeKey")) return config.path("targetNodeKey").asText();
+      if (config.path("failurePolicy").hasNonNull("targetNodeKey")) {
+        return config.path("failurePolicy").path("targetNodeKey").asText();
+      }
+    }
+    if (executionConfig != null) {
+      if (executionConfig.hasNonNull("targetNodeKey")) return executionConfig.path("targetNodeKey").asText();
+      if (executionConfig.path("failurePolicy").hasNonNull("targetNodeKey")) {
+        return executionConfig.path("failurePolicy").path("targetNodeKey").asText();
+      }
+    }
+    return null;
+  }
+
+  private UUID parseTargetNodeId(JsonNode config, JsonNode executionConfig) {
+    String idStr = null;
+    if (config != null) {
+      if (config.hasNonNull("targetNodeId")) idStr = config.path("targetNodeId").asText();
+      else if (config.path("failurePolicy").hasNonNull("targetNodeId")) {
+        idStr = config.path("failurePolicy").path("targetNodeId").asText();
+      }
+    }
+    if (idStr == null && executionConfig != null) {
+      if (executionConfig.hasNonNull("targetNodeId")) idStr = executionConfig.path("targetNodeId").asText();
+      else if (executionConfig.path("failurePolicy").hasNonNull("targetNodeId")) {
+        idStr = executionConfig.path("failurePolicy").path("targetNodeId").asText();
+      }
+    }
+    if (idStr != null && !idStr.isBlank()) {
+      try {
+        return UUID.fromString(idStr.trim());
+      } catch (IllegalArgumentException ignored) {
+      }
+    }
+    return null;
+  }
+
+  private String parseFallbackConnectorKey(JsonNode config, JsonNode executionConfig) {
+    if (config != null) {
+      if (config.hasNonNull("fallbackConnectorKey")) return config.path("fallbackConnectorKey").asText();
+      if (config.path("failurePolicy").hasNonNull("fallbackConnectorKey")) {
+        return config.path("failurePolicy").path("fallbackConnectorKey").asText();
+      }
+    }
+    if (executionConfig != null) {
+      if (executionConfig.hasNonNull("fallbackConnectorKey")) return executionConfig.path("fallbackConnectorKey").asText();
+      if (executionConfig.path("failurePolicy").hasNonNull("fallbackConnectorKey")) {
+        return executionConfig.path("failurePolicy").path("fallbackConnectorKey").asText();
+      }
+    }
+    return null;
+  }
+
+  private String parseFallbackActionKey(JsonNode config, JsonNode executionConfig) {
+    if (config != null) {
+      if (config.hasNonNull("fallbackActionKey")) return config.path("fallbackActionKey").asText();
+      if (config.path("failurePolicy").hasNonNull("fallbackActionKey")) {
+        return config.path("failurePolicy").path("fallbackActionKey").asText();
+      }
+    }
+    if (executionConfig != null) {
+      if (executionConfig.hasNonNull("fallbackActionKey")) return executionConfig.path("fallbackActionKey").asText();
+      if (executionConfig.path("failurePolicy").hasNonNull("fallbackActionKey")) {
+        return executionConfig.path("failurePolicy").path("fallbackActionKey").asText();
+      }
+    }
+    return null;
+  }
+
+  private int parseFallbackActionVersion(JsonNode config, JsonNode executionConfig) {
+    if (config != null) {
+      if (config.hasNonNull("fallbackActionVersion")) return config.path("fallbackActionVersion").asInt(1);
+      if (config.path("failurePolicy").hasNonNull("fallbackActionVersion")) {
+        return config.path("failurePolicy").path("fallbackActionVersion").asInt(1);
+      }
+    }
+    if (executionConfig != null) {
+      if (executionConfig.hasNonNull("fallbackActionVersion")) return executionConfig.path("fallbackActionVersion").asInt(1);
+      if (executionConfig.path("failurePolicy").hasNonNull("fallbackActionVersion")) {
+        return executionConfig.path("failurePolicy").path("fallbackActionVersion").asInt(1);
+      }
+    }
+    return 1;
   }
 }

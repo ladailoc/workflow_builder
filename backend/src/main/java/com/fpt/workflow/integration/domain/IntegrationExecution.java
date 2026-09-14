@@ -52,6 +52,9 @@ public class IntegrationExecution {
   @Column(name = "callback_correlation_id", length = 255)
   private String callbackCorrelationId;
 
+  @Column(name = "external_request_id", length = 255)
+  private String externalRequestId;
+
   @JdbcTypeCode(SqlTypes.JSON)
   @Column(name = "sanitized_request_json", columnDefinition = "jsonb")
   private String sanitizedRequestJson;
@@ -111,10 +114,18 @@ public class IntegrationExecution {
   }
 
   public void markCompleted(String sanitizedResponseJson, Instant now) {
+    markSucceeded(sanitizedResponseJson, null, now);
+  }
+
+  public void markSucceeded(
+      String sanitizedResponseJson, String externalRequestId, Instant now) {
     requireNonTerminal();
-    this.status = IntegrationExecutionStatus.COMPLETED;
+    this.status = IntegrationExecutionStatus.SUCCEEDED;
     this.errorCategory = IntegrationErrorCategory.NONE;
     this.sanitizedResponseJson = sanitizedResponseJson;
+    if (externalRequestId != null && !externalRequestId.isBlank()) {
+      this.externalRequestId = externalRequestId;
+    }
     this.updatedAt = now;
     this.completedAt = now;
   }
@@ -154,7 +165,7 @@ public class IntegrationExecution {
       throw new IllegalStateException(
           "Only an integration awaiting manual reconciliation can be resolved");
     }
-    this.status = IntegrationExecutionStatus.COMPLETED;
+    this.status = IntegrationExecutionStatus.SUCCEEDED;
     this.errorCategory = IntegrationErrorCategory.NONE;
     this.sanitizedResponseJson = sanitizedResponseJson;
     this.updatedAt = Objects.requireNonNull(now, "now");
@@ -203,6 +214,14 @@ public class IntegrationExecution {
 
   public String getCallbackCorrelationId() {
     return callbackCorrelationId;
+  }
+
+  public String getExternalRequestId() {
+    return externalRequestId;
+  }
+
+  public void setExternalRequestId(String externalRequestId) {
+    this.externalRequestId = externalRequestId;
   }
 
   public String getSanitizedRequestJson() {

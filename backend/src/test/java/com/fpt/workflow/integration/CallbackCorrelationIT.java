@@ -129,9 +129,10 @@ class CallbackCorrelationIT {
     assertThat(result.status()).isEqualTo(IntegrationCallbackStatus.ACCEPTED);
     assertThat(result.outcomePort()).isEqualTo("SUCCESS");
 
-    // 2. IntegrationExecution is COMPLETED
+    // 2. IntegrationExecution is SUCCEEDED
     IntegrationExecution execution = executionRepository.findById(f.executionId()).orElseThrow();
-    assertThat(execution.getStatus()).isEqualTo(IntegrationExecutionStatus.COMPLETED);
+    assertThat(execution.getStatus()).isEqualTo(IntegrationExecutionStatus.SUCCEEDED);
+    assertThat(execution.getStatus().isSucceeded()).isTrue();
     assertThat(execution.getCompletedAt()).isNotNull();
 
     // 3. NodeExecution is COMPLETED with SUCCESS

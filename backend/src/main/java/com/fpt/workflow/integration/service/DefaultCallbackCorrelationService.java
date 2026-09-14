@@ -311,7 +311,7 @@ public class DefaultCallbackCorrelationService implements CallbackCorrelationSer
     boolean isSuccess = "SUCCESS".equalsIgnoreCase(outcomePort);
 
     if (isSuccess) {
-      execution.markCompleted(sanitizedPayloadStr, now);
+      execution.markSucceeded(sanitizedPayloadStr, command.externalEventId(), now);
     } else {
       execution.markFailed(IntegrationErrorCategory.HTTP_5XX, sanitizedPayloadStr, now);
     }
