@@ -21,6 +21,8 @@ import com.fpt.workflow.task.dto.TaskDtos;
 import com.fpt.workflow.task.repository.TaskAssignmentHistoryRepository;
 import com.fpt.workflow.task.repository.TaskExecutionRepository;
 import java.time.Instant;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -43,6 +45,7 @@ public class TaskQueryService {
   private final ActorContextProvider actorContextProvider;
   private final UuidGenerator uuidGenerator;
   private final PlatformClock clock;
+  private final com.fpt.workflow.task.repository.TaskCandidateRepository candidateRepository;
 
   public TaskQueryService(
       TaskExecutionRepository taskRepository,
@@ -53,6 +56,56 @@ public class TaskQueryService {
       ActorContextProvider actorContextProvider,
       UuidGenerator uuidGenerator,
       PlatformClock clock) {
+    this(
+        taskRepository,
+        assignmentHistoryRepository,
+        nodeExecutionRepository,
+        eventRepository,
+        taskCommandService,
+        actorContextProvider,
+        uuidGenerator,
+        clock,
+        null);
+  }
+
+  private final com.fpt.workflow.operations.audit.AuditEventRepository auditRepository;
+
+  public TaskQueryService(
+      TaskExecutionRepository taskRepository,
+      TaskAssignmentHistoryRepository assignmentHistoryRepository,
+      NodeExecutionRepository nodeExecutionRepository,
+      EventRepository eventRepository,
+      TaskCommandService taskCommandService,
+      ActorContextProvider actorContextProvider,
+      UuidGenerator uuidGenerator,
+      PlatformClock clock,
+      com.fpt.workflow.task.repository.TaskCandidateRepository candidateRepository) {
+    this(
+        taskRepository,
+        assignmentHistoryRepository,
+        nodeExecutionRepository,
+        eventRepository,
+        taskCommandService,
+        actorContextProvider,
+        uuidGenerator,
+        clock,
+        candidateRepository,
+        null);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public TaskQueryService(
+      TaskExecutionRepository taskRepository,
+      TaskAssignmentHistoryRepository assignmentHistoryRepository,
+      NodeExecutionRepository nodeExecutionRepository,
+      EventRepository eventRepository,
+      TaskCommandService taskCommandService,
+      ActorContextProvider actorContextProvider,
+      UuidGenerator uuidGenerator,
+      PlatformClock clock,
+      com.fpt.workflow.task.repository.TaskCandidateRepository candidateRepository,
+      @org.springframework.beans.factory.annotation.Autowired(required = false)
+          com.fpt.workflow.operations.audit.AuditEventRepository auditRepository) {
     this.taskRepository = taskRepository;
     this.assignmentHistoryRepository = assignmentHistoryRepository;
     this.nodeExecutionRepository = nodeExecutionRepository;
@@ -61,6 +114,8 @@ public class TaskQueryService {
     this.actorContextProvider = actorContextProvider;
     this.uuidGenerator = uuidGenerator;
     this.clock = clock;
+    this.candidateRepository = candidateRepository;
+    this.auditRepository = auditRepository;
   }
 
   @Transactional(readOnly = true)
@@ -83,6 +138,30 @@ public class TaskQueryService {
                 actor.actorId(), status);
       } else {
         tasks = taskRepository.findAllByAssigneeIdOrderByCreatedAtDesc(actor.actorId());
+      }
+
+      if (candidateRepository != null) {
+        List<UUID> candidateTaskIds =
+            candidateRepository.findAllByUserIdOrderByCreatedAtAsc(actor.actorId()).stream()
+                .filter(TaskQueryService::isClaimableCandidate)
+                .map(com.fpt.workflow.task.domain.TaskCandidate::getTaskId)
+                .distinct()
+                .toList();
+        if (!candidateTaskIds.isEmpty()) {
+          Map<UUID, TaskExecution> visibleTasks = new LinkedHashMap<>();
+          tasks.forEach(task -> visibleTasks.put(task.getId(), task));
+          taskRepository.findAllById(candidateTaskIds).stream()
+              .filter(task -> status == null || task.getStatus() == status)
+              .filter(
+                  task ->
+                      task.getAssigneeId() == null
+                          || task.getAssigneeId().equals(actor.actorId()))
+              .forEach(task -> visibleTasks.putIfAbsent(task.getId(), task));
+          tasks =
+              visibleTasks.values().stream()
+                  .sorted(Comparator.comparing(TaskExecution::getCreatedAt).reversed())
+                  .toList();
+        }
       }
     }
 
@@ -112,6 +191,41 @@ public class TaskQueryService {
           taskRepository
               .findByIdForUpdate(taskId)
               .orElseThrow(() -> new IllegalArgumentException("Task not found: " + taskId));
+
+      if (task.getStatus() == TaskStatus.COMPLETED
+          || task.getStatus() == TaskStatus.CANCELLED
+          || task.getStatus() == TaskStatus.EXPIRED) {
+        throw new IllegalStateException("Task is already terminal: " + task.getStatus());
+      }
+
+      if (candidateRepository != null) {
+        List<com.fpt.workflow.task.domain.TaskCandidate> candidates =
+            candidateRepository.findAllByTaskIdOrderByCreatedAtAsc(taskId);
+        List<com.fpt.workflow.task.domain.TaskCandidate> claimableCandidates =
+            candidates.stream().filter(TaskQueryService::isClaimableCandidate).toList();
+        if (!claimableCandidates.isEmpty()) {
+          boolean isCandidate =
+              claimableCandidates.stream().anyMatch(c -> c.getUserId().equals(actor.actorId()));
+          boolean isPrivileged =
+              actor.hasRole(RoleKey.ADMIN) || actor.hasRole(RoleKey.OPERATOR);
+          if (!isCandidate && !isPrivileged) {
+            throw new AccessDeniedException(
+                "Actor is not an eligible candidate for task: " + taskId);
+          }
+        }
+      }
+
+      boolean isPrivileged = actor.hasRole(RoleKey.ADMIN) || actor.hasRole(RoleKey.OPERATOR);
+      if (task.getAssigneeId() != null
+          && !task.getAssigneeId().equals(actor.actorId())
+          && !isPrivileged) {
+        throw new AccessDeniedException("Task is assigned to a different user: " + taskId);
+      }
+
+      if (task.getAssigneeId() != null && task.getAssigneeId().equals(actor.actorId())) {
+        return toView(task);
+      }
+
       UUID previousAssignee = task.getAssigneeId();
 
       assignmentHistoryRepository.saveAndFlush(
@@ -128,6 +242,42 @@ public class TaskQueryService {
 
       task.claim(actor.actorId());
       taskRepository.saveAndFlush(task);
+      auditTaskEvent(task, "TASK_CLAIMED", actor, now);
+      return toView(task);
+    }
+
+    if ("unclaim".equals(normalizedAction)) {
+      TaskExecution task =
+          taskRepository
+              .findByIdForUpdate(taskId)
+              .orElseThrow(() -> new IllegalArgumentException("Task not found: " + taskId));
+      if (task.getStatus() == TaskStatus.COMPLETED
+          || task.getStatus() == TaskStatus.CANCELLED
+          || task.getStatus() == TaskStatus.EXPIRED) {
+        throw new IllegalStateException("Task is already terminal: " + task.getStatus());
+      }
+      if (!actor.hasRole(RoleKey.ADMIN) && !actor.hasRole(RoleKey.OPERATOR)) {
+        if (task.getAssigneeId() == null || !task.getAssigneeId().equals(actor.actorId())) {
+          throw new AccessDeniedException("Not authorized to unclaim task: " + taskId);
+        }
+      }
+      UUID previousAssignee = task.getAssigneeId();
+
+      assignmentHistoryRepository.saveAndFlush(
+          TaskAssignmentHistory.create(
+              uuidGenerator.generate(),
+              task.getId(),
+              TaskAssignmentAction.UNCLAIM,
+              previousAssignee,
+              null,
+              actor.actorId(),
+              request != null ? request.comment() : null,
+              JsonNodeFactory.instance.objectNode(),
+              now));
+
+      task.unclaim();
+      taskRepository.saveAndFlush(task);
+      auditTaskEvent(task, "TASK_UNCLAIMED", actor, now);
       return toView(task);
     }
 
@@ -136,6 +286,11 @@ public class TaskQueryService {
           taskRepository
               .findByIdForUpdate(taskId)
               .orElseThrow(() -> new IllegalArgumentException("Task not found: " + taskId));
+      if (task.getStatus() == TaskStatus.COMPLETED
+          || task.getStatus() == TaskStatus.CANCELLED
+          || task.getStatus() == TaskStatus.EXPIRED) {
+        throw new IllegalStateException("Task is already terminal: " + task.getStatus());
+      }
       if (!actor.hasRole(RoleKey.ADMIN) && !actor.hasRole(RoleKey.OPERATOR)) {
         if (task.getAssigneeId() != null && !task.getAssigneeId().equals(actor.actorId())) {
           throw new AccessDeniedException("Not authorized to reassign task: " + taskId);
@@ -169,7 +324,28 @@ public class TaskQueryService {
 
       task.reassign(targetUserId);
       taskRepository.saveAndFlush(task);
+      auditTaskEvent(task, "TASK_REASSIGNED", actor, now);
       return toView(task);
+    }
+
+    if ("force-complete".equals(normalizedAction)) {
+      BusinessOutcome forceOutcome =
+          (request != null && request.outcome() != null && !request.outcome().isBlank())
+              ? BusinessOutcome.of(request.outcome().trim().toUpperCase(Locale.ROOT))
+              : BusinessOutcome.SUCCESS;
+      String reason =
+          (request != null && request.comment() != null && !request.comment().isBlank())
+              ? request.comment().trim()
+              : null;
+      var decisionResult =
+          taskCommandService.forceCompleteTask(
+              taskId,
+              forceOutcome,
+              reason,
+              request != null ? request.formData() : null,
+              correlationId,
+              commandId);
+      return toView(decisionResult.task());
     }
 
     BusinessOutcome outcome =
@@ -195,6 +371,117 @@ public class TaskQueryService {
 
   public TaskDtos.TaskItemView toView(TaskExecution task) {
     return toView(task, new ConcurrentHashMap<>(), new ConcurrentHashMap<>());
+  }
+
+  /**
+   * Pre-flight authorization check used before optimistic-concurrency verification so an
+   * unauthorized caller cannot probe a task's existence or current version. Mirrors the
+   * assignment/candidate rules enforced during execution; never mutates task state.
+   */
+  public void requireTaskActionAuthorized(TaskExecution task, String action) {
+    Objects.requireNonNull(task, "task");
+    Objects.requireNonNull(action, "action");
+    ActorContext actor = actorContextProvider.requireActor();
+    String normalizedAction = action.trim().toLowerCase(Locale.ROOT);
+    boolean isPrivileged = actor.hasRole(RoleKey.ADMIN) || actor.hasRole(RoleKey.OPERATOR);
+
+    if (task.getStatus() == TaskStatus.COMPLETED
+        || task.getStatus() == TaskStatus.CANCELLED
+        || task.getStatus() == TaskStatus.EXPIRED) {
+      // Terminal state is not an authorization signal; defer to execution-time state guard.
+      return;
+    }
+
+    if ("claim".equals(normalizedAction)) {
+      if (task.getAssigneeId() != null
+          && !task.getAssigneeId().equals(actor.actorId())
+          && !isPrivileged) {
+        throw new AccessDeniedException("Task is assigned to a different user: " + task.getId());
+      }
+      if (candidateRepository != null && task.getAssigneeId() == null) {
+        List<com.fpt.workflow.task.domain.TaskCandidate> candidates =
+            candidateRepository.findAllByTaskIdOrderByCreatedAtAsc(task.getId());
+        boolean hasClaimable = candidates.stream().anyMatch(TaskQueryService::isClaimableCandidate);
+        if (hasClaimable && !isPrivileged) {
+          boolean isCandidate =
+              candidates.stream().anyMatch(c -> c.getUserId().equals(actor.actorId()));
+          if (!isCandidate) {
+            throw new AccessDeniedException(
+                "Actor is not an eligible candidate for task: " + task.getId());
+          }
+        }
+      }
+      return;
+    }
+
+    if ("unclaim".equals(normalizedAction)) {
+      if (!isPrivileged
+          && (task.getAssigneeId() == null || !task.getAssigneeId().equals(actor.actorId()))) {
+        throw new AccessDeniedException("Not authorized to unclaim task: " + task.getId());
+      }
+      return;
+    }
+
+    if ("reassign".equals(normalizedAction)) {
+      if (!isPrivileged
+          && task.getAssigneeId() != null
+          && !task.getAssigneeId().equals(actor.actorId())) {
+        throw new AccessDeniedException("Not authorized to reassign task: " + task.getId());
+      }
+      return;
+    }
+
+    if ("force-complete".equals(normalizedAction)) {
+      if (!isPrivileged) {
+        throw new AccessDeniedException("Actor is not authorized to force complete task");
+      }
+      return;
+    }
+
+    // Decide-style actions (approve/reject/complete/request-revision/…): assignee-only.
+    if (task.getAssigneeId() != null && !task.getAssigneeId().equals(actor.actorId())) {
+      throw new AccessDeniedException(
+          "Task is assigned to a different user: " + task.getId());
+    }
+  }
+
+  /** P2-16 (§24.1): task lifecycle audit (claim/unclaim/reassign). */
+  private void auditTaskEvent(
+      com.fpt.workflow.task.domain.TaskExecution task,
+      String eventType,
+      com.fpt.workflow.security.ActorContext actor,
+      java.time.Instant now) {
+    if (auditRepository == null) {
+      return;
+    }
+    com.fasterxml.jackson.databind.node.ObjectNode metadata =
+        com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
+    metadata.put("taskId", task.getId().toString());
+    metadata.put("nodeExecutionId", task.getNodeExecutionId().toString());
+    metadata.put("status", task.getStatus().name());
+    auditRepository.save(
+        com.fpt.workflow.operations.audit.AuditEvent.record(
+            uuidGenerator.generate(),
+            "TASK_EXECUTION",
+            task.getId(),
+            eventType,
+            actor.actorId(),
+            actor.actorId(),
+            new com.fpt.workflow.shared.domain.CorrelationId(
+                java.util.UUID.nameUUIDFromBytes(
+                    ("audit:" + task.getId() + ":" + eventType)
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8))),
+            new com.fpt.workflow.shared.domain.CommandId(
+                java.util.UUID.nameUUIDFromBytes(
+                    ("audit:" + task.getId() + ":" + eventType + ":" + now)
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8))),
+            metadata,
+            now));
+  }
+
+  private static boolean isClaimableCandidate(
+      com.fpt.workflow.task.domain.TaskCandidate candidate) {
+    return !"SEQUENTIAL".equalsIgnoreCase(candidate.getSourceType());
   }
 
   private TaskDtos.TaskItemView toView(

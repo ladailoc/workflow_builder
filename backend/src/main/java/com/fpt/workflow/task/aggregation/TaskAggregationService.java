@@ -20,6 +20,31 @@ public class TaskAggregationService {
     this.clock = clock;
   }
 
+  @Transactional(readOnly = true)
+  public boolean hasAggregation(UUID nodeId) {
+    return states.existsById(nodeId);
+  }
+
+  @Transactional(readOnly = true)
+  public Optional<TaskAggregationState> findState(UUID nodeId) {
+    return states.findById(nodeId);
+  }
+
+  @Transactional
+  public AggregationResult recordTaskDecision(
+      UUID nodeId, UUID taskId, com.fpt.workflow.shared.domain.lifecycle.BusinessOutcome outcome) {
+    TaskAggregationState state =
+        states
+            .findById(nodeId)
+            .orElseThrow(() -> new IllegalArgumentException("Aggregation state not found: " + nodeId));
+    if (state.getDecisionPolicy() != null) {
+      boolean approved = com.fpt.workflow.shared.domain.lifecycle.BusinessOutcome.APPROVED.equals(outcome);
+      return recordDecision(nodeId, taskId, approved);
+    } else {
+      return recordCompletion(nodeId, taskId);
+    }
+  }
+
   @Transactional
   public AggregationResult recordDecision(UUID nodeId, UUID taskId, boolean approved) {
     return record(nodeId, taskId, approved ? "APPROVED" : "REJECTED", true, approved);

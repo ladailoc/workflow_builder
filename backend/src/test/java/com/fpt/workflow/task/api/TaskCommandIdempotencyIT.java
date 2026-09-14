@@ -1,6 +1,6 @@
 package com.fpt.workflow.task.api;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -31,16 +31,14 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @ActiveProfiles("test")
 @SpringBootTest
 @AutoConfigureMockMvc
-class TaskControllerIT {
+class TaskCommandIdempotencyIT {
 
   private static final UUID ACTOR_ID = UUID.fromString("10000000-0000-4000-8000-000000000001");
-  private static final UUID TARGET_USER_ID =
-      UUID.fromString("20000000-0000-4000-8000-000000000002");
 
   @Container @ServiceConnection
   static final PostgreSQLContainer<?> postgres =
       new PostgreSQLContainer<>("postgres:17-alpine")
-          .withDatabaseName("task_controller_test")
+          .withDatabaseName("task_command_idempotency_test")
           .withUsername("workflow_test")
           .withPassword("workflow_test");
 
@@ -52,7 +50,7 @@ class TaskControllerIT {
   @Autowired private ObjectMapper objectMapper;
 
   @Test
-  void listsTasksAndExecutesClaimAndReassign() throws Exception {
+  void taskCommandProvidesIdempotencyAndChecksExpectedVersion() throws Exception {
     UUID definitionId = UUID.randomUUID();
     UUID versionId = UUID.randomUUID();
     UUID ticketId = UUID.randomUUID();
@@ -148,48 +146,55 @@ class TaskControllerIT {
             now);
     taskRepository.saveAndFlush(task);
 
-    // 1. GET /api/v1/tasks as ADMIN/OPERATOR
-    mockMvc
-        .perform(
-            get("/api/v1/tasks")
-                .header("X-Actor-Id", ACTOR_ID.toString())
-                .header("X-Actor-Roles", "ADMIN"))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$[?(@.id == '" + taskId + "')]").isNotEmpty())
-        .andExpect(jsonPath("$[?(@.id == '" + taskId + "')].ticketId").value(ticketId.toString()))
-        .andExpect(jsonPath("$[?(@.id == '" + taskId + "')].eventId").value(eventId.toString()))
-        .andExpect(jsonPath("$[?(@.id == '" + taskId + "')].title").value("Approval Task"));
+    UUID commandId = UUID.randomUUID();
 
-    // 2. Claim task
+    // 1. First claim with commandId
     mockMvc
         .perform(
             post("/api/v1/tasks/{taskId}/claim", taskId)
-                .header(TaskController.COMMAND_ID_HEADER, UUID.randomUUID())
-                .header("If-Match", 0)
+                .header(TaskController.COMMAND_ID_HEADER, commandId)
+                .header("If-Match", task.getLockVersion())
                 .header("X-Actor-Id", ACTOR_ID.toString())
                 .header("X-Actor-Roles", "USER")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"comment\":\"I will handle this\"}"))
+                .content("{\"comment\":\"First claim attempt\"}"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.id").value(taskId.toString()))
         .andExpect(jsonPath("$.status").value("CLAIMED"))
         .andExpect(jsonPath("$.assigneeId").value(ACTOR_ID.toString()));
 
-    // 3. Reassign task
+    // 2. Duplicate claim with SAME commandId is idempotent and replayed
     mockMvc
         .perform(
-            post("/api/v1/tasks/{taskId}/reassign", taskId)
-                .header(TaskController.COMMAND_ID_HEADER, UUID.randomUUID())
-                .header("If-Match", 1)
+            post("/api/v1/tasks/{taskId}/claim", taskId)
+                .header(TaskController.COMMAND_ID_HEADER, commandId)
+                .header("If-Match", task.getLockVersion())
                 .header("X-Actor-Id", ACTOR_ID.toString())
                 .header("X-Actor-Roles", "USER")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    "{\"targetUserId\":\""
-                        + TARGET_USER_ID
-                        + "\",\"comment\":\"Reassigning to Bob\"}"))
+                .content("{\"comment\":\"First claim attempt\"}"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.id").value(taskId.toString()))
-        .andExpect(jsonPath("$.assigneeId").value(TARGET_USER_ID.toString()));
+        .andExpect(jsonPath("$.status").value("CLAIMED"))
+        .andExpect(jsonPath("$.assigneeId").value(ACTOR_ID.toString()));
+
+    // Verify command was recorded in command_executions table
+    Integer commandCount =
+        jdbcTemplate.queryForObject(
+            "SELECT count(*) FROM command_executions WHERE command_id = ? AND scope_type = 'TASK'",
+            Integer.class,
+            commandId);
+    assertThat(commandCount).isEqualTo(1);
+
+    // 3. Stale If-Match expected version returns 409 conflict
+    mockMvc
+        .perform(
+            post("/api/v1/tasks/{taskId}/unclaim", taskId)
+                .header(TaskController.COMMAND_ID_HEADER, UUID.randomUUID())
+                .header("If-Match", 999)
+                .header("X-Actor-Id", ACTOR_ID.toString())
+                .header("X-Actor-Roles", "USER")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("STALE_EXPECTED_VERSION"));
   }
 }

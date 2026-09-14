@@ -28,5 +28,19 @@ public final class TaskDtos {
       JsonNode inputSnapshotJson) {}
 
   public record TaskActionRequest(
-      String comment, UUID targetUserId, JsonNode formData, JsonNode requestedFields) {}
+      String comment,
+      UUID targetUserId,
+      JsonNode formData,
+      JsonNode requestedFields,
+      UUID targetNodeId,
+      String outcome) {
+    public TaskActionRequest(
+        String comment,
+        UUID targetUserId,
+        JsonNode formData,
+        JsonNode requestedFields,
+        UUID targetNodeId) {
+      this(comment, targetUserId, formData, requestedFields, targetNodeId, null);
+    }
+  }
 }

@@ -155,6 +155,15 @@ public class TaskExecution {
     this.completedAt = TaskValues.notBefore(completedAt, createdAt, "completedAt");
   }
 
+  public void forceComplete(BusinessOutcome outcome, UUID operatorId, Instant completedAt) {
+    if (assigneeId == null && operatorId != null) {
+      this.assigneeId = operatorId;
+    }
+    transition(TaskStatus.COMPLETED);
+    this.outcome = Objects.requireNonNull(outcome, "outcome").value();
+    this.completedAt = TaskValues.notBefore(completedAt, createdAt, "completedAt");
+  }
+
   public void cancel(BusinessOutcome outcome, Instant completedAt) {
     transition(TaskStatus.CANCELLED);
     this.outcome = outcome == null ? null : outcome.value();
@@ -176,6 +185,12 @@ public class TaskExecution {
     UUID replacement = Objects.requireNonNull(newAssigneeId, "newAssigneeId");
     if (replacement.equals(assigneeId)) throw new IllegalArgumentException("Assignee is unchanged");
     assigneeId = replacement;
+  }
+
+  public void unclaim() {
+    TransitionGuard.requireAllowed(status, TaskStatus.READY, allowedTargets(status));
+    status = TaskStatus.READY;
+    assigneeId = null;
   }
 
   private void requireAssignee() {
@@ -200,6 +215,7 @@ public class TaskExecution {
               TaskStatus.EXPIRED);
       case CLAIMED ->
           List.of(
+              TaskStatus.READY,
               TaskStatus.IN_PROGRESS,
               TaskStatus.COMPLETED,
               TaskStatus.CANCELLED,

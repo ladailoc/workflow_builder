@@ -153,6 +153,22 @@ public class TaskAggregationState {
     return completionClaimed;
   }
 
+  public DecisionAggregationPolicy getDecisionPolicy() {
+    return decisionPolicy;
+  }
+
+  public CompletionPolicy getCompletionPolicy() {
+    return completionPolicy;
+  }
+
+  public RejectBehavior getRejectBehavior() {
+    return rejectBehavior;
+  }
+
+  public Integer getThreshold() {
+    return threshold;
+  }
+
   public RemainingTaskBehavior getRemainingTaskBehavior() {
     return remainingTaskBehavior;
   }
