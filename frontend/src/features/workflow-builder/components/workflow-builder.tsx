@@ -26,6 +26,7 @@ import type {
   BuilderEdge,
   BuilderNode,
   BuilderNodeType,
+  ValidationIssue,
   WorkflowVersionDto,
 } from "../types";
 import type { FormSchema } from "../form-types";
@@ -37,11 +38,21 @@ import { VersionHistoryDrawer } from "./version-history-drawer";
 import { VersionDiffModal } from "./version-diff-modal";
 
 interface WorkflowBuilderProps {
+  workflowName?: string;
+  readOnly?: boolean;
+  publishAllowed?: boolean;
   initialVersion: WorkflowVersionDto;
+  initialRequestForm?: FormSchema;
   historicalVersions?: WorkflowVersionDto[];
-  onSave?: (nodes: BuilderNode[], edges: BuilderEdge[]) => Promise<void>;
+  onSave?: (
+    nodes: BuilderNode[],
+    edges: BuilderEdge[],
+    requestForm: FormSchema,
+  ) => Promise<void>;
+  onValidate?: () => Promise<ValidationIssue[]>;
   onPublish?: (versionId: string) => Promise<void>;
   onCloneAsNewDraft?: (sourceVersion: WorkflowVersionDto) => void;
+  onOpenHistory?: () => void;
 }
 
 const nodeTypes: NodeTypes = {
@@ -51,15 +62,22 @@ const nodeTypes: NodeTypes = {
 let nodeCounter = 1;
 
 export function WorkflowBuilder({
+  workflowName,
+  readOnly = false,
+  publishAllowed = true,
   initialVersion,
+  initialRequestForm,
   historicalVersions = [],
   onSave,
+  onValidate,
   onPublish,
   onCloneAsNewDraft,
+  onOpenHistory,
 }: WorkflowBuilderProps) {
-  const [currentVersion, setCurrentVersion] = useState<WorkflowVersionDto>(initialVersion);
+  const [currentVersion, setCurrentVersion] =
+    useState<WorkflowVersionDto>(initialVersion);
   const [status, setStatus] = useState(initialVersion.status);
-  const isDraft = status === "DRAFT";
+  const isDraft = status === "DRAFT" && !readOnly;
 
   // Nodes & Edges state
   const [nodes, setNodes] = useState<BuilderNode[]>(initialVersion.nodes);
@@ -75,21 +93,33 @@ export function WorkflowBuilder({
 
   // Workflow Request Form state
   const [requestFormOpen, setRequestFormOpen] = useState(false);
-  const [requestFormSchema, setRequestFormSchema] = useState<FormSchema>(() => ({
-    fields: [
-      { key: "title", label: "Request Title", type: "STRING", required: true },
-      { key: "departmentId", label: "Department", type: "STRING", required: true },
-    ],
-  }));
+  const [requestFormSchema, setRequestFormSchema] = useState<FormSchema>(
+    () => ({
+      fields: initialRequestForm?.fields ?? [
+        {
+          key: "title",
+          label: "Request Title",
+          type: "STRING",
+          required: true,
+        },
+        {
+          key: "departmentId",
+          label: "Department",
+          type: "STRING",
+          required: true,
+        },
+      ],
+    }),
+  );
 
   // Lifecycle Modals State
   const [simulationOpen, setSimulationOpen] = useState(false);
   const [publishModalOpen, setPublishModalOpen] = useState(false);
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
   const [diffModalOpen, setDiffModalOpen] = useState(false);
-  const [diffBaseVersion, setDiffBaseVersion] = useState<WorkflowVersionDto | undefined>(
-    historicalVersions[0],
-  );
+  const [diffBaseVersion, setDiffBaseVersion] = useState<
+    WorkflowVersionDto | undefined
+  >(historicalVersions[0]);
 
   const handleConfirmPublish = async () => {
     if (onPublish) {
@@ -97,7 +127,9 @@ export function WorkflowBuilder({
     }
     setStatus("PUBLISHED");
     setCurrentVersion((prev) => ({ ...prev, status: "PUBLISHED" }));
-    setSaveSuccessMsg(`Version #${currentVersion.versionNo} published successfully.`);
+    setSaveSuccessMsg(
+      `Version #${currentVersion.versionNo} published successfully.`,
+    );
     setTimeout(() => setSaveSuccessMsg(null), 4000);
   };
 
@@ -241,7 +273,9 @@ export function WorkflowBuilder({
   const handleSaveEdge = useCallback(
     (updatedEdge: BuilderEdge) => {
       setEdges((prev) => {
-        const next = prev.map((e) => (e.id === updatedEdge.id ? updatedEdge : e));
+        const next = prev.map((e) =>
+          e.id === updatedEdge.id ? updatedEdge : e,
+        );
         setValidationIssues(validateWorkflowGraph(nodes, next));
         return next;
       });
@@ -325,7 +359,13 @@ export function WorkflowBuilder({
   };
 
   // Toolbar actions
-  const handleValidate = () => {
+  const handleValidate = async () => {
+    if (onValidate) {
+      const issues = await onValidate();
+      setValidationIssues(issues);
+      setValidationPanelOpen(true);
+      return;
+    }
     const issues = validateWorkflowGraph(nodes, edges);
     setValidationIssues(issues);
     setValidationPanelOpen(true);
@@ -334,7 +374,7 @@ export function WorkflowBuilder({
   const handleSaveDraft = async () => {
     if (!isDraft) return;
     if (onSave) {
-      await onSave(nodes, edges);
+      await onSave(nodes, edges, requestFormSchema);
     }
     setSaveSuccessMsg("Draft saved successfully.");
     setTimeout(() => setSaveSuccessMsg(null), 3000);
@@ -349,18 +389,27 @@ export function WorkflowBuilder({
   return (
     <div
       data-testid="workflow-builder-shell"
-      className="flex h-[calc(100vh-4rem)] flex-col bg-slate-100 overflow-hidden"
+      className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden bg-slate-100"
     >
       {/* Top Toolbar */}
       <BuilderToolbar
+        workflowName={workflowName}
         versionNo={currentVersion.versionNo}
         status={status}
+        editingAllowed={isDraft}
+        publishAllowed={publishAllowed}
         hasErrors={hasErrors}
         issueCount={validationIssues.length}
         onSaveDraft={handleSaveDraft}
         onValidate={handleValidate}
         onSimulate={() => setSimulationOpen(true)}
-        onDiffHistory={() => setHistoryDrawerOpen(true)}
+        onDiffHistory={() => {
+          if (onOpenHistory) {
+            onOpenHistory();
+            return;
+          }
+          setHistoryDrawerOpen(true);
+        }}
         onPublish={() => setPublishModalOpen(true)}
         onRequestForm={() => setRequestFormOpen(true)}
       />
@@ -369,7 +418,7 @@ export function WorkflowBuilder({
       {saveSuccessMsg && (
         <div
           data-testid="save-draft-toast"
-          className="absolute top-16 right-8 z-50 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-lg animate-fade-in"
+          className="animate-fade-in absolute top-16 right-8 z-50 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-lg"
         >
           {saveSuccessMsg}
         </div>
@@ -442,16 +491,17 @@ export function WorkflowBuilder({
           role="dialog"
           aria-modal="true"
           data-testid="workflow-request-form-modal"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs"
         >
-          <div className="w-full max-w-2xl rounded-xl bg-white p-6 shadow-2xl space-y-4 animate-scale-in">
+          <div className="animate-scale-in w-full max-w-2xl space-y-4 rounded-xl bg-white p-6 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div>
                 <h3 className="text-sm font-bold text-slate-900">
                   Workflow Request Input Form
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Configure form schema presented to users when submitting a ticket for this workflow.
+                  Configure form schema presented to users when submitting a
+                  ticket for this workflow.
                 </p>
               </div>
               <button
@@ -526,7 +576,9 @@ export function WorkflowBuilder({
             diffBaseVersion
               ? [
                   diffBaseVersion,
-                  ...historicalVersions.filter((v) => v.id !== diffBaseVersion.id),
+                  ...historicalVersions.filter(
+                    (v) => v.id !== diffBaseVersion.id,
+                  ),
                 ]
               : historicalVersions
           }

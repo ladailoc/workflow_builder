@@ -1,13 +1,8 @@
 export type FormFieldType =
-  | "STRING"
-  | "INTEGER"
-  | "DECIMAL"
-  | "BOOLEAN"
-  | "DATE"
-  | "ENUM"
-  | "FILE";
+  "STRING" | "INTEGER" | "DECIMAL" | "BOOLEAN" | "DATE" | "ENUM" | "FILE";
 
 export interface FormFieldDefinition {
+  fieldId?: string;
   key: string;
   label: string;
   type: FormFieldType;

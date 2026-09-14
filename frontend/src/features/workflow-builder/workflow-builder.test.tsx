@@ -8,7 +8,13 @@ vi.mock("@xyflow/react", async () => {
   const actual = await vi.importActual("@xyflow/react");
   return {
     ...actual,
-    ReactFlow: ({ children, nodes }: { children: React.ReactNode; nodes: Array<{ id: string; data: { label: string; key: string } }> }) => (
+    ReactFlow: ({
+      children,
+      nodes,
+    }: {
+      children: React.ReactNode;
+      nodes: Array<{ id: string; data: { label: string; key: string } }>;
+    }) => (
       <div data-testid="mock-react-flow">
         {nodes.map((n) => (
           <div key={n.id} data-testid={`node-element-${n.id}`}>
@@ -78,12 +84,18 @@ describe("WorkflowBuilder Component", () => {
 
     expect(screen.getByTestId("workflow-builder-shell")).toBeInTheDocument();
     expect(screen.getByTestId("node-catalog-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("builder-version-status")).toHaveTextContent("DRAFT");
+    expect(screen.getByTestId("builder-version-status")).toHaveTextContent(
+      "DRAFT",
+    );
     expect(screen.getByText("Version #1")).toBeInTheDocument();
 
     // Verify nodes are rendered on canvas
-    expect(screen.getByTestId("node-element-node_start")).toHaveTextContent("Start");
-    expect(screen.getByTestId("node-element-node_end")).toHaveTextContent("End");
+    expect(screen.getByTestId("node-element-node_start")).toHaveTextContent(
+      "Start",
+    );
+    expect(screen.getByTestId("node-element-node_end")).toHaveTextContent(
+      "End",
+    );
   });
 
   it("adds a new node from the catalog to the canvas in draft mode", () => {
@@ -104,7 +116,9 @@ describe("WorkflowBuilder Component", () => {
   it("enforces publish guard: published version is strictly read-only", () => {
     render(<WorkflowBuilder initialVersion={TEST_PUBLISHED_VERSION} />);
 
-    expect(screen.getByTestId("builder-version-status")).toHaveTextContent("PUBLISHED");
+    expect(screen.getByTestId("builder-version-status")).toHaveTextContent(
+      "PUBLISHED",
+    );
     expect(screen.getByTestId("read-only-banner")).toBeInTheDocument();
 
     // Save Draft and Publish buttons MUST be disabled
@@ -114,6 +128,21 @@ describe("WorkflowBuilder Component", () => {
     // Catalog additions MUST be disabled
     const addApprovalBtn = screen.getByTestId("add-node-approval");
     expect(addApprovalBtn).toBeDisabled();
+  });
+
+  it("keeps a Draft read-only when the viewer lacks definition edit permission", () => {
+    render(
+      <WorkflowBuilder
+        initialVersion={TEST_DRAFT_VERSION}
+        readOnly
+        publishAllowed={false}
+      />,
+    );
+
+    expect(screen.getByTestId("read-only-banner")).toBeInTheDocument();
+    expect(screen.getByTestId("toolbar-save-draft-button")).toBeDisabled();
+    expect(screen.getByTestId("toolbar-publish-button")).toBeDisabled();
+    expect(screen.getByTestId("add-node-approval")).toBeDisabled();
   });
 
   it("validates graph rules and focuses node when clicking validation issue", () => {
@@ -154,7 +183,9 @@ describe("WorkflowBuilder Component", () => {
     ).toBeInTheDocument();
 
     // Clicking the unreachable node issue focuses the node
-    const unreachableIssue = screen.getByTestId("validation-issue-warn-unreachable-orphan_end");
+    const unreachableIssue = screen.getByTestId(
+      "validation-issue-warn-unreachable-orphan_end",
+    );
     fireEvent.click(unreachableIssue);
 
     // Node is selected -> Properties panel opens for orphan_end

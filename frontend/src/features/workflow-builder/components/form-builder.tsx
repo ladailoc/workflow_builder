@@ -1,7 +1,11 @@
 "use client";
 
 import { useId, useState } from "react";
-import type { FormFieldDefinition, FormFieldType, FormSchema } from "../form-types";
+import type {
+  FormFieldDefinition,
+  FormFieldType,
+  FormSchema,
+} from "../form-types";
 import type { BuilderEdge, BuilderNode } from "../types";
 import { findFieldDependencies } from "../utils/field-dependency";
 import { FieldDependencyModal } from "./field-dependency-modal";
@@ -52,10 +56,14 @@ export function FormBuilder({
 
   // Dependency modal state
   const [depModalOpen, setDepModalOpen] = useState(false);
-  const [depActionType, setDepActionType] = useState<"DELETE" | "RENAME">("DELETE");
+  const [depActionType, setDepActionType] = useState<"DELETE" | "RENAME">(
+    "DELETE",
+  );
   const [targetFieldKey, setTargetFieldKey] = useState("");
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
-  const [detectedDeps, setDetectedDeps] = useState<ReturnType<typeof findFieldDependencies>>([]);
+  const [detectedDeps, setDetectedDeps] = useState<
+    ReturnType<typeof findFieldDependencies>
+  >([]);
   const formHtmlId = useId();
 
   const resetForm = () => {
@@ -132,7 +140,9 @@ export function FormBuilder({
       return;
     }
     if (!/^[a-zA-Z0-9_]+$/.test(trimmedKey)) {
-      setFormError("Key must contain only alphanumeric characters and underscores.");
+      setFormError(
+        "Key must contain only alphanumeric characters and underscores.",
+      );
       return;
     }
     if (!trimmedLabel) {
@@ -149,6 +159,12 @@ export function FormBuilder({
         : undefined;
 
     const newField: FormFieldDefinition = {
+      fieldId:
+        editingIndex !== null
+          ? fields[editingIndex].fieldId
+          : typeof crypto !== "undefined" && crypto.randomUUID
+            ? crypto.randomUUID()
+            : undefined,
       key: trimmedKey,
       label: trimmedLabel,
       type: fieldType,
@@ -168,7 +184,9 @@ export function FormBuilder({
     } else if (editingIndex !== null) {
       const oldField = fields[editingIndex];
       // Check duplicate key with other fields
-      if (fields.some((f, idx) => idx !== editingIndex && f.key === trimmedKey)) {
+      if (
+        fields.some((f, idx) => idx !== editingIndex && f.key === trimmedKey)
+      ) {
         setFormError(`A field with key '${trimmedKey}' already exists.`);
         return;
       }
@@ -225,7 +243,8 @@ export function FormBuilder({
           data-testid="empty-form-fields-message"
           className="rounded-lg border border-dashed border-slate-300 p-4 text-center text-xs text-slate-400"
         >
-          No form fields defined yet. Click &quot;+ Add Field&quot; to configure input parameters.
+          No form fields defined yet. Click &quot;+ Add Field&quot; to configure
+          input parameters.
         </div>
       ) : (
         <div className="space-y-2">
@@ -310,10 +329,12 @@ export function FormBuilder({
       {(isAdding || editingIndex !== null) && (
         <div
           data-testid="field-editor-form"
-          className="rounded-lg border border-blue-200 bg-blue-50/50 p-3.5 space-y-3"
+          className="space-y-3 rounded-lg border border-blue-200 bg-blue-50/50 p-3.5"
         >
           <h5 className="text-xs font-bold text-blue-900">
-            {isAdding ? "Add Form Field" : `Edit Field: ${fields[editingIndex!].key}`}
+            {isAdding
+              ? "Add Form Field"
+              : `Edit Field: ${fields[editingIndex!].key}`}
           </h5>
 
           {formError && (
@@ -326,7 +347,7 @@ export function FormBuilder({
             <div>
               <label
                 htmlFor={`${formHtmlId}-fieldKey`}
-                className="text-[11px] font-semibold text-slate-700 block mb-0.5"
+                className="mb-0.5 block text-[11px] font-semibold text-slate-700"
               >
                 Field Identifier Key *
               </label>
@@ -343,7 +364,7 @@ export function FormBuilder({
             <div>
               <label
                 htmlFor={`${formHtmlId}-fieldLabel`}
-                className="text-[11px] font-semibold text-slate-700 block mb-0.5"
+                className="mb-0.5 block text-[11px] font-semibold text-slate-700"
               >
                 Display Label *
               </label>
@@ -363,7 +384,7 @@ export function FormBuilder({
             <div>
               <label
                 htmlFor={`${formHtmlId}-fieldType`}
-                className="text-[11px] font-semibold text-slate-700 block mb-0.5"
+                className="mb-0.5 block text-[11px] font-semibold text-slate-700"
               >
                 Data Type
               </label>
@@ -382,7 +403,7 @@ export function FormBuilder({
               </select>
             </div>
             <div className="flex items-center pt-4">
-              <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+              <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-700">
                 <input
                   type="checkbox"
                   data-testid="checkbox-field-required"
@@ -399,7 +420,7 @@ export function FormBuilder({
             <div>
               <label
                 htmlFor={`${formHtmlId}-fieldOptions`}
-                className="text-[11px] font-semibold text-slate-700 block mb-0.5"
+                className="mb-0.5 block text-[11px] font-semibold text-slate-700"
               >
                 Options (comma-separated)
               </label>
@@ -418,7 +439,7 @@ export function FormBuilder({
           <div>
             <label
               htmlFor={`${formHtmlId}-fieldDesc`}
-              className="text-[11px] font-semibold text-slate-700 block mb-0.5"
+              className="mb-0.5 block text-[11px] font-semibold text-slate-700"
             >
               Help Description
             </label>

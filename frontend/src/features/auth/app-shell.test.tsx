@@ -29,13 +29,14 @@ describe("Application Shell & Permission Navigation", () => {
     expect(screen.getByText("My Tasks")).toBeInTheDocument();
     expect(screen.getByText("Events & History")).toBeInTheDocument();
 
-    // Workflow Builder must NOT be shown to ordinary end user without permission
-    expect(screen.queryByText("Workflow Builder")).not.toBeInTheDocument();
+    // Workflow administration must NOT be shown to ordinary end users.
+    expect(screen.queryByText("Workflows")).not.toBeInTheDocument();
+    expect(screen.queryByText("Request Types")).not.toBeInTheDocument();
     expect(screen.queryByText("Organization")).not.toBeInTheDocument();
     expect(screen.queryByText("Operations")).not.toBeInTheDocument();
   });
 
-  it("shows Workflow Builder only to users with WORKFLOW_OWNER or ADMIN role", () => {
+  it("shows Workflow Management and Request Types to workflow owners", () => {
     const ownerSession: AuthSession = {
       status: "authenticated",
       actor: PRESET_ACTORS[1], // Bob Owner: roles = ["WORKFLOW_OWNER"]
@@ -47,7 +48,8 @@ describe("Application Shell & Permission Navigation", () => {
       </AuthSessionProvider>,
     );
 
-    expect(screen.getByText("Workflow Builder")).toBeInTheDocument();
+    expect(screen.getByText("Workflows")).toBeInTheDocument();
+    expect(screen.getByText("Request Types")).toBeInTheDocument();
     expect(screen.queryByText("Organization")).not.toBeInTheDocument();
   });
 
@@ -64,7 +66,8 @@ describe("Application Shell & Permission Navigation", () => {
     );
 
     expect(screen.getByText("Operations")).toBeInTheDocument();
-    expect(screen.queryByText("Workflow Builder")).not.toBeInTheDocument();
+    expect(screen.getByText("Workflows")).toBeInTheDocument();
+    expect(screen.queryByText("Request Types")).not.toBeInTheDocument();
   });
 
   it("shows all administration links to ADMIN role", () => {
@@ -79,7 +82,8 @@ describe("Application Shell & Permission Navigation", () => {
       </AuthSessionProvider>,
     );
 
-    expect(screen.getByText("Workflow Builder")).toBeInTheDocument();
+    expect(screen.getByText("Workflows")).toBeInTheDocument();
+    expect(screen.getByText("Request Types")).toBeInTheDocument();
     expect(screen.getByText("Organization")).toBeInTheDocument();
     expect(screen.getByText("Operations")).toBeInTheDocument();
   });

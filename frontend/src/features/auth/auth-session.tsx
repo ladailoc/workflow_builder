@@ -28,6 +28,7 @@ interface AuthSessionContextValue {
   hasRole: (role: PlatformRole | readonly PlatformRole[]) => boolean;
   hasPermission: (permission: PlatformPermission) => boolean;
   canAccessWorkflowBuilder: boolean;
+  canAccessWorkflowManagement: boolean;
   canAccessOrganization: boolean;
   canAccessOperations: boolean;
 }
@@ -93,8 +94,17 @@ export function AuthSessionProvider({
   );
 
   const canAccessWorkflowBuilder = useMemo(() => {
-    return hasRole(["WORKFLOW_OWNER", "WORKFLOW_EDITOR", "ADMIN"]) ||
-      hasPermission("WORKFLOW_BUILDER_ACCESS");
+    return (
+      hasRole(["WORKFLOW_OWNER", "WORKFLOW_EDITOR", "ADMIN"]) ||
+      hasPermission("WORKFLOW_BUILDER_ACCESS")
+    );
+  }, [hasRole, hasPermission]);
+
+  const canAccessWorkflowManagement = useMemo(() => {
+    return (
+      hasRole(["WORKFLOW_OWNER", "WORKFLOW_EDITOR", "OPERATOR", "ADMIN"]) ||
+      hasPermission("WORKFLOW_BUILDER_ACCESS")
+    );
   }, [hasRole, hasPermission]);
 
   const canAccessOrganization = useMemo(() => {
@@ -114,6 +124,7 @@ export function AuthSessionProvider({
       hasRole,
       hasPermission,
       canAccessWorkflowBuilder,
+      canAccessWorkflowManagement,
       canAccessOrganization,
       canAccessOperations,
     }),
@@ -124,6 +135,7 @@ export function AuthSessionProvider({
       hasRole,
       hasPermission,
       canAccessWorkflowBuilder,
+      canAccessWorkflowManagement,
       canAccessOrganization,
       canAccessOperations,
     ],

@@ -3,8 +3,11 @@
 import type { WorkflowVersionStatus } from "../types";
 
 interface BuilderToolbarProps {
+  workflowName?: string;
   versionNo: number;
   status: WorkflowVersionStatus;
+  editingAllowed?: boolean;
+  publishAllowed?: boolean;
   hasErrors: boolean;
   issueCount: number;
   onSaveDraft: () => void;
@@ -16,8 +19,11 @@ interface BuilderToolbarProps {
 }
 
 export function BuilderToolbar({
+  workflowName,
   versionNo,
   status,
+  editingAllowed = true,
+  publishAllowed = true,
   hasErrors,
   issueCount,
   onSaveDraft,
@@ -27,7 +33,7 @@ export function BuilderToolbar({
   onPublish,
   onRequestForm,
 }: BuilderToolbarProps) {
-  const isDraft = status === "DRAFT";
+  const isDraft = status === "DRAFT" && editingAllowed;
 
   const getStatusBadge = () => {
     switch (status) {
@@ -46,6 +52,11 @@ export function BuilderToolbar({
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-5 shadow-2xs">
       {/* Left: Version & Mode Info */}
       <div className="flex items-center gap-3">
+        {workflowName && (
+          <span className="max-w-64 truncate text-sm font-semibold text-slate-700">
+            {workflowName}
+          </span>
+        )}
         <div className="flex items-center gap-2">
           <span className="text-sm font-bold text-slate-900">
             Version #{versionNo}
@@ -75,7 +86,7 @@ export function BuilderToolbar({
             type="button"
             data-testid="toolbar-request-form-button"
             onClick={onRequestForm}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
           >
             <span>Request Form</span>
           </button>
@@ -85,13 +96,13 @@ export function BuilderToolbar({
           type="button"
           data-testid="toolbar-validate-button"
           onClick={onValidate}
-          className="relative inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+          className="relative inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
         >
           <span>Validate</span>
           {issueCount > 0 && (
             <span
               data-testid="toolbar-issue-badge"
-              className={`rounded-full px-1.5 py-0.2 text-[10px] font-bold text-white ${
+              className={`py-0.2 rounded-full px-1.5 text-[10px] font-bold text-white ${
                 hasErrors ? "bg-rose-600" : "bg-amber-500"
               }`}
             >
@@ -104,7 +115,7 @@ export function BuilderToolbar({
           type="button"
           data-testid="toolbar-simulate-button"
           onClick={onSimulate}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
         >
           <span>Simulate</span>
         </button>
@@ -113,19 +124,19 @@ export function BuilderToolbar({
           type="button"
           data-testid="toolbar-diff-button"
           onClick={onDiffHistory}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
         >
           <span>Diff / History</span>
         </button>
 
-        <div className="h-4 w-px bg-slate-200 mx-1" />
+        <div className="mx-1 h-4 w-px bg-slate-200" />
 
         <button
           type="button"
           data-testid="toolbar-save-draft-button"
           disabled={!isDraft}
           onClick={onSaveDraft}
-          className="rounded-lg border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="rounded-lg border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Save Draft
         </button>
@@ -133,15 +144,17 @@ export function BuilderToolbar({
         <button
           type="button"
           data-testid="toolbar-publish-button"
-          disabled={!isDraft || hasErrors}
+          disabled={!isDraft || !publishAllowed || hasErrors}
           onClick={onPublish}
-          className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-2xs transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
           title={
             hasErrors
               ? "Resolve all validation errors before publishing"
               : !isDraft
                 ? "Only drafts can be published"
-                : "Publish this version"
+                : !publishAllowed
+                  ? "You do not have permission to publish"
+                  : "Publish this version"
           }
         >
           Publish

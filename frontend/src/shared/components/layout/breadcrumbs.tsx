@@ -8,7 +8,14 @@ const ROUTE_LABELS: Record<string, string> = {
   tickets: "My Tickets",
   tasks: "My Tasks",
   events: "Events & History",
-  workflows: "Workflow Builder",
+  workflows: "Workflows",
+  "request-types": "Request Types",
+  forms: "Forms",
+  "ticket-categories": "Business Intents",
+  contract: "Inputs & States",
+  versions: "Versions",
+  builder: "Builder",
+  new: "New",
   organization: "Organization & Admin",
   operations: "Operations",
 };
@@ -19,8 +26,11 @@ export function Breadcrumbs() {
 
   if (segments.length === 0) {
     return (
-      <nav aria-label="Breadcrumb" className="flex items-center text-xs font-medium text-slate-500">
-        <span className="text-slate-900 font-semibold">Home</span>
+      <nav
+        aria-label="Breadcrumb"
+        className="flex items-center text-xs font-medium text-slate-500"
+      >
+        <span className="font-semibold text-slate-900">Home</span>
       </nav>
     );
   }
@@ -32,7 +42,7 @@ export function Breadcrumbs() {
     >
       <Link
         href="/catalog"
-        className="text-slate-500 hover:text-slate-900 transition-colors"
+        className="text-slate-500 transition-colors hover:text-slate-900"
       >
         Home
       </Link>
@@ -61,13 +71,16 @@ export function Breadcrumbs() {
               />
             </svg>
             {isLast ? (
-              <span aria-current="page" className="font-semibold text-slate-900">
+              <span
+                aria-current="page"
+                className="font-semibold text-slate-900"
+              >
                 {label}
               </span>
             ) : (
               <Link
                 href={accumulatedPath}
-                className="text-slate-500 hover:text-slate-900 transition-colors"
+                className="text-slate-500 transition-colors hover:text-slate-900"
               >
                 {label}
               </Link>

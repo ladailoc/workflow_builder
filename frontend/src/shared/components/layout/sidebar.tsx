@@ -17,8 +17,18 @@ const PRIMARY_NAV_ITEMS: readonly NavItem[] = [
     label: "Request Catalog",
     href: "/catalog",
     icon: (props) => (
-      <svg className={props.className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+      <svg
+        className={props.className}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M4 6h16M4 10h16M4 14h16M4 18h16"
+        />
       </svg>
     ),
   },
@@ -26,8 +36,18 @@ const PRIMARY_NAV_ITEMS: readonly NavItem[] = [
     label: "My Tickets",
     href: "/tickets",
     icon: (props) => (
-      <svg className={props.className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      <svg
+        className={props.className}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+        />
       </svg>
     ),
   },
@@ -35,8 +55,18 @@ const PRIMARY_NAV_ITEMS: readonly NavItem[] = [
     label: "My Tasks",
     href: "/tasks",
     icon: (props) => (
-      <svg className={props.className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+      <svg
+        className={props.className}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"
+        />
       </svg>
     ),
   },
@@ -44,8 +74,18 @@ const PRIMARY_NAV_ITEMS: readonly NavItem[] = [
     label: "Events & History",
     href: "/events",
     icon: (props) => (
-      <svg className={props.className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      <svg
+        className={props.className}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+        />
       </svg>
     ),
   },
@@ -56,9 +96,10 @@ export function Sidebar() {
   const {
     actor,
     switchActor,
-    canAccessWorkflowBuilder,
+    canAccessWorkflowManagement,
     canAccessOrganization,
     canAccessOperations,
+    hasRole,
   } = useAuthSession();
 
   const [actorDropdownOpen, setActorDropdownOpen] = useState(false);
@@ -75,10 +116,10 @@ export function Sidebar() {
             W
           </div>
           <div>
-            <span className="font-semibold text-slate-900 tracking-tight block text-sm leading-none">
+            <span className="block text-sm leading-none font-semibold tracking-tight text-slate-900">
               Workflow
             </span>
-            <span className="text-[10px] text-blue-600 font-medium tracking-wide uppercase">
+            <span className="text-[10px] font-medium tracking-wide text-blue-600 uppercase">
               Platform v2
             </span>
           </div>
@@ -86,10 +127,10 @@ export function Sidebar() {
       </div>
 
       {/* Nav links */}
-      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
+      <div className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
         {/* Primary Runtime Navigation */}
         <div>
-          <p className="px-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+          <p className="px-3 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
             Runtime
           </p>
           <nav className="mt-2 space-y-1">
@@ -119,17 +160,17 @@ export function Sidebar() {
         </div>
 
         {/* Privileged Administration Section */}
-        {(canAccessWorkflowBuilder ||
+        {(canAccessWorkflowManagement ||
           canAccessOrganization ||
           canAccessOperations) && (
           <div data-testid="privileged-nav-section">
-            <p className="px-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+            <p className="px-3 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
               Administration
             </p>
             <nav className="mt-2 space-y-1">
-              {canAccessWorkflowBuilder && (
+              {canAccessWorkflowManagement && (
                 <Link
-                  data-testid="nav-workflow-builder"
+                  data-testid="nav-workflows"
                   href="/workflows"
                   className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                     pathname.startsWith("/workflows")
@@ -154,8 +195,49 @@ export function Sidebar() {
                       d="M13 10V3L4 14h7v7l9-11h-7z"
                     />
                   </svg>
-                  <span>Workflow Builder</span>
+                  <span>Workflows</span>
                 </Link>
+              )}
+
+              {hasRole(["WORKFLOW_OWNER", "ADMIN"]) && (
+                <>
+                  <Link
+                    href="/forms"
+                    className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium ${pathname.startsWith("/forms") ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-100"}`}
+                  >
+                    <span>Forms</span>
+                  </Link>
+                  <Link
+                    href="/ticket-categories"
+                    className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium ${pathname.startsWith("/ticket-categories") ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-100"}`}
+                  >
+                    <span>Business Intents</span>
+                  </Link>
+                  <Link
+                    data-testid="nav-request-types"
+                    href="/request-types"
+                    className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                      pathname.startsWith("/request-types")
+                        ? "bg-blue-50 text-blue-700"
+                        : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                    }`}
+                  >
+                    <svg
+                      className="h-4 w-4 shrink-0 text-slate-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 6h16M4 12h16M4 18h10"
+                      />
+                    </svg>
+                    <span>Request Types</span>
+                  </Link>
+                </>
               )}
 
               {canAccessOrganization && (
@@ -231,45 +313,50 @@ export function Sidebar() {
       </div>
 
       {/* User Session & Actor Switcher Footer */}
-      <div className="border-t border-slate-200 p-3 bg-slate-50/70">
+      <div className="border-t border-slate-200 bg-slate-50/70 p-3">
         <div className="relative">
           <button
             type="button"
             data-testid="actor-switcher-button"
             onClick={() => setActorDropdownOpen(!actorDropdownOpen)}
-            className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-white p-2.5 text-left text-xs shadow-2xs hover:bg-slate-50 transition-colors"
+            className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-white p-2.5 text-left text-xs shadow-2xs transition-colors hover:bg-slate-50"
           >
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-slate-800 truncate">
+                <span className="truncate font-semibold text-slate-800">
                   {actor ? actor.principalName : "Anonymous"}
                 </span>
                 {actor && (
-                  <span className="rounded bg-blue-100 px-1.5 py-0.2 text-[10px] font-semibold text-blue-700">
+                  <span className="py-0.2 rounded bg-blue-100 px-1.5 text-[10px] font-semibold text-blue-700">
                     {actor.roles[0]}
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-slate-500 truncate mt-0.5">
+              <p className="mt-0.5 truncate text-[11px] text-slate-500">
                 {actor?.email ?? "No active actor"}
               </p>
             </div>
             <svg
-              className="h-4 w-4 text-slate-400 shrink-0 ml-1"
+              className="ml-1 h-4 w-4 shrink-0 text-slate-400"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 9l-7 7-7-7"
+              />
             </svg>
           </button>
 
           {actorDropdownOpen && (
             <div
               data-testid="actor-switcher-menu"
-              className="absolute bottom-full left-0 mb-2 w-full rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg z-50"
+              className="absolute bottom-full left-0 z-50 mb-2 w-full rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
             >
-              <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              <div className="px-2 py-1 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
                 Simulate Actor Role
               </div>
               {PRESET_ACTORS.map((preset) => {
@@ -283,15 +370,15 @@ export function Sidebar() {
                       switchActor(preset);
                       setActorDropdownOpen(false);
                     }}
-                    className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-xs text-left transition-colors ${
+                    className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors ${
                       isSelected
-                        ? "bg-blue-50 text-blue-800 font-semibold"
+                        ? "bg-blue-50 font-semibold text-blue-800"
                         : "text-slate-700 hover:bg-slate-100"
                     }`}
                   >
                     <div>
                       <div className="font-medium">{preset.principalName}</div>
-                      <div className="text-[10px] text-slate-400 font-mono">
+                      <div className="font-mono text-[10px] text-slate-400">
                         {preset.roles.join(", ")}
                       </div>
                     </div>
