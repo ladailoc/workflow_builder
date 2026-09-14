@@ -12,6 +12,12 @@
 backend/target/
 *.log
 
+# JVM crash and replay logs
+hs_err_pid*
+replay_pid*
+backend/target/failsafe-reports/
+backend/target/surefire-reports/
+
 # Frontend
 frontend/node_modules/
 frontend/.next/

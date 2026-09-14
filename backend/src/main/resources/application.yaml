@@ -51,9 +51,17 @@ platform:
   security:
     cors:
       allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+    dev-headers:
+      enabled: false
+    jwt:
+      secret: ${PLATFORM_SECURITY_JWT_SECRET:}
   files:
     local-root: ${PLATFORM_FILES_ROOT:${java.io.tmpdir}/workflow-platform-files}
     max-file-size-bytes: ${MAX_FILE_SIZE_BYTES:26214400}
+  sla:
+    poller:
+      enabled: ${PLATFORM_SLA_POLLER_ENABLED:true}
+      fixed-delay-ms: ${PLATFORM_SLA_POLLER_DELAY_MS:5000}
   seed:
     demo:
       enabled: ${PLATFORM_SEED_DEMO_ENABLED:false}

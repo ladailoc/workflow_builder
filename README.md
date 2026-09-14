@@ -1,11 +1,14 @@
 # Workflow Platform
 
-Greenfield modular monolith for the Workflow Platform described by
-`workflow_spec.md`. The implemented slice currently covers platform conventions,
-security foundations, canonical lifecycle primitives, PostgreSQL infrastructure,
-request/workflow definition persistence, and design-time workflow graph
-persistence. Runtime workflow execution and business workflow capabilities are
-intentionally not implemented yet.
+Modular monolith for the Workflow Platform described by `workflow_spec.md`.
+Implemented capabilities cover platform conventions, JWT-based security with
+configurable dev trust headers (never enabled in staging/production), canonical
+lifecycle primitives, PostgreSQL persistence with Flyway, request/workflow
+definition persistence, design-time graph persistence, validation/publish gates,
+and the workflow runtime: durable event execution, token-driven routing,
+human-task lifecycle with aggregation, multi-instance, parallel/join, rework,
+SLA, sub-workflows, integration executions with SSRF protection and failure
+strategies, durable jobs, outbox publication, and monitoring/audit surfaces.
 
 ## Prerequisites
 

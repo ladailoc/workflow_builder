@@ -13,6 +13,15 @@ spring:
       validation-timeout: 5000
 
 platform:
+  outbox:
+    publisher:
+      enabled: false
   jobs:
     worker:
       enabled: false
+  sla:
+    poller:
+      enabled: false
+  security:
+    dev-headers:
+      enabled: true

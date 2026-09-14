@@ -18,6 +18,13 @@ spring:
       validation-timeout: ${DB_POOL_VALIDATION_TIMEOUT_MS:3000}
 
 platform:
+  outbox:
+    publisher:
+      enabled: true
+      fixed-delay-ms: ${OUTBOX_POLL_INTERVAL_MS:1000}
+      batch-size: ${OUTBOX_BATCH_SIZE:50}
+      lease-seconds: ${OUTBOX_LEASE_SECONDS:30}
+      retry-delay-seconds: ${OUTBOX_RETRY_DELAY_SECONDS:5}
   jobs:
     worker:
       enabled: true
@@ -27,3 +34,5 @@ platform:
   security:
     cors:
       allowed-origins: ${CORS_ALLOWED_ORIGINS}
+    jwt:
+      secret: ${PLATFORM_SECURITY_JWT_SECRET}

@@ -23,7 +23,8 @@
         <archunit.version>1.4.1</archunit.version>
         <testcontainers.version>1.21.3</testcontainers.version>
         <spotless.version>2.46.1</spotless.version>
-        <argLine>-Duser.timezone=UTC -XX:+EnableDynamicAgentLoading</argLine>
+        <argLine>-Xmx256m -XX:MaxMetaspaceSize=256m -Duser.timezone=UTC -XX:+EnableDynamicAgentLoading</argLine>
+        <itArgLine>-Xmx768m -XX:MaxMetaspaceSize=512m -Duser.timezone=UTC -XX:+EnableDynamicAgentLoading</itArgLine>
     </properties>
 
     <dependencyManagement>
@@ -116,14 +117,14 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>-Duser.timezone=UTC -XX:+EnableDynamicAgentLoading</argLine>
+                    <argLine>${argLine}</argLine>
                 </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
                 <configuration>
-                    <argLine>-Duser.timezone=UTC</argLine>
+                    <argLine>${itArgLine}</argLine>
                     <includes>
                         <include>**/*IT.java</include>
                     </includes>

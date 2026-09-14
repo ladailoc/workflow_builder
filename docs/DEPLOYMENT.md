@@ -63,9 +63,10 @@ docker compose -f docker-compose.dev.yml ps
 Staging runs isolated container networks with externalized credentials and automated Flyway schema migrations on startup.
 
 ```bash
-# 1. Provide staging environment variables (or rely on .env file)
-export STAGING_POSTGRES_PASSWORD="strong_staging_db_secret_2026"
-export STAGING_CALLBACK_SIGNING_SECRET="a9b8c7d6e5f4a9b8c7d6e5f4a9b8c7d6e5f4a9b8c7d6e5f4a9b8c7d6e5f4a9b8"
+# 1. Inject staging secrets from the deployment secret manager (no repository defaults)
+export STAGING_POSTGRES_PASSWORD="<injected-secret>"
+export STAGING_CALLBACK_SIGNING_SECRET="<injected-secret>"
+export STAGING_JWT_SIGNING_SECRET="<injected-secret-at-least-32-characters>"
 export STAGING_CORS_ALLOWED_ORIGINS="http://localhost:3000,https://staging.workflow.internal"
 
 # 2. Build and launch staging services
