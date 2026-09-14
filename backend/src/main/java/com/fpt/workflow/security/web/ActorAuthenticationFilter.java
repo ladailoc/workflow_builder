@@ -25,10 +25,25 @@ public class ActorAuthenticationFilter extends OncePerRequestFilter {
   public static final String ACTOR_ROLES_HEADER = "X-Actor-Roles";
   public static final String ACTOR_PERMISSIONS_HEADER = "X-Actor-Permissions";
 
+  private final boolean enabled;
+
+  public ActorAuthenticationFilter() {
+    this(true);
+  }
+
+  public ActorAuthenticationFilter(boolean enabled) {
+    this.enabled = enabled;
+  }
+
   @Override
   protected void doFilterInternal(
       HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
       throws ServletException, IOException {
+
+    if (!enabled) {
+      filterChain.doFilter(request, response);
+      return;
+    }
 
     String actorIdHeader = request.getHeader(ACTOR_ID_HEADER);
     if (actorIdHeader != null && !actorIdHeader.isBlank()) {

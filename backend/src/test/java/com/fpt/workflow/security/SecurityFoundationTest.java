@@ -20,7 +20,10 @@ import com.fpt.workflow.shared.time.PlatformClock;
 import com.fpt.workflow.testing.FixedPlatformClock;
 import java.time.Instant;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -61,6 +64,16 @@ class SecurityFoundationTest {
       UUID.fromString("90000000-0000-4000-8000-000000000009");
 
   @Autowired private MockMvc mockMvc;
+
+  @BeforeEach
+  void setUp() {
+    SecurityContextHolder.clearContext();
+  }
+
+  @AfterEach
+  void tearDown() {
+    SecurityContextHolder.clearContext();
+  }
 
   @Test
   void unauthenticatedRequestReturns401Problem() throws Exception {

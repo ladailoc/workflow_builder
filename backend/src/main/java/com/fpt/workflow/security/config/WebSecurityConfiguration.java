@@ -1,12 +1,18 @@
 package com.fpt.workflow.security.config;
 
+import com.fpt.workflow.security.jwt.JwtAuthenticationFilter;
+import com.fpt.workflow.security.jwt.JwtTokenService;
 import com.fpt.workflow.security.web.ActorAuthenticationFilter;
 import com.fpt.workflow.security.web.ProblemAccessDeniedHandler;
 import com.fpt.workflow.security.web.ProblemAuthenticationEntryPoint;
+import java.util.Arrays;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -21,8 +27,17 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class WebSecurityConfiguration {
 
-  @org.springframework.beans.factory.annotation.Value("${platform.security.cors.allowed-origins:*}")
+  @Value("${platform.security.cors.allowed-origins:*}")
   private String allowedOriginsProperty;
+
+  @Value("${platform.security.dev-headers.enabled:false}")
+  private boolean devHeadersProperty;
+
+  @Autowired(required = false)
+  private JwtTokenService jwtTokenService;
+
+  @Autowired
+  private Environment environment;
 
   @Bean
   SecurityFilterChain securityFilterChain(
@@ -30,6 +45,23 @@ public class WebSecurityConfiguration {
       ProblemAuthenticationEntryPoint authenticationEntryPoint,
       ProblemAccessDeniedHandler accessDeniedHandler)
       throws Exception {
+
+    boolean isProdOrStaging =
+        Arrays.stream(environment.getActiveProfiles())
+            .anyMatch(
+                p ->
+                    p.equalsIgnoreCase("prod")
+                        || p.equalsIgnoreCase("production")
+                        || p.equalsIgnoreCase("staging"));
+    boolean allowDevHeaders = devHeadersProperty && !isProdOrStaging;
+
+    if (jwtTokenService != null) {
+      http.addFilterBefore(
+          new JwtAuthenticationFilter(jwtTokenService), AnonymousAuthenticationFilter.class);
+    }
+    http.addFilterBefore(
+        new ActorAuthenticationFilter(allowDevHeaders), AnonymousAuthenticationFilter.class);
+
     return http.csrf(AbstractHttpConfigurer::disable)
         .cors(cors -> cors.configurationSource(corsConfigurationSource()))
         .requestCache(AbstractHttpConfigurer::disable)
@@ -37,7 +69,6 @@ public class WebSecurityConfiguration {
         .httpBasic(AbstractHttpConfigurer::disable)
         .sessionManagement(
             session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-        .addFilterBefore(new ActorAuthenticationFilter(), AnonymousAuthenticationFilter.class)
         .exceptionHandling(
             exceptions ->
                 exceptions

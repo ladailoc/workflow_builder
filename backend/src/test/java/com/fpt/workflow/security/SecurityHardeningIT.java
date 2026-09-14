@@ -29,6 +29,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
+import com.fpt.workflow.task.api.TaskController;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -281,6 +282,8 @@ class SecurityHardeningIT {
             post("/api/v1/tasks/" + taskId + "/approve")
                 .header(ActorAuthenticationFilter.ACTOR_ID_HEADER, USER_B.toString())
                 .header(ActorAuthenticationFilter.ACTOR_ROLES_HEADER, "USER")
+                .header(TaskController.COMMAND_ID_HEADER, UUID.randomUUID())
+                .header("If-Match", 1)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{}"))
         .andExpect(status().isForbidden());
@@ -291,6 +294,8 @@ class SecurityHardeningIT {
             post("/api/v1/tasks/" + taskId + "/reassign")
                 .header(ActorAuthenticationFilter.ACTOR_ID_HEADER, USER_B.toString())
                 .header(ActorAuthenticationFilter.ACTOR_ROLES_HEADER, "USER")
+                .header(TaskController.COMMAND_ID_HEADER, UUID.randomUUID())
+                .header("If-Match", 1)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"targetUserId\":\"" + USER_B + "\",\"comment\":\"stealing task\"}"))
         .andExpect(status().isForbidden());

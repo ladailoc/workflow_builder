@@ -27,6 +27,8 @@ public class ProductionConfigurationValidator implements ApplicationRunner, Orde
 
   private static final Set<String> INSECURE_PASSWORDS =
       Set.of("workflow123", "password", "admin", "root", "123456", "test", "secret");
+  private static final String DEFAULT_DEV_JWT_SECRET =
+      "workflow-platform-default-dev-jwt-secret-key-minimum-256-bits-ok!";
 
   private final Environment environment;
 
@@ -90,17 +92,24 @@ public class ProductionConfigurationValidator implements ApplicationRunner, Orde
       throw new IllegalStateException("Database password is required in staging/production");
     }
 
-    if (isProd) {
-      if (INSECURE_PASSWORDS.contains(dbPassword.trim().toLowerCase())) {
-        throw new IllegalStateException(
-            "Production profile must not use default or trivial development database credentials");
-      }
+    if (INSECURE_PASSWORDS.contains(dbPassword.trim().toLowerCase())) {
+      throw new IllegalStateException(
+          "Staging/production must not use default or trivial development database credentials");
+    }
 
-      String corsOrigins = env.getProperty("platform.security.cors.allowed-origins");
-      if (corsOrigins != null && corsOrigins.contains("*")) {
-        throw new IllegalStateException(
-            "Production profile must not allow wildcard '*' CORS origins");
-      }
+    String corsOrigins = env.getProperty("platform.security.cors.allowed-origins");
+    if (corsOrigins != null && corsOrigins.contains("*")) {
+      throw new IllegalStateException(
+          "Staging/production profile must not allow wildcard '*' CORS origins");
+    }
+
+    String jwtSecret = env.getProperty("platform.security.jwt.secret");
+    if (jwtSecret == null || jwtSecret.isBlank()) {
+      throw new IllegalStateException("JWT signing secret is required in staging/production");
+    }
+    if (jwtSecret.trim().length() < 32 || DEFAULT_DEV_JWT_SECRET.equals(jwtSecret.trim())) {
+      throw new IllegalStateException(
+          "Staging/production JWT signing secret must be external and at least 32 characters");
     }
 
     String sanitizedUrl = sanitizeJdbcUrl(dbUrl);
