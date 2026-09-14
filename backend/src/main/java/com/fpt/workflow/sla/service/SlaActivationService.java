@@ -1,13 +1,17 @@
 package com.fpt.workflow.sla.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fpt.workflow.definition.domain.NodeDefinition;
+import com.fpt.workflow.operations.job.WorkflowJobTransactions;
 import com.fpt.workflow.shared.UuidGenerator;
 import com.fpt.workflow.sla.domain.*;
 import com.fpt.workflow.sla.repository.*;
 import com.fpt.workflow.task.service.TaskSlaActivationPort;
 import java.time.*;
 import java.util.*;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -18,6 +22,25 @@ public class SlaActivationService implements TaskSlaActivationPort {
   private final SlaExecutionRepository executions;
   private final BusinessTimeCalculator calculator;
   private final UuidGenerator uuids;
+  private final WorkflowJobTransactions jobs;
+
+  @Autowired
+  public SlaActivationService(
+      BusinessCalendarRepository calendars,
+      BusinessCalendarHourRepository hours,
+      BusinessCalendarHolidayRepository holidays,
+      SlaExecutionRepository executions,
+      BusinessTimeCalculator calculator,
+      UuidGenerator uuids,
+      WorkflowJobTransactions jobs) {
+    this.calendars = calendars;
+    this.hours = hours;
+    this.holidays = holidays;
+    this.executions = executions;
+    this.calculator = calculator;
+    this.uuids = uuids;
+    this.jobs = jobs;
+  }
 
   public SlaActivationService(
       BusinessCalendarRepository calendars,
@@ -26,12 +49,7 @@ public class SlaActivationService implements TaskSlaActivationPort {
       SlaExecutionRepository executions,
       BusinessTimeCalculator calculator,
       UuidGenerator uuids) {
-    this.calendars = calendars;
-    this.hours = hours;
-    this.holidays = holidays;
-    this.executions = executions;
-    this.calculator = calculator;
-    this.uuids = uuids;
+    this(calendars, hours, holidays, executions, calculator, uuids, null);
   }
 
   public Optional<SlaPlan> plan(NodeDefinition node, Instant activatedAt) {
@@ -61,9 +79,10 @@ public class SlaActivationService implements TaskSlaActivationPort {
 
   public void record(
       UUID eventId, UUID nodeExecutionId, UUID taskId, Instant startedAt, SlaPlan plan) {
+    UUID slaId = uuids.generate();
     executions.save(
         SlaExecution.start(
-            uuids.generate(),
+            slaId,
             eventId,
             nodeExecutionId,
             taskId,
@@ -72,6 +91,21 @@ public class SlaActivationService implements TaskSlaActivationPort {
             startedAt,
             plan.dueAt(),
             plan.nextActionAt()));
+    if (jobs != null) {
+      ObjectNode payload = JsonNodeFactory.instance.objectNode();
+      payload.put("slaExecutionId", slaId.toString());
+      payload.put("taskId", taskId.toString());
+      payload.put("nodeExecutionId", nodeExecutionId.toString());
+      payload.put("eventId", eventId.toString());
+      jobs.enqueue(
+          "SLA_ACTION",
+          "SLA",
+          slaId,
+          payload,
+          3,
+          plan.nextActionAt(),
+          "sla:" + slaId);
+    }
   }
 
   @Override

@@ -113,6 +113,10 @@ public class SlaExecution {
     return status;
   }
 
+  public Instant getStartedAt() {
+    return startedAt;
+  }
+
   public JsonNode getConfigSnapshotJson() {
     return configSnapshotJson.deepCopy();
   }

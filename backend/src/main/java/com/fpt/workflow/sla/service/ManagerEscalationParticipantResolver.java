@@ -1,24 +1,28 @@
 package com.fpt.workflow.sla.service;
 
-import com.fpt.workflow.organization.service.OrganizationHierarchyService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fpt.workflow.sla.domain.SlaExecution;
 import com.fpt.workflow.task.domain.TaskExecution;
-import java.time.*;
+import java.time.Instant;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 @Component
 public class ManagerEscalationParticipantResolver implements EscalationParticipantResolver {
-  private final OrganizationHierarchyService organizationResolver;
+  private final SlaParticipantResolutionService participants;
 
-  public ManagerEscalationParticipantResolver(OrganizationHierarchyService organizationResolver) {
-    this.organizationResolver = organizationResolver;
+  public ManagerEscalationParticipantResolver(SlaParticipantResolutionService participants) {
+    this.participants = participants;
   }
 
   public UUID resolve(TaskExecution task, SlaExecution sla, Instant at) {
-    if (task.getAssigneeId() == null)
-      throw new IllegalStateException("Cannot escalate unassigned task");
-    return organizationResolver.resolveManagerAtDepth(
-        task.getAssigneeId(), 1, at.atZone(ZoneOffset.UTC).toLocalDate());
+    JsonNode configured = sla.getConfigSnapshotJson().path("escalationResolver");
+    var fallback = JsonNodeFactory.instance.objectNode();
+    fallback.put("type", "MANAGER_OF");
+    fallback.put("depth", 1);
+    return participants
+        .resolveAndSnapshot(task, configured, fallback, "SLA_ESCALATION", at)
+        .getFirst();
   }
 }

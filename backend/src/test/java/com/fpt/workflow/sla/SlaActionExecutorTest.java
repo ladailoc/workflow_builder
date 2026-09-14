@@ -134,4 +134,66 @@ class SlaActionExecutorTest {
     assertThat(results.getFirst().applied()).isTrue();
     assertThat(results.getFirst().newAssignee()).isEqualTo(newUser);
   }
+
+  @Test
+  void testSlaTimeoutAction_Expire_SetsTaskExpiredAndAudits() {
+    var slas = mock(SlaExecutionRepository.class);
+    var tasks = mock(TaskExecutionRepository.class);
+    var history = mock(TaskAssignmentHistoryRepository.class);
+    var audits = mock(AuditEventRepository.class);
+    var resolver = mock(EscalationParticipantResolver.class);
+    Instant due = Instant.parse("2026-09-08T01:00:00Z"), now = due.plusSeconds(1);
+    UUID oldUser = UUID.randomUUID(), taskId = UUID.randomUUID();
+    TaskExecution task =
+        TaskExecution.create(
+            taskId,
+            UUID.randomUUID(),
+            null,
+            oldUser,
+            "Task to expire",
+            null,
+            null,
+            JsonNodeFactory.instance.objectNode(),
+            0,
+            due,
+            due.minusSeconds(60));
+
+    var configNode = JsonNodeFactory.instance.objectNode();
+    configNode.put("timeoutAction", "EXPIRE");
+
+    SlaExecution sla =
+        SlaExecution.start(
+            UUID.randomUUID(),
+            UUID.randomUUID(),
+            task.getNodeExecutionId(),
+            taskId,
+            null,
+            configNode,
+            due.minusSeconds(60),
+            due,
+            due);
+
+    when(slas.findByIdForUpdate(sla.getId())).thenReturn(Optional.of(sla));
+    when(tasks.findByIdForUpdate(taskId)).thenReturn(Optional.of(task));
+
+    DefaultSlaActionExecutor executor =
+        new DefaultSlaActionExecutor(
+            slas, tasks, history, audits, resolver, UUID::randomUUID, () -> now);
+
+    var result =
+        executor.execute(
+            sla.getId(), new CorrelationId(UUID.randomUUID()), new CommandId(UUID.randomUUID()));
+
+    assertThat(result.applied()).isTrue();
+    assertThat(result.status()).isEqualTo("EXPIRED");
+    assertThat(task.getStatus()).isEqualTo(com.fpt.workflow.shared.domain.lifecycle.TaskStatus.EXPIRED);
+
+    verify(tasks).save(task);
+    verify(audits)
+        .save(
+            argThat(
+                a ->
+                    "TASK_EXPIRED".equals(a.getEventType())
+                        && a.getAggregateId().equals(taskId)));
+  }
 }

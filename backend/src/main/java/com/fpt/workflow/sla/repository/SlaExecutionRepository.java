@@ -14,4 +14,10 @@ public interface SlaExecutionRepository extends JpaRepository<SlaExecution, UUID
   List<SlaExecution> findAllByStatusAndNextActionAtLessThanEqual(String status, Instant at);
 
   Optional<SlaExecution> findByTaskId(UUID taskId);
+
+  /** P2-18: timeline source — SLA executions of one event, earliest first. */
+  @org.springframework.data.jpa.repository.Query(
+      "select s from SlaExecution s where s.eventId = :eventId order by s.startedAt asc")
+  List<SlaExecution> findAllByEventIdOrderByStartedAtAsc(
+      @org.springframework.data.repository.query.Param("eventId") UUID eventId);
 }
