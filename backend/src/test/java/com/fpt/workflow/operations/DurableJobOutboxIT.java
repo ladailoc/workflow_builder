@@ -8,11 +8,14 @@ import com.fpt.workflow.operations.outbox.*;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -31,6 +34,7 @@ class DurableJobOutboxIT {
   @Autowired OutboxEventRepository outbox;
   @Autowired JdbcTemplate jdbc;
   @Autowired ObjectMapper mapper;
+  @Autowired PlatformTransactionManager transactionManager;
 
   @Test
   void duplicateDedupKeyReturnsOriginalJob() {
@@ -180,6 +184,102 @@ class DurableJobOutboxIT {
     OutboxEvent published = outbox.findById(first.getId()).orElseThrow();
     assertThat(published.getStatus()).isEqualTo(OutboxStatus.PUBLISHED);
     assertThat(published.getAttempts()).isEqualTo(2);
+  }
+
+  @Test
+  void rolledBackBusinessTransactionDoesNotCommitOutboxRecord() {
+    String key = "rollback:" + UUID.randomUUID();
+    TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+
+    org.assertj.core.api.Assertions.assertThatThrownBy(
+            () ->
+                transaction.executeWithoutResult(
+                    ignored -> {
+                      outboxTransactions.enqueue(
+                          "BUSINESS_CHANGED",
+                          "TICKET",
+                          UUID.randomUUID(),
+                          mapper.createObjectNode().put("committed", false),
+                          3,
+                          key);
+                      throw new IllegalStateException("force rollback after business change");
+                    }))
+        .isInstanceOf(IllegalStateException.class);
+
+    assertThat(outbox.findByDedupKey(key)).isEmpty();
+  }
+
+  @Test
+  void transientTransportFailureRetriesThenPublishesDurably() {
+    String key = "retry:" + UUID.randomUUID();
+    OutboxEvent event =
+        outboxTransactions.enqueue(
+            "TICKET_SUBMITTED",
+            "TICKET",
+            UUID.randomUUID(),
+            mapper.createObjectNode(),
+            3,
+            key);
+    AtomicInteger calls = new AtomicInteger();
+    OutboxPublisher publisher =
+        new OutboxPublisher(
+            outboxTransactions,
+            message -> {
+              if (calls.getAndIncrement() == 0) throw new IllegalStateException("temporary");
+            });
+
+    assertThat(publisher.publishAvailable("publisher-a", 1, Duration.ofMinutes(1), Duration.ZERO))
+        .isEqualTo(1);
+    assertThat(outbox.findById(event.getId()).orElseThrow().getStatus())
+        .isEqualTo(OutboxStatus.RETRY);
+
+    assertThat(publisher.publishAvailable("publisher-b", 1, Duration.ofMinutes(1), Duration.ZERO))
+        .isEqualTo(1);
+    OutboxEvent published = outbox.findById(event.getId()).orElseThrow();
+    assertThat(published.getStatus()).isEqualTo(OutboxStatus.PUBLISHED);
+    assertThat(published.getAttempts()).isEqualTo(2);
+    assertThat(calls).hasValue(2);
+  }
+
+  @Test
+  void twoOutboxPublishersDoNotDeliverSameClaimConcurrently() throws Exception {
+    OutboxEvent event =
+        outboxTransactions.enqueue(
+            "TICKET_SUBMITTED",
+            "TICKET",
+            UUID.randomUUID(),
+            mapper.createObjectNode(),
+            3,
+            "publisher-race:" + UUID.randomUUID());
+    AtomicInteger deliveries = new AtomicInteger();
+    OutboxTransport transport = ignored -> deliveries.incrementAndGet();
+    OutboxPublisher publisher = new OutboxPublisher(outboxTransactions, transport);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      CountDownLatch start = new CountDownLatch(1);
+      Future<Integer> left =
+          pool.submit(
+              () -> {
+                start.await();
+                return publisher.publishAvailable(
+                    "publisher-left", 1, Duration.ofMinutes(1), Duration.ZERO);
+              });
+      Future<Integer> right =
+          pool.submit(
+              () -> {
+                start.await();
+                return publisher.publishAvailable(
+                    "publisher-right", 1, Duration.ofMinutes(1), Duration.ZERO);
+              });
+      start.countDown();
+
+      assertThat(left.get(10, TimeUnit.SECONDS) + right.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+      assertThat(deliveries).hasValue(1);
+      assertThat(outbox.findById(event.getId()).orElseThrow().getStatus())
+          .isEqualTo(OutboxStatus.PUBLISHED);
+    } finally {
+      pool.shutdownNow();
+    }
   }
 
   private WorkflowJob enqueueJob(String suffix) {
