@@ -59,6 +59,44 @@ public class TicketController {
         id, new CommandId(commandId), new ExpectedVersion(expectedVersion), request);
   }
 
+  @PostMapping("/{id}/cancel")
+  public TicketDtos.AggregateView cancel(
+      @PathVariable UUID id,
+      @RequestHeader(COMMAND_ID_HEADER) UUID commandId,
+      @RequestHeader("If-Match") long expectedVersion,
+      @RequestBody(required = false) TicketDtos.CancelTicket request) {
+    TicketDtos.CancelTicket body = request != null ? request : new TicketDtos.CancelTicket(null);
+    return commandFacade.cancel(
+        id, new CommandId(commandId), new ExpectedVersion(expectedVersion), body);
+  }
+
+  @PostMapping("/{id}/reopen")
+  public TicketDtos.AggregateView reopen(
+      @PathVariable UUID id,
+      @RequestHeader(COMMAND_ID_HEADER) UUID commandId,
+      @RequestHeader("If-Match") long expectedVersion,
+      @RequestBody(required = false) TicketDtos.ReopenTicket request) {
+    TicketDtos.ReopenTicket body =
+        request != null ? request : new TicketDtos.ReopenTicket(null);
+    return commandFacade.reopen(
+        id, new CommandId(commandId), new ExpectedVersion(expectedVersion), body);
+  }
+
+  @PostMapping("/{id}/resubmit")
+  public TicketDtos.AggregateView resubmit(
+      @PathVariable UUID id,
+      @RequestHeader(COMMAND_ID_HEADER) UUID commandId,
+      @RequestHeader("If-Match") long expectedVersion,
+      @RequestBody TicketDtos.ResubmitTicket request) {
+    return commandFacade.resubmit(
+        id, new CommandId(commandId), new ExpectedVersion(expectedVersion), request);
+  }
+
+  @GetMapping("/{id}/events")
+  public java.util.List<com.fpt.workflow.runtime.domain.Event> listEvents(@PathVariable UUID id) {
+    return ticketService.listTicketEvents(id);
+  }
+
   @GetMapping
   public java.util.List<TicketDtos.TicketView> list() {
     return ticketService.listMyTickets();

@@ -153,6 +153,24 @@ public class NodeActivationService {
     this.subWorkflowService = subWorkflowService;
   }
 
+  private com.fpt.workflow.runtime.subworkflow.service.ChildWorkflowMutationBoundary
+      ticketMutationBoundary;
+
+  private BusinessStateTransitionPort businessStateTransitions;
+
+  @org.springframework.beans.factory.annotation.Autowired(required = false)
+  public void setTicketMutationBoundary(
+      com.fpt.workflow.runtime.subworkflow.service.ChildWorkflowMutationBoundary
+          ticketMutationBoundary) {
+    this.ticketMutationBoundary = ticketMutationBoundary;
+  }
+
+  /** User-facing business state is driven by explicit node config, not technical status. */
+  @org.springframework.beans.factory.annotation.Autowired(required = false)
+  public void setBusinessStateTransitions(BusinessStateTransitionPort businessStateTransitions) {
+    this.businessStateTransitions = businessStateTransitions;
+  }
+
   @Transactional
   public NodeExecution activate(ActivationRequest request) {
     return activate(request, null, false);
@@ -205,116 +223,151 @@ public class NodeActivationService {
             .findByIdForUpdate(request.eventId())
             .orElseThrow(
                 () -> new IllegalArgumentException("Event not found: " + request.eventId()));
-    Optional<NodeExecution> replay =
-        executionRepository.findByActivationKey(request.activationKey().value());
-    if (replay.isPresent()) {
-      requireSameActivation(replay.orElseThrow(), request);
-      return replay.orElseThrow();
+    AutoCloseable boundaryScope = null;
+    if (ticketMutationBoundary != null
+        && (event.getEventType() == com.fpt.workflow.runtime.domain.EventType.CHILD
+            || event.getParentEventId() != null)) {
+      boundaryScope =
+          ticketMutationBoundary.enterChildWorkflow(event.getId(), event.getTicketId());
     }
-    if (TERMINAL_EVENTS.contains(event.getStatus())) {
-      throw new IllegalStateException("Cannot activate a node for terminal Event " + event.getId());
-    }
-    NodeDefinition node =
-        nodeRepository
-            .findById(request.targetNodeDefinitionId())
-            .orElseThrow(
-                () ->
-                    new IllegalArgumentException(
-                        "NodeDefinition not found: " + request.targetNodeDefinitionId()));
-    if (!node.getWorkflowVersionId().equals(event.getWorkflowVersionId())) {
-      throw new IllegalArgumentException("Target node does not belong to Event WorkflowVersion");
-    }
-    NodeTypeManifest manifest = registry.require(parseNodeType(node));
-    RuntimeScope scope =
-        RuntimeScope.occurrence(request.cycleId(), request.pathToken(), request.itemToken());
-    EventContext beforeActivation = contextBuilder.build(event.getId(), scope);
-    ObjectNode input;
-    if (preserveInput) {
-      if (preservedInputSnapshot == null || !preservedInputSnapshot.isObject()) {
-        throw new IllegalStateException("A failed occurrence has no replayable input snapshot");
+    try (var mdcScope =
+        com.fpt.workflow.operations.observability.WorkflowMdcScope.builder()
+            .eventId(event.getId())
+            .commandId(request.commandId() != null ? request.commandId().value() : null)
+            .correlationId(request.correlationId() != null ? request.correlationId().value() : null)
+            .open()) {
+      Optional<NodeExecution> replay =
+          executionRepository.findByActivationKey(request.activationKey().value());
+      if (replay.isPresent()) {
+        requireSameActivation(replay.orElseThrow(), request);
+        return replay.orElseThrow();
       }
-      input = (ObjectNode) preservedInputSnapshot.deepCopy();
-    } else {
-      input = bindingResolver.resolve(decodeInputs(node.getConfigJson()), beforeActivation);
-    }
-    Instant now = clock.now();
-    NodeExecution execution =
-        NodeExecution.create(
-            uuidGenerator.generate(),
-            event.getId(),
-            node.getId(),
-            request.activationKey().value(),
-            request.cycleId(),
-            request.iteration(),
-            request.pathToken(),
-            request.itemToken(),
-            request.splitScopeId(),
-            request.joinScopeId(),
-            input,
-            event.getStartedTicketRevisionId(),
+      if (TERMINAL_EVENTS.contains(event.getStatus())) {
+        throw new IllegalStateException("Cannot activate a node for terminal Event " + event.getId());
+      }
+      NodeDefinition node =
+          nodeRepository
+              .findById(request.targetNodeDefinitionId())
+              .orElseThrow(
+                  () ->
+                      new IllegalArgumentException(
+                          "NodeDefinition not found: " + request.targetNodeDefinitionId()));
+      if (!node.getWorkflowVersionId().equals(event.getWorkflowVersionId())) {
+        throw new IllegalArgumentException("Target node does not belong to Event WorkflowVersion");
+      }
+      NodeTypeManifest manifest = registry.require(parseNodeType(node));
+      RuntimeScope scope =
+          RuntimeScope.occurrence(request.cycleId(), request.pathToken(), request.itemToken());
+      EventContext beforeActivation = contextBuilder.build(event.getId(), scope);
+      ObjectNode input;
+      if (preserveInput) {
+        if (preservedInputSnapshot == null || !preservedInputSnapshot.isObject()) {
+          throw new IllegalStateException("A failed occurrence has no replayable input snapshot");
+        }
+        input = (ObjectNode) preservedInputSnapshot.deepCopy();
+      } else {
+        input = bindingResolver.resolve(decodeInputs(node.getConfigJson()), beforeActivation);
+      }
+      Instant now = clock.now();
+      NodeExecution execution =
+          NodeExecution.create(
+              uuidGenerator.generate(),
+              event.getId(),
+              node.getId(),
+              request.activationKey().value(),
+              request.cycleId(),
+              request.iteration(),
+              request.pathToken(),
+              request.itemToken(),
+              request.splitScopeId(),
+              request.joinScopeId(),
+              input,
+              event.getStartedTicketRevisionId(),
+              now);
+      execution.markReady();
+      execution.start(now);
+      execution = executionRepository.saveAndFlush(execution);
+      if (event.getStatus() != EventStatus.RUNNING) event.markRunning();
+      // User-facing display state transitions follow explicit node config only; technical Event
+      // status stays independent (an Event can be RUNNING while the Ticket shows
+      // WAITING_MANAGER_APPROVAL).
+      if (businessStateTransitions != null) {
+        String declaredState = declaredBusinessState(node);
+        if (declaredState != null) {
+          businessStateTransitions.transitionIfChanged(
+              event.getTicketId(),
+              event.getId(),
+              event.getWorkflowVersionId(),
+              declaredState,
+              execution.getId());
+        }
+      }
+      if (multiInstanceService != null && multiInstanceService.isMultiInstance(node)) {
+        com.fpt.workflow.runtime.multiinstance.domain.MultiInstanceState miState =
+            multiInstanceService.initialize(
+                event,
+                execution,
+                node,
+                beforeActivation,
+                request.correlationId(),
+                request.commandId());
+        if (manifest.supportedCapabilities().contains(NodeCapability.PARTICIPANT)) {
+          participantHook.onActivation(event, node, execution, beforeActivation);
+        }
+        if ("COMPLETED".equals(miState.getStatus())) {
+          return execution;
+        }
+        execution.waitFor(RuntimeWaitReason.MULTI_INSTANCE);
+        event.waitFor(RuntimeWaitReason.MULTI_INSTANCE);
+        eventRepository.save(event);
+        execution = executionRepository.saveAndFlush(execution);
+        recordAudit(
+            event,
+            node,
+            execution,
+            NodeExecutionResult.waitFor(
+                new com.fpt.workflow.nodetype.WaitDescriptor(
+                    RuntimeWaitReason.MULTI_INSTANCE.name(),
+                    execution.getId().toString(),
+                    objectMapper.createObjectNode())),
+            request,
             now);
-    execution.markReady();
-    execution.start(now);
-    execution = executionRepository.saveAndFlush(execution);
-    if (event.getStatus() != EventStatus.RUNNING) event.markRunning();
-    if (multiInstanceService != null && multiInstanceService.isMultiInstance(node)) {
-      com.fpt.workflow.runtime.multiinstance.domain.MultiInstanceState miState =
-          multiInstanceService.initialize(
-              event,
-              execution,
-              node,
-              beforeActivation,
-              request.correlationId(),
-              request.commandId());
+        return execution;
+      }
+
       if (manifest.supportedCapabilities().contains(NodeCapability.PARTICIPANT)) {
         participantHook.onActivation(event, node, execution, beforeActivation);
       }
-      if ("COMPLETED".equals(miState.getStatus())) {
-        return execution;
+
+      NodeExecutionResult result;
+      if (subWorkflowService != null && subWorkflowService.isSubWorkflowNode(node)) {
+        result =
+            subWorkflowService.activateSubWorkflow(event, node, execution, input, request, scope);
+      } else {
+        result =
+            manifest
+                .handler()
+                .execute(
+                    new NodeHandlerContext(
+                        execution.getId(),
+                        node.getNodeKey(),
+                        input,
+                        node.getConfigJson(),
+                        runtimeServices));
       }
-      execution.waitFor(RuntimeWaitReason.MULTI_INSTANCE);
-      event.waitFor(RuntimeWaitReason.MULTI_INSTANCE);
+      applyResult(event, node, manifest, execution, result, request, scope);
       eventRepository.save(event);
       execution = executionRepository.saveAndFlush(execution);
-      recordAudit(
-          event,
-          node,
-          execution,
-          NodeExecutionResult.waitFor(
-              new com.fpt.workflow.nodetype.WaitDescriptor(
-                  RuntimeWaitReason.MULTI_INSTANCE.name(),
-                  execution.getId().toString(),
-                  objectMapper.createObjectNode())),
-          request,
-          now);
+      recordAudit(event, node, execution, result, request, now);
       return execution;
+    } finally {
+      if (boundaryScope != null) {
+        try {
+          boundaryScope.close();
+        } catch (Exception ignored) {
+        }
+      }
     }
-
-    if (manifest.supportedCapabilities().contains(NodeCapability.PARTICIPANT)) {
-      participantHook.onActivation(event, node, execution, beforeActivation);
-    }
-
-    NodeExecutionResult result;
-    if (subWorkflowService != null && subWorkflowService.isSubWorkflowNode(node)) {
-      result =
-          subWorkflowService.activateSubWorkflow(event, node, execution, input, request, scope);
-    } else {
-      result =
-          manifest
-              .handler()
-              .execute(
-                  new NodeHandlerContext(
-                      execution.getId(),
-                      node.getNodeKey(),
-                      input,
-                      node.getConfigJson(),
-                      runtimeServices));
-    }
-    applyResult(event, node, manifest, execution, result, request, scope);
-    eventRepository.save(event);
-    execution = executionRepository.saveAndFlush(execution);
-    recordAudit(event, node, execution, result, request, now);
-    return execution;
   }
 
   @Transactional
@@ -410,6 +463,18 @@ public class NodeActivationService {
     return value == null
         ? List.of()
         : List.copyOf(objectMapper.convertValue(value, VARIABLE_MAPPINGS));
+  }
+
+  /**
+   * Explicit node-level business display state from config. Parallel execution must not derive
+   * business state from technical node activity: a node only moves the display state when the
+   * exact published config names a state key; unconfigured nodes leave the current state alone.
+   */
+  private String declaredBusinessState(NodeDefinition node) {
+    JsonNode value = node.getConfigJson().path("businessStateKey");
+    if (value.isMissingNode() || value.isNull()) return null;
+    String stateKey = value.asText("").trim();
+    return stateKey.isEmpty() ? null : stateKey;
   }
 
   private NodeType parseNodeType(NodeDefinition node) {

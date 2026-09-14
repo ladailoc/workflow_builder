@@ -107,6 +107,95 @@ public class Ticket {
     advanceRevision(revisionId, revisionNo, dataSnapshot, updatedAt);
   }
 
+  public void markInProgress(Instant at) {
+    if (status == TicketStatus.IN_PROGRESS) {
+      return;
+    }
+    TransitionGuard.requireAllowed(
+        status,
+        TicketStatus.IN_PROGRESS,
+        status == TicketStatus.SUBMITTED ? List.of(TicketStatus.IN_PROGRESS) : List.of());
+    this.status = TicketStatus.IN_PROGRESS;
+    this.updatedAt = TicketValues.monotonicTime(at, createdAt, "updatedAt");
+  }
+
+  public void complete(Instant at) {
+    if (status == TicketStatus.COMPLETED) {
+      return;
+    }
+    TransitionGuard.requireAllowed(
+        status,
+        TicketStatus.COMPLETED,
+        (status == TicketStatus.SUBMITTED || status == TicketStatus.IN_PROGRESS)
+            ? List.of(TicketStatus.COMPLETED)
+            : List.of());
+    this.status = TicketStatus.COMPLETED;
+    this.completedAt = TicketValues.monotonicTime(at, createdAt, "completedAt");
+    this.updatedAt = this.completedAt;
+  }
+
+  public void reject(Instant at) {
+    if (status == TicketStatus.REJECTED) {
+      return;
+    }
+    TransitionGuard.requireAllowed(
+        status,
+        TicketStatus.REJECTED,
+        (status == TicketStatus.SUBMITTED || status == TicketStatus.IN_PROGRESS)
+            ? List.of(TicketStatus.REJECTED)
+            : List.of());
+    this.status = TicketStatus.REJECTED;
+    this.completedAt = TicketValues.monotonicTime(at, createdAt, "completedAt");
+    this.updatedAt = this.completedAt;
+  }
+
+  public void cancel(Instant at) {
+    if (status == TicketStatus.CANCELLED) {
+      return;
+    }
+    TransitionGuard.requireAllowed(
+        status,
+        TicketStatus.CANCELLED,
+        (status == TicketStatus.DRAFT
+                || status == TicketStatus.SUBMITTED
+                || status == TicketStatus.IN_PROGRESS)
+            ? List.of(TicketStatus.CANCELLED)
+            : List.of());
+    if (this.submittedAt == null) {
+      this.submittedAt = TicketValues.monotonicTime(at, createdAt, "submittedAt");
+    }
+    this.status = TicketStatus.CANCELLED;
+    this.completedAt = TicketValues.monotonicTime(at, createdAt, "completedAt");
+    this.updatedAt = this.completedAt;
+  }
+
+  public void reopen(Instant at) {
+    if (status != TicketStatus.COMPLETED
+        && status != TicketStatus.REJECTED
+        && status != TicketStatus.CANCELLED) {
+      throw new IllegalStateException("Reopen requires a terminal Ticket; current status is " + status);
+    }
+    this.status = TicketStatus.SUBMITTED;
+    this.completedAt = null;
+    this.updatedAt = TicketValues.monotonicTime(at, createdAt, "updatedAt");
+  }
+
+  public void resubmit(
+      UUID revisionId, long revisionNo, JsonNode dataSnapshot, Instant submittedAt) {
+    if (status != TicketStatus.COMPLETED
+        && status != TicketStatus.REJECTED
+        && status != TicketStatus.CANCELLED
+        && status != TicketStatus.DRAFT) {
+      throw new IllegalStateException(
+          "Resubmit requires a terminal or draft Ticket; current status is " + status);
+    }
+    advanceRevision(revisionId, revisionNo, dataSnapshot, submittedAt);
+    this.status = TicketStatus.SUBMITTED;
+    this.completedAt = null;
+    this.submittedAt = TicketValues.monotonicTime(submittedAt, createdAt, "submittedAt");
+    this.updatedAt = this.submittedAt;
+  }
+
   private void advanceRevision(
       UUID revisionId, long revisionNo, JsonNode dataSnapshot, Instant timestamp) {
     long expectedRevision = nextRevisionNo();

@@ -44,6 +44,17 @@ public final class EventContext {
     return masked;
   }
 
+  public EventContext withItemVariable(String itemVariable, JsonNode itemValue) {
+    ObjectNode enrichedValue = this.value.deepCopy();
+    if (itemValue != null && !itemValue.isMissingNode() && !itemValue.isNull()) {
+      enrichedValue.set("item", itemValue.deepCopy());
+      if (itemVariable != null && !itemVariable.isBlank() && !"item".equals(itemVariable)) {
+        enrichedValue.set(itemVariable, itemValue.deepCopy());
+      }
+    }
+    return new EventContext(enrichedValue, this.expressionSchema, this.sensitiveValues, this.masker);
+  }
+
   private void mask(ObjectNode root, String path) {
     String[] segments = path.split("\\.");
     JsonNode current = root;

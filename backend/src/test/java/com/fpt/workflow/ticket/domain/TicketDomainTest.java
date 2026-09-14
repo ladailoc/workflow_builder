@@ -90,6 +90,50 @@ class TicketDomainTest {
   }
 
   @Test
+  void handlesLifecycleTransitionsAndEnforcesGuards() {
+    Ticket ticket = draft();
+    Instant now = CREATED_AT.plusSeconds(1);
+
+    // Cannot markInProgress or complete/reject from DRAFT directly
+    assertThatThrownBy(() -> ticket.markInProgress(now))
+        .isInstanceOf(LifecycleTransitionException.class);
+    assertThatThrownBy(() -> ticket.complete(now))
+        .isInstanceOf(LifecycleTransitionException.class);
+    assertThatThrownBy(() -> ticket.reject(now))
+        .isInstanceOf(LifecycleTransitionException.class);
+
+    // Cancel from DRAFT is allowed
+    ticket.cancel(now);
+    assertThat(ticket.getStatus()).isEqualTo(TicketStatus.CANCELLED);
+    assertThat(ticket.getCompletedAt()).isEqualTo(now);
+    assertThat(ticket.getSubmittedAt()).isEqualTo(now);
+
+    // Cannot transition from terminal CANCELLED
+    assertThatThrownBy(() -> ticket.markInProgress(now.plusSeconds(1)))
+        .isInstanceOf(LifecycleTransitionException.class);
+
+    // Normal happy path: DRAFT -> SUBMITTED -> IN_PROGRESS -> COMPLETED
+    Ticket normalTicket = draft();
+    normalTicket.submit(UUID.randomUUID(), 1, JsonNodeFactory.instance.objectNode(), now);
+    assertThat(normalTicket.getStatus()).isEqualTo(TicketStatus.SUBMITTED);
+
+    normalTicket.markInProgress(now.plusSeconds(2));
+    assertThat(normalTicket.getStatus()).isEqualTo(TicketStatus.IN_PROGRESS);
+
+    normalTicket.complete(now.plusSeconds(3));
+    assertThat(normalTicket.getStatus()).isEqualTo(TicketStatus.COMPLETED);
+    assertThat(normalTicket.getCompletedAt()).isEqualTo(now.plusSeconds(3));
+
+    // Rejection path: DRAFT -> SUBMITTED -> IN_PROGRESS -> REJECTED
+    Ticket rejectTicket = draft();
+    rejectTicket.submit(UUID.randomUUID(), 1, JsonNodeFactory.instance.objectNode(), now);
+    rejectTicket.markInProgress(now.plusSeconds(2));
+    rejectTicket.reject(now.plusSeconds(3));
+    assertThat(rejectTicket.getStatus()).isEqualTo(TicketStatus.REJECTED);
+    assertThat(rejectTicket.getCompletedAt()).isEqualTo(now.plusSeconds(3));
+  }
+
+  @Test
   void normalizesBusinessSubjectIdentityWithoutParticipantSemantics() {
     UUID subjectId = UUID.randomUUID();
     TicketSubject subject =

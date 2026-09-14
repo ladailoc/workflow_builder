@@ -10,9 +10,11 @@ import com.fpt.workflow.definition.domain.NodeDefinition;
 import com.fpt.workflow.definition.domain.WorkflowVariable;
 import com.fpt.workflow.definition.repository.NodeDefinitionRepository;
 import com.fpt.workflow.definition.repository.WorkflowVariableRepository;
+import com.fpt.workflow.definition.repository.WorkflowInputDefinitionRepository;
 import com.fpt.workflow.form.domain.WorkflowFormType;
 import com.fpt.workflow.form.engine.FormSchema;
 import com.fpt.workflow.form.repository.WorkflowFormRepository;
+import com.fpt.workflow.form.repository.FormSubmissionRepository;
 import com.fpt.workflow.resolver.expression.ExpressionSchema;
 import com.fpt.workflow.runtime.domain.Event;
 import com.fpt.workflow.runtime.domain.NodeExecution;
@@ -56,6 +58,9 @@ public class EventContextBuilder {
   private final EventContextNamespaceProvider namespaceProvider;
   private final SensitiveValueMasker masker;
   private final ObjectMapper objectMapper;
+  private final EventWorkflowInputSnapshotRepository inputSnapshotRepository;
+  private final WorkflowInputDefinitionRepository workflowInputRepository;
+  private final FormSubmissionRepository formSubmissionRepository;
 
   public EventContextBuilder(
       EventRepository eventRepository,
@@ -68,6 +73,43 @@ public class EventContextBuilder {
       EventContextNamespaceProvider namespaceProvider,
       SensitiveValueMasker masker,
       ObjectMapper objectMapper) {
+    this(eventRepository, executionRepository, nodeRepository, variableRepository, formRepository,
+        ticketSource, actorProvider, namespaceProvider, masker, objectMapper, null, null, null);
+  }
+
+  public EventContextBuilder(
+      EventRepository eventRepository,
+      NodeExecutionRepository executionRepository,
+      NodeDefinitionRepository nodeRepository,
+      WorkflowVariableRepository variableRepository,
+      WorkflowFormRepository formRepository,
+      TicketContextSource ticketSource,
+      ActorContextProvider actorProvider,
+      EventContextNamespaceProvider namespaceProvider,
+      SensitiveValueMasker masker,
+      ObjectMapper objectMapper,
+      EventWorkflowInputSnapshotRepository inputSnapshotRepository,
+      WorkflowInputDefinitionRepository workflowInputRepository) {
+    this(eventRepository, executionRepository, nodeRepository, variableRepository, formRepository,
+        ticketSource, actorProvider, namespaceProvider, masker, objectMapper, inputSnapshotRepository,
+        workflowInputRepository, null);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public EventContextBuilder(
+      EventRepository eventRepository,
+      NodeExecutionRepository executionRepository,
+      NodeDefinitionRepository nodeRepository,
+      WorkflowVariableRepository variableRepository,
+      WorkflowFormRepository formRepository,
+      TicketContextSource ticketSource,
+      ActorContextProvider actorProvider,
+      EventContextNamespaceProvider namespaceProvider,
+      SensitiveValueMasker masker,
+      ObjectMapper objectMapper,
+      EventWorkflowInputSnapshotRepository inputSnapshotRepository,
+      WorkflowInputDefinitionRepository workflowInputRepository,
+      FormSubmissionRepository formSubmissionRepository) {
     this.eventRepository = eventRepository;
     this.executionRepository = executionRepository;
     this.nodeRepository = nodeRepository;
@@ -78,6 +120,18 @@ public class EventContextBuilder {
     this.namespaceProvider = namespaceProvider;
     this.masker = masker;
     this.objectMapper = objectMapper;
+    this.inputSnapshotRepository = inputSnapshotRepository;
+    this.workflowInputRepository = workflowInputRepository;
+    this.formSubmissionRepository = formSubmissionRepository;
+  }
+
+  private EventWorkflowInputRevisionRepository inputRevisionRepository;
+
+  /** Latest WorkflowInputRevision chain (v2.4.1 §7.5); absent on legacy contexts. */
+  @org.springframework.beans.factory.annotation.Autowired(required = false)
+  public void setInputRevisionRepository(
+      EventWorkflowInputRevisionRepository inputRevisionRepository) {
+    this.inputRevisionRepository = inputRevisionRepository;
   }
 
   @Transactional(readOnly = true)
@@ -108,6 +162,33 @@ public class EventContextBuilder {
     root.set("event", eventNamespace(event));
     root.set("variables", variableNamespace(event, variables));
     root.set("nodes", nodeNamespace(nodes, executions, scope));
+    EventWorkflowInputSnapshot inputSnapshot =
+        inputSnapshotRepository == null ? null : inputSnapshotRepository.findById(event.getId()).orElse(null);
+    // §7.5: after an explicit revision remap the runtime reads the latest WorkflowInputRevision,
+    // never the mutated create-time snapshot row. Old NodeExecution inputs stay untouched.
+    EventWorkflowInputRevision latestRevision =
+        inputRevisionRepository == null
+            ? null
+            : inputRevisionRepository.findFirstByEventIdOrderByInputRevisionDesc(event.getId()).orElse(null);
+    if (inputSnapshot != null) {
+      JsonNode effectiveInputs =
+          latestRevision != null ? latestRevision.getInputsJson() : inputSnapshot.getInputsJson();
+      UUID effectiveSubmissionId =
+          latestRevision != null
+              ? latestRevision.getFormSubmissionId()
+              : inputSnapshot.getFormSubmissionId();
+      root.set("inputs", effectiveInputs);
+      ObjectNode category = root.putObject("category");
+      category.put("versionId", inputSnapshot.getCategoryVersionId().toString());
+      ObjectNode submission = root.putObject("formSubmission");
+      submission.put("id", effectiveSubmissionId.toString());
+      JsonNode originalSubmission = formSubmissionRepository == null
+          ? ticket.revisionData()
+          : formSubmissionRepository.findById(effectiveSubmissionId)
+              .map(com.fpt.workflow.form.domain.FormSubmission::getDataJson)
+              .orElse(ticket.revisionData());
+      submission.set("data", originalSubmission);
+    }
     if (!scope.item().isEmpty()) root.set("item", scope.item());
     if (!scope.task().isEmpty()) root.set("task", scope.task());
     actorProvider.currentActor().ifPresent(actor -> root.set("actor", actorNamespace(actor)));
@@ -117,18 +198,32 @@ public class EventContextBuilder {
     addPlatformTypes(paths, ticket, event, scope);
     variables.forEach(variable -> paths.put("variables." + variable.getKey(), variable.getType()));
     addTicketFormTypes(event.getWorkflowVersionId(), paths);
+    if (inputSnapshot != null && workflowInputRepository != null) {
+      workflowInputRepository.findAllByWorkflowVersionIdOrderByOrdinalAsc(event.getWorkflowVersionId())
+          .forEach(input -> paths.put("inputs." + input.getInputKey(), input.getType()));
+      paths.put("category.versionId", STRING);
+      paths.put("formSubmission.id", STRING);
+    }
     addNodeTypes(nodes, paths, repeating);
     scope.itemTypes().forEach((key, type) -> paths.put("item." + key, type));
     scope.taskTypes().forEach((key, type) -> paths.put("task." + key, type));
 
     List<SensitiveValueMetadata> sensitive = sensitiveMetadata(event, variables);
+    if (inputSnapshot != null && workflowInputRepository != null) {
+      List<SensitiveValueMetadata> withInputs = new ArrayList<>(sensitive);
+      workflowInputRepository.findAllByWorkflowVersionIdOrderByOrdinalAsc(event.getWorkflowVersionId())
+          .stream().filter(com.fpt.workflow.definition.domain.WorkflowInputDefinition::isSensitive)
+          .forEach(input -> withInputs.add(new SensitiveValueMetadata(
+              "inputs." + input.getInputKey(), "WORKFLOW_INPUT", input.getId())));
+      sensitive = List.copyOf(withInputs);
+    }
     return new EventContext(root, new ExpressionSchema(paths, repeating), sensitive, masker);
   }
 
   private ObjectNode ticketNamespace(TicketContextSnapshot ticket) {
     ObjectNode result = JsonNodeFactory.instance.objectNode();
     result.put("id", ticket.ticketId().toString());
-    result.put("requestTypeId", ticket.requestTypeId().toString());
+    if (ticket.requestTypeId() != null) result.put("requestTypeId", ticket.requestTypeId().toString());
     result.put("creatorId", ticket.creatorId().toString());
     result.put("status", ticket.status());
     result.put("dataRevision", ticket.dataRevision());

@@ -33,6 +33,9 @@ import com.fpt.workflow.shared.domain.lifecycle.EventStatus;
 import com.fpt.workflow.shared.domain.lifecycle.NodeExecutionStatus;
 import com.fpt.workflow.shared.domain.lifecycle.WorkflowDefinitionLifecycle;
 import com.fpt.workflow.shared.domain.lifecycle.WorkflowVersionStatus;
+import com.fpt.workflow.nodetype.NodeExecutionError;
+import com.fpt.workflow.runtime.domain.RuntimeWaitReason;
+import com.fpt.workflow.runtime.subworkflow.domain.SubWorkflowFailureStrategy;
 import com.fpt.workflow.shared.time.PlatformClock;
 import java.time.Instant;
 import java.util.Objects;
@@ -40,6 +43,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,6 +65,12 @@ public class DefaultSubWorkflowService implements SubWorkflowService {
   private final UuidGenerator uuidGenerator;
   private final PlatformClock clock;
   private final ObjectMapper objectMapper;
+  private ChildWorkflowMutationBoundary ticketMutationBoundary;
+
+  @Autowired(required = false)
+  public void setTicketMutationBoundary(ChildWorkflowMutationBoundary ticketMutationBoundary) {
+    this.ticketMutationBoundary = ticketMutationBoundary;
+  }
 
   public DefaultSubWorkflowService(
       WorkflowDefinitionRepository workflowDefinitionRepository,
@@ -112,6 +122,8 @@ public class DefaultSubWorkflowService implements SubWorkflowService {
     Instant now = clock.now();
     JsonNode config = node.getConfigJson();
 
+    SubWorkflowFailureStrategy failureStrategy = parseFailureStrategy(config);
+
     // 1. Resolve child WorkflowDefinition
     String rawChildKey = config.path("childWorkflowDefinitionKey").asText(null);
     if (rawChildKey == null || rawChildKey.isBlank()) {
@@ -120,53 +132,91 @@ public class DefaultSubWorkflowService implements SubWorkflowService {
     final String childDefKey = rawChildKey;
     String childDefIdStr = config.path("childWorkflowDefinitionId").asText(null);
 
-    WorkflowDefinition childDef;
+    WorkflowDefinition childDef = null;
     if (childDefKey != null && !childDefKey.isBlank()) {
-      childDef =
-          workflowDefinitionRepository
-              .findByKey(childDefKey)
-              .orElseThrow(
-                  () ->
-                      new IllegalStateException(
-                          "Child workflow definition not found with key: " + childDefKey));
+      childDef = workflowDefinitionRepository.findByKey(childDefKey).orElse(null);
+      if (childDef == null) {
+        return handleActivationFailure(
+            parentEvent,
+            node,
+            parentNodeExecution,
+            failureStrategy,
+            "CHILD_DEFINITION_NOT_FOUND",
+            "Child workflow definition not found with key: " + childDefKey,
+            now);
+      }
     } else if (childDefIdStr != null && !childDefIdStr.isBlank()) {
-      UUID childDefId = UUID.fromString(childDefIdStr);
-      childDef =
-          workflowDefinitionRepository
-              .findById(childDefId)
-              .orElseThrow(
-                  () ->
-                      new IllegalStateException(
-                          "Child workflow definition not found with id: " + childDefId));
+      try {
+        UUID childDefId = UUID.fromString(childDefIdStr);
+        childDef = workflowDefinitionRepository.findById(childDefId).orElse(null);
+        if (childDef == null) {
+          return handleActivationFailure(
+              parentEvent,
+              node,
+              parentNodeExecution,
+              failureStrategy,
+              "CHILD_DEFINITION_NOT_FOUND",
+              "Child workflow definition not found with id: " + childDefId,
+              now);
+        }
+      } catch (IllegalArgumentException ex) {
+        return handleActivationFailure(
+            parentEvent,
+            node,
+            parentNodeExecution,
+            failureStrategy,
+            "INVALID_CHILD_DEFINITION_ID",
+            "Invalid childWorkflowDefinitionId: " + childDefIdStr,
+            now);
+      }
     } else {
-      throw new IllegalStateException(
-          "SubWorkflow node configuration missing childWorkflowDefinitionKey or childWorkflowDefinitionId");
+      return handleActivationFailure(
+          parentEvent,
+          node,
+          parentNodeExecution,
+          failureStrategy,
+          "MISSING_CHILD_DEFINITION_CONFIG",
+          "SubWorkflow node configuration missing childWorkflowDefinitionKey or childWorkflowDefinitionId",
+          now);
     }
 
     if (childDef.getLifecycle() != WorkflowDefinitionLifecycle.ACTIVE) {
-      throw new IllegalStateException(
+      return handleActivationFailure(
+          parentEvent,
+          node,
+          parentNodeExecution,
+          failureStrategy,
+          "CHILD_DEFINITION_NOT_ACTIVE",
           "Child workflow definition is not ACTIVE (current="
               + childDef.getLifecycle()
               + "): "
-              + childDef.getKey());
+              + childDef.getKey(),
+          now);
     }
 
     // 2. CRITICAL VERSION RULE: Resolve CURRENT PUBLISHED child WorkflowVersion at ACTIVATION time
     UUID publishedVersionId = childDef.getCurrentPublishedVersionId();
     if (publishedVersionId == null) {
-      throw new IllegalStateException(
-          "Child workflow definition '" + childDef.getKey() + "' has no published version");
+      return handleActivationFailure(
+          parentEvent,
+          node,
+          parentNodeExecution,
+          failureStrategy,
+          "NO_PUBLISHED_VERSION",
+          "Child workflow definition '" + childDef.getKey() + "' has no published version",
+          now);
     }
     WorkflowVersion childVersion =
-        workflowVersionRepository
-            .findById(publishedVersionId)
-            .orElseThrow(
-                () ->
-                    new IllegalStateException(
-                        "Published child WorkflowVersion not found: " + publishedVersionId));
-    if (childVersion.getStatus() != WorkflowVersionStatus.PUBLISHED) {
-      throw new IllegalStateException(
-          "Current published version is not in PUBLISHED status: " + publishedVersionId);
+        workflowVersionRepository.findById(publishedVersionId).orElse(null);
+    if (childVersion == null || childVersion.getStatus() != WorkflowVersionStatus.PUBLISHED) {
+      return handleActivationFailure(
+          parentEvent,
+          node,
+          parentNodeExecution,
+          failureStrategy,
+          "CHILD_VERSION_NOT_PUBLISHED",
+          "Published child WorkflowVersion not found or not published: " + publishedVersionId,
+          now);
     }
 
     // 3. Execution Mode and Cancellation Policy
@@ -255,8 +305,19 @@ public class DefaultSubWorkflowService implements SubWorkflowService {
         executionMode);
 
     // 7. Activate child workflow entry node
-    activationService.activateRoot(
-        childEvent.getId(), uuidGenerator.generate(), request.correlationId(), request.commandId());
+    if (ticketMutationBoundary != null) {
+      try (var ignored =
+          ticketMutationBoundary.enterChildWorkflow(childEvent.getId(), parentEvent.getTicketId())) {
+        activationService.activateRoot(
+            childEvent.getId(), uuidGenerator.generate(), request.correlationId(), request.commandId());
+      } catch (Exception ex) {
+        if (ex instanceof RuntimeException re) throw re;
+        throw new IllegalStateException("Failed activating child workflow root", ex);
+      }
+    } else {
+      activationService.activateRoot(
+          childEvent.getId(), uuidGenerator.generate(), request.correlationId(), request.commandId());
+    }
 
     // 8. Return result according to execution mode
     if (executionMode == SubWorkflowExecutionMode.WAIT_FOR_COMPLETION) {
@@ -351,7 +412,13 @@ public class DefaultSubWorkflowService implements SubWorkflowService {
     }
 
     String outcomePort;
-    if (childEvent.getStatus() == EventStatus.COMPLETED) {
+    if (childEvent.getStatus() == EventStatus.COMPLETED
+        && "REJECTED".equalsIgnoreCase(childEvent.getOutcome())) {
+      outcomePort = "REJECTED";
+      parentOutput.put("outcome", "REJECTED");
+      parentNode.complete(outcomePort, parentOutput, now);
+      subExec.markCompleted(parentOutput.toString(), now);
+    } else if (childEvent.getStatus() == EventStatus.COMPLETED) {
       outcomePort = "COMPLETED";
       parentNode.complete(outcomePort, parentOutput, now);
       subExec.markCompleted(parentOutput.toString(), now);
@@ -363,8 +430,38 @@ public class DefaultSubWorkflowService implements SubWorkflowService {
     } else {
       outcomePort = "FAILED";
       parentOutput.put("outcome", "FAILED");
-      parentNode.complete(outcomePort, parentOutput, now);
-      subExec.markFailed(parentOutput.toString(), now);
+      parentOutput.put("childEventStatus", childEvent.getStatus().name());
+
+      SubWorkflowFailureStrategy failureStrategy =
+          parseFailureStrategy(nodeDef != null ? nodeDef.getConfigJson() : null);
+
+      if (failureStrategy == SubWorkflowFailureStrategy.FAIL_PARENT) {
+        parentNode.fail(parentOutput, now);
+        subExec.markFailed(parentOutput.toString(), now);
+        nodeExecutionRepository.saveAndFlush(parentNode);
+        subWorkflowExecutionRepository.save(subExec);
+        Event parentEvent = eventRepository.findById(subExec.getParentEventId()).orElse(null);
+        if (parentEvent != null) {
+          parentEvent.fail(now);
+          eventRepository.save(parentEvent);
+        }
+        eventLifecycleService.syncEventStatus(subExec.getParentEventId());
+        return;
+      } else if (failureStrategy == SubWorkflowFailureStrategy.MANUAL_RECOVERY) {
+        parentNode.changeWaitReason(RuntimeWaitReason.MANUAL_RECONCILIATION);
+        Event parentEvent = eventRepository.findById(subExec.getParentEventId()).orElse(null);
+        if (parentEvent != null) {
+          parentEvent.changeWaitReason(RuntimeWaitReason.MANUAL_RECONCILIATION);
+          eventRepository.save(parentEvent);
+        }
+        subExec.markFailed(parentOutput.toString(), now);
+        nodeExecutionRepository.saveAndFlush(parentNode);
+        subWorkflowExecutionRepository.save(subExec);
+        return;
+      } else {
+        parentNode.complete(outcomePort, parentOutput, now);
+        subExec.markFailed(parentOutput.toString(), now);
+      }
     }
 
     nodeExecutionRepository.saveAndFlush(parentNode);
@@ -408,6 +505,69 @@ public class DefaultSubWorkflowService implements SubWorkflowService {
       }
       subExec.markCancelled(now);
       subWorkflowExecutionRepository.save(subExec);
+    }
+  }
+
+  private SubWorkflowFailureStrategy parseFailureStrategy(JsonNode config) {
+    if (config == null || !config.isObject()) {
+      return SubWorkflowFailureStrategy.ROUTE_FAILED;
+    }
+    if (config.hasNonNull("failureStrategy")) {
+      return SubWorkflowFailureStrategy.fromString(config.path("failureStrategy").asText());
+    }
+    if (config.hasNonNull("failurePolicy")) {
+      JsonNode fp = config.path("failurePolicy");
+      if (fp.hasNonNull("strategy")) {
+        return SubWorkflowFailureStrategy.fromString(fp.path("strategy").asText());
+      }
+    }
+    if (config.hasNonNull("failure")) {
+      JsonNode fp = config.path("failure");
+      if (fp.hasNonNull("strategy")) {
+        return SubWorkflowFailureStrategy.fromString(fp.path("strategy").asText());
+      }
+    }
+    return SubWorkflowFailureStrategy.ROUTE_FAILED;
+  }
+
+  private NodeExecutionResult handleActivationFailure(
+      Event parentEvent,
+      NodeDefinition node,
+      NodeExecution parentNodeExecution,
+      SubWorkflowFailureStrategy strategy,
+      String errorCode,
+      String errorMessage,
+      Instant now) {
+    log.warn(
+        "SubWorkflow activation failed for parentNodeExecution={}, code={}, message={}, strategy={}",
+        parentNodeExecution.getId(),
+        errorCode,
+        errorMessage,
+        strategy);
+    ObjectNode errorDetails = objectMapper.createObjectNode();
+    errorDetails.put("errorCode", errorCode);
+    errorDetails.put("errorMessage", errorMessage);
+    errorDetails.put("outcome", "FAILED");
+    errorDetails.put("nodeKey", node.getNodeKey());
+
+    switch (strategy) {
+      case FAIL_PARENT -> {
+        return NodeExecutionResult.fail(
+            new NodeExecutionError(errorCode, errorMessage, errorDetails));
+      }
+      case MANUAL_RECOVERY -> {
+        return NodeExecutionResult.waitFor(
+            new WaitDescriptor(
+                RuntimeWaitReason.MANUAL_RECONCILIATION.name(),
+                parentNodeExecution.getId().toString(),
+                errorDetails));
+      }
+      case ROUTE_FAILED -> {
+        return NodeExecutionResult.complete(errorDetails, "FAILED");
+      }
+      default -> {
+        return NodeExecutionResult.complete(errorDetails, "FAILED");
+      }
     }
   }
 

@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
@@ -73,6 +74,58 @@ public class TicketCommandFacade {
         new CommandInvocation(
             "TICKET", ticketId, commandId, "TICKET_SUBMIT", expectedVersion.value(), hash(request)),
         () -> ticketService.submit(ticketId, expectedVersion, request, commandId));
+  }
+
+  public TicketDtos.AggregateView cancel(
+      UUID ticketId,
+      CommandId commandId,
+      ExpectedVersion expectedVersion,
+      TicketDtos.CancelTicket request) {
+    TicketDtos.CancelTicket body = request != null ? request : new TicketDtos.CancelTicket("");
+    return execute(
+        new CommandInvocation(
+            "TICKET",
+            ticketId,
+            commandId,
+            "CANCEL_TICKET",
+            expectedVersion != null ? expectedVersion.value() : null,
+            hash(body)),
+        () -> ticketService.cancel(ticketId, expectedVersion, body, commandId));
+  }
+
+  public TicketDtos.AggregateView reopen(
+      UUID ticketId,
+      CommandId commandId,
+      ExpectedVersion expectedVersion,
+      TicketDtos.ReopenTicket request) {
+    TicketDtos.ReopenTicket body =
+        request != null ? request : new TicketDtos.ReopenTicket("");
+    return execute(
+        new CommandInvocation(
+            "TICKET",
+            ticketId,
+            commandId,
+            "TICKET_REOPEN",
+            expectedVersion != null ? expectedVersion.value() : null,
+            hash(body)),
+        () -> ticketService.reopen(ticketId, expectedVersion, body, commandId));
+  }
+
+  public TicketDtos.AggregateView resubmit(
+      UUID ticketId,
+      CommandId commandId,
+      ExpectedVersion expectedVersion,
+      TicketDtos.ResubmitTicket request) {
+    Objects.requireNonNull(request, "request");
+    return execute(
+        new CommandInvocation(
+            "TICKET",
+            ticketId,
+            commandId,
+            "TICKET_RESUBMIT",
+            expectedVersion != null ? expectedVersion.value() : null,
+            hash(request)),
+        () -> ticketService.resubmit(ticketId, expectedVersion, request, commandId));
   }
 
   private TicketDtos.AggregateView execute(

@@ -18,4 +18,7 @@ public interface EventRepository extends JpaRepository<Event, UUID> {
   List<Event> findAllByTicketIdOrderByStartedAtAsc(UUID ticketId);
 
   List<Event> findAllByStatusOrderByStartedAtAsc(EventStatus status);
+
+  /** P2-18: timeline source — child events of one parent, earliest first. */
+  List<Event> findAllByParentEventIdOrderByStartedAtAsc(UUID parentEventId);
 }

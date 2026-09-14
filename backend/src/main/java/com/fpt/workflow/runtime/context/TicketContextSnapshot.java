@@ -24,7 +24,7 @@ public record TicketContextSnapshot(
 
   public TicketContextSnapshot {
     ticketId = Objects.requireNonNull(ticketId, "ticketId");
-    requestTypeId = Objects.requireNonNull(requestTypeId, "requestTypeId");
+    // Null for v2.4.1 category-created tickets; retained for legacy RequestType history.
     creatorId = Objects.requireNonNull(creatorId, "creatorId");
     status = Objects.requireNonNull(status, "status");
     currentData = requireObject(currentData, "currentData");

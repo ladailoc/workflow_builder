@@ -503,7 +503,7 @@ class SequentialApprovalE2EIT {
 
     ObjectNode approvalConfig = objectMapper.createObjectNode();
     ObjectNode participant = approvalConfig.putObject("participant");
-    participant.put("type", "MANAGER_OF");
+    participant.put("type", "CREATOR");
     ArrayNode actions = approvalConfig.putArray("allowedActions");
     actions.add("APPROVE");
     actions.add("REJECT");

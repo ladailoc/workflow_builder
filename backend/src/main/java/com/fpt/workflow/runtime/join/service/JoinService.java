@@ -53,6 +53,32 @@ public class JoinService {
   private final UuidGenerator uuidGenerator;
   private final PlatformClock clock;
   private final ObjectMapper objectMapper;
+  private final com.fpt.workflow.runtime.lifecycle.ActiveTaskCancellationPort taskCancellationPort;
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public JoinService(
+      JoinStateRepository stateRepository,
+      JoinArrivedBranchRepository branchRepository,
+      NodeExecutionRepository executionRepository,
+      EdgeDefinitionRepository edgeRepository,
+      EventRepository eventRepository,
+      @Lazy RoutingService routingService,
+      UuidGenerator uuidGenerator,
+      PlatformClock clock,
+      ObjectMapper objectMapper,
+      @org.springframework.beans.factory.annotation.Autowired(required = false)
+          com.fpt.workflow.runtime.lifecycle.ActiveTaskCancellationPort taskCancellationPort) {
+    this.stateRepository = stateRepository;
+    this.branchRepository = branchRepository;
+    this.executionRepository = executionRepository;
+    this.edgeRepository = edgeRepository;
+    this.eventRepository = eventRepository;
+    this.routingService = routingService;
+    this.uuidGenerator = uuidGenerator;
+    this.clock = clock;
+    this.objectMapper = objectMapper;
+    this.taskCancellationPort = taskCancellationPort;
+  }
 
   public JoinService(
       JoinStateRepository stateRepository,
@@ -64,15 +90,17 @@ public class JoinService {
       UuidGenerator uuidGenerator,
       PlatformClock clock,
       ObjectMapper objectMapper) {
-    this.stateRepository = stateRepository;
-    this.branchRepository = branchRepository;
-    this.executionRepository = executionRepository;
-    this.edgeRepository = edgeRepository;
-    this.eventRepository = eventRepository;
-    this.routingService = routingService;
-    this.uuidGenerator = uuidGenerator;
-    this.clock = clock;
-    this.objectMapper = objectMapper;
+    this(
+        stateRepository,
+        branchRepository,
+        executionRepository,
+        edgeRepository,
+        eventRepository,
+        routingService,
+        uuidGenerator,
+        clock,
+        objectMapper,
+        null);
   }
 
   public boolean isJoin(NodeDefinition node) {
@@ -165,22 +193,39 @@ public class JoinService {
           executionRepository.findByIdForUpdate(state.getJoinNodeExecutionId()).orElseThrow();
     }
 
-    // 2. Duplicate arrival idempotency check
-    Optional<JoinArrivedBranch> existingBranch =
-        branchRepository.findByJoinStateIdAndInboundExecutionId(
-            state.getId(), inboundExecution.getId());
+    // 2. Duplicate arrival idempotency check — §25.14: arrival identity follows the logical path
+    // token, not the NodeExecution id. Rework/retry of the same branch (fresh execution, same
+    // pathToken) must not satisfy the join twice; a new cycle/path token counts as a new arrival.
+    // Legacy rows without a path token fall back to execution-id identity.
+    Optional<JoinArrivedBranch> existingBranch;
+    if (inboundExecution.getPathToken() != null && !inboundExecution.getPathToken().isBlank()) {
+      existingBranch =
+          branchRepository.findByJoinStateIdAndInboundPathToken(
+              state.getId(), inboundExecution.getPathToken());
+    } else {
+      existingBranch =
+          branchRepository.findByJoinStateIdAndInboundExecutionId(
+              state.getId(), inboundExecution.getId());
+    }
     if (existingBranch.isPresent()) {
       LOGGER.info(
-          "Inbound execution {} already arrived at join state {}, ignoring duplicate arrival",
+          "Inbound execution {} (path {}) already arrived at join state {}, ignoring duplicate arrival",
           inboundExecution.getId(),
+          inboundExecution.getPathToken(),
           state.getId());
       return joinExecution;
     }
 
-    // 3. Record new arrival
+    // 3. Record new arrival with logical path identity
     branchRepository.save(
         JoinArrivedBranch.create(
-            uuidGenerator.generate(), state.getId(), inboundExecution.getId(), inboundEdgeId, now));
+            uuidGenerator.generate(),
+            state.getId(),
+            inboundExecution.getId(),
+            inboundExecution.getPathToken(),
+            inboundExecution.getCycleId(),
+            inboundEdgeId,
+            now));
 
     boolean thresholdReached = state.recordArrival(now);
     state = stateRepository.save(state);
@@ -190,6 +235,14 @@ public class JoinService {
       if (state.markRoutedDownstream()) {
         state.markCompleted(now);
         state = stateRepository.save(state);
+
+        // Check remainingBranchPolicy on FIRST/ANY
+        if (state.getJoinPolicy() == JoinPolicy.FIRST) {
+          String remainingPolicy = parseRemainingBranchPolicy(joinNode);
+          if ("CANCEL_REMAINING".equalsIgnoreCase(remainingPolicy)) {
+            cancelRemainingBranches(event.getId(), inboundExecution, scopeId, joinExecution.getId(), now);
+          }
+        }
 
         if (joinExecution.getStatus() != NodeExecutionStatus.COMPLETED) {
           ObjectNode aggOutput = objectMapper.createObjectNode();
@@ -253,5 +306,47 @@ public class JoinService {
       return path.substring(0, lastSlash);
     }
     return "root";
+  }
+
+  private void cancelRemainingBranches(
+      UUID eventId,
+      NodeExecution arrivedExecution,
+      UUID joinScopeId,
+      UUID joinExecutionId,
+      Instant now) {
+    UUID splitScopeId = arrivedExecution.getSplitScopeId();
+    List<NodeExecution> executions =
+        executionRepository.findAllByEventIdOrderByCreatedAtAsc(eventId);
+    for (NodeExecution exec : executions) {
+      if (exec.getId().equals(arrivedExecution.getId()) || exec.getId().equals(joinExecutionId)) {
+        continue;
+      }
+      boolean sameScope =
+          (splitScopeId != null && splitScopeId.equals(exec.getSplitScopeId()))
+              || (joinScopeId != null && joinScopeId.equals(exec.getJoinScopeId()));
+      if (sameScope
+          && exec.getStatus() != NodeExecutionStatus.COMPLETED
+          && exec.getStatus() != NodeExecutionStatus.CANCELLED
+          && exec.getStatus() != NodeExecutionStatus.FAILED
+          && exec.getStatus() != NodeExecutionStatus.SKIPPED) {
+        exec.cancel(now);
+        executionRepository.save(exec);
+        if (taskCancellationPort != null) {
+          taskCancellationPort.cancelActiveTasks(exec.getId(), now);
+        }
+      }
+    }
+  }
+
+  private String parseRemainingBranchPolicy(NodeDefinition node) {
+    JsonNode config = node.getConfigJson();
+    if (config == null) return "KEEP_RUNNING";
+    if (config.hasNonNull("join") && config.get("join").hasNonNull("remainingBranchPolicy")) {
+      return config.get("join").get("remainingBranchPolicy").asText("KEEP_RUNNING");
+    }
+    if (config.hasNonNull("remainingBranchPolicy")) {
+      return config.get("remainingBranchPolicy").asText("KEEP_RUNNING");
+    }
+    return "KEEP_RUNNING";
   }
 }

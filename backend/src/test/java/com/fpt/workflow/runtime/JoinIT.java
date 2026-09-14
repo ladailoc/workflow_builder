@@ -90,9 +90,15 @@ class JoinIT {
       UUID joinNodeId,
       UUID endNodeId,
       Event event,
-      NodeExecution startExecution) {}
+      NodeExecution startExecution,
+      UUID joinEdgeAId) {}
 
   private JoinFixture createJoinFixture(String policy, Integer threshold) {
+    return createJoinFixtureWithRemainingPolicy(policy, threshold, null);
+  }
+
+  private JoinFixture createJoinFixtureWithRemainingPolicy(
+      String policy, Integer threshold, String remainingBranchPolicy) {
     String suffix = UUID.randomUUID().toString().substring(0, 8);
     UUID defId = UUID.randomUUID();
     UUID verId = UUID.randomUUID();
@@ -164,6 +170,9 @@ class JoinIT {
     joinConfig.put("policy", policy);
     if (threshold != null) {
       joinConfig.put("threshold", threshold);
+    }
+    if (remainingBranchPolicy != null) {
+      joinConfig.put("remainingBranchPolicy", remainingBranchPolicy);
     }
 
     jdbcTemplate.update(
@@ -289,7 +298,7 @@ class JoinIT {
                 new CorrelationId(uuidGenerator.generate()),
                 new CommandId(uuidGenerator.generate())));
 
-    return new JoinFixture(verId, startId, nodeAId, nodeBId, joinId, endId, ev, startExecution);
+    return new JoinFixture(verId, startId, nodeAId, nodeBId, joinId, endId, ev, startExecution, edgeJoinAId);
   }
 
   @Test
@@ -447,6 +456,38 @@ class JoinIT {
     long endCount =
         finalExecs.stream().filter(e -> e.getNodeDefinitionId().equals(f.endNodeId())).count();
     assertThat(endCount).isEqualTo(1);
+  }
+
+  @Test
+  void firstJoin_withCancelRemaining_cancelsOutstandingSiblingBranch() {
+    JoinFixture f = createJoinFixtureWithRemainingPolicy("FIRST", null, "CANCEL_REMAINING");
+    CorrelationId corr = new CorrelationId(uuidGenerator.generate());
+    CommandId cmd = new CommandId(uuidGenerator.generate());
+
+    // 1. Split
+    RoutingResult splitResult = routingService.route(f.startExecution().getId(), corr, cmd);
+    NodeExecution branchA =
+        splitResult.activations().stream()
+            .filter(e -> e.getNodeDefinitionId().equals(f.branchANodeId()))
+            .findFirst()
+            .orElseThrow();
+
+    NodeExecution branchB =
+        splitResult.activations().stream()
+            .filter(e -> e.getNodeDefinitionId().equals(f.branchBNodeId()))
+            .findFirst()
+            .orElseThrow();
+
+    // 2. Complete Branch A -> FIRST condition satisfied immediately with CANCEL_REMAINING
+    branchA.complete(
+        "SUBMITTED", objectMapper.createObjectNode(), branchA.getCreatedAt().plusSeconds(1));
+    executionRepository.saveAndFlush(branchA);
+
+    routingService.route(branchA.getId(), corr, cmd);
+
+    // Verify branch B was cancelled
+    NodeExecution updatedBranchB = executionRepository.findById(branchB.getId()).orElseThrow();
+    assertThat(updatedBranchB.getStatus()).isEqualTo(NodeExecutionStatus.CANCELLED);
   }
 
   @Test
@@ -736,5 +777,134 @@ class JoinIT {
 
     // Arrived count is 1, not 2
     assertThat(state.getArrivedCount()).isEqualTo(1);
+  }
+
+  /**
+   * P2-12 (§25.14): arrival identity follows the logical path token. A reworked execution of the
+   * same branch (new NodeExecution id, same pathToken/cycle) must NOT count as a second arrival;
+   * a genuinely new path token DOES count.
+   */
+  @Test
+  void reworkedBranchArrival_samePathTokenDoesNotSatisfyJoinTwice() {
+    JoinFixture f = createJoinFixture("AND", null);
+    CorrelationId corr = new CorrelationId(uuidGenerator.generate());
+    CommandId cmd = new CommandId(uuidGenerator.generate());
+
+    RoutingResult splitResult = routingService.route(f.startExecution().getId(), corr, cmd);
+    NodeExecution branchA =
+        splitResult.activations().stream()
+            .filter(e -> e.getNodeDefinitionId().equals(f.branchANodeId()))
+            .findFirst()
+            .orElseThrow();
+
+    UUID joinScopeId = branchA.getJoinScopeId();
+
+    branchA.complete(
+        "SUBMITTED", objectMapper.createObjectNode(), branchA.getCreatedAt().plusSeconds(1));
+    executionRepository.saveAndFlush(branchA);
+    routingService.route(branchA.getId(), corr, cmd);
+
+    // Rework arrival: a NEW execution of the same logical branch (same pathToken, same cycle).
+    NodeExecution reworked =
+        NodeExecution.create(
+            uuidGenerator.generate(),
+            f.event().getId(),
+            branchA.getNodeDefinitionId(),
+            "rework:" + UUID.randomUUID(),
+            branchA.getCycleId(),
+            branchA.getIteration() + 1,
+            branchA.getPathToken(),
+            null,
+            branchA.getSplitScopeId(),
+            branchA.getJoinScopeId(),
+            objectMapper.createObjectNode(),
+            f.event().getStartedTicketRevisionId(),
+            NOW);
+    reworked.markReady();
+    reworked.start(NOW);
+    reworked.complete("SUBMITTED", objectMapper.createObjectNode(), NOW.plusSeconds(2));
+    executionRepository.saveAndFlush(reworked);
+
+    // Same path token, same cycle: NOT a new arrival.
+    joinService.arrive(f.event(), joinNodeOf(f), reworked, f.joinEdgeAId(), joinScopeId, corr, cmd);
+
+    JoinState state =
+        joinStateRepository
+            .findByEventIdAndNodeDefinitionIdAndJoinScopeId(
+                f.event().getId(), f.joinNodeId(), joinScopeId)
+            .orElseThrow();
+    assertThat(state.getArrivedCount()).isEqualTo(1);
+    assertThat(
+            branchRepository.findAllByJoinStateIdOrderByArrivedAtAsc(state.getId()).stream()
+                .filter(
+                    b ->
+                        b.getInboundPathToken() != null
+                            && b.getInboundPathToken().equals(reworked.getPathToken()))
+                .count())
+        .isEqualTo(1);
+
+    // A genuinely new path token IS a new arrival.
+    NodeExecution freshBranch =
+        NodeExecution.create(
+            uuidGenerator.generate(),
+            f.event().getId(),
+            branchA.getNodeDefinitionId(),
+            "rework-fresh:" + UUID.randomUUID(),
+            branchA.getCycleId(),
+            branchA.getIteration() + 1,
+            branchA.getPathToken() + "/newpath",
+            null,
+            branchA.getSplitScopeId(),
+            branchA.getJoinScopeId(),
+            objectMapper.createObjectNode(),
+            f.event().getStartedTicketRevisionId(),
+            NOW);
+    freshBranch.markReady();
+    freshBranch.start(NOW);
+    freshBranch.complete("SUBMITTED", objectMapper.createObjectNode(), NOW.plusSeconds(3));
+    executionRepository.saveAndFlush(freshBranch);
+    joinService.arrive(
+        f.event(), joinNodeOf(f), freshBranch, f.joinEdgeAId(), joinScopeId, corr, cmd);
+
+    JoinState updated =
+        joinStateRepository
+            .findByEventIdAndNodeDefinitionIdAndJoinScopeId(
+                f.event().getId(), f.joinNodeId(), joinScopeId)
+            .orElseThrow();
+    assertThat(updated.getArrivedCount()).isEqualTo(2);
+  }
+
+  private com.fpt.workflow.definition.domain.NodeDefinition joinNodeOf(JoinFixture f) {
+    return jdbcTemplate.queryForObject(
+        "SELECT id, workflow_version_id, node_key, node_type, name, description, config_schema_version,"
+            + " config_json, input_schema_json, output_schema_json, position_json FROM workflow_nodes WHERE id = ?",
+        (rs, rowNum) -> {
+          com.fpt.workflow.definition.domain.NodeDefinition node =
+              com.fpt.workflow.definition.domain.NodeDefinition.create(
+                  rs.getObject("id", UUID.class),
+                  rs.getObject("workflow_version_id", UUID.class),
+                  rs.getString("node_key"),
+                  rs.getString("node_type"),
+                  rs.getString("name"),
+                  rs.getString("description"),
+                  rs.getInt("config_schema_version"),
+                  toJson(rs.getString("config_json")),
+                  toJson(rs.getString("input_schema_json")),
+                  toJson(rs.getString("output_schema_json")),
+                  toJson(rs.getString("position_json")));
+          return node;
+        },
+        f.joinNodeId());
+  }
+
+  private com.fasterxml.jackson.databind.JsonNode toJson(String raw) {
+    if (raw == null || raw.isBlank()) {
+      return objectMapper.createObjectNode();
+    }
+    try {
+      return objectMapper.readTree(raw);
+    } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
+      throw new IllegalStateException("Cannot parse workflow_nodes JSON", ex);
+    }
   }
 }

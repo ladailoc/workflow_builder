@@ -12,6 +12,7 @@ import com.fpt.workflow.form.engine.FieldValidationRules;
 import com.fpt.workflow.form.engine.FieldVisibility;
 import com.fpt.workflow.form.engine.FormFieldDefinition;
 import com.fpt.workflow.form.engine.FormSchema;
+import com.fpt.workflow.operations.outbox.OutboxEventRepository;
 import com.fpt.workflow.security.testing.WithMockActor;
 import com.fpt.workflow.shared.api.CommandConflictException;
 import com.fpt.workflow.shared.domain.ExpectedVersion;
@@ -57,6 +58,7 @@ class TicketPersistenceIT {
   @Autowired private TicketRepository ticketRepository;
   @Autowired private JdbcTemplate jdbcTemplate;
   @Autowired private ObjectMapper objectMapper;
+  @Autowired private OutboxEventRepository outbox;
 
   @Test
   void numbersRevisionsAndAdvancesTheCurrentImmutableSnapshot() {
@@ -85,6 +87,14 @@ class TicketPersistenceIT {
                 List.of(subject(employeeId))));
 
     assertThat(submitted.ticket().status()).isEqualTo(TicketStatus.SUBMITTED);
+    assertThat(outbox.findByDedupKey("ticket_submitted:" + submitted.currentEventId()))
+        .hasValueSatisfying(
+            event -> {
+              assertThat(event.getEventType()).isEqualTo("TICKET_SUBMITTED");
+              assertThat(event.getAggregateId()).isEqualTo(submitted.ticket().id());
+              assertThat(event.getPayloadJson().path("eventId").asText())
+                  .isEqualTo(submitted.currentEventId().toString());
+            });
     assertThat(revised.ticket().dataRevision()).isEqualTo(2);
     assertThat(revised.ticket().dataJson().path("amount").asInt()).isEqualTo(125);
     assertThat(revised.revisions())
@@ -213,6 +223,11 @@ class TicketPersistenceIT {
   @Test
   void deniesTicketAccessToAnUnrelatedAuthenticatedActor() {
     UUID requestTypeId = activeRequestType();
+    jdbcTemplate.update(
+        "UPDATE workflow_definitions SET owner_id = ? WHERE id = "
+            + "(SELECT workflow_definition_id FROM request_types WHERE id = ?)",
+        UUID.randomUUID(),
+        requestTypeId);
     UUID ticketId = UUID.randomUUID();
     jdbcTemplate.update(
         "INSERT INTO tickets "

@@ -203,6 +203,18 @@ public class RoutingService {
   public RoutingResult route(
       UUID sourceExecutionId, CorrelationId correlationId, CommandId commandId) {
 
+    try (var mdcScope =
+        com.fpt.workflow.operations.observability.WorkflowMdcScope.builder()
+            .commandId(commandId != null ? commandId.value() : null)
+            .correlationId(correlationId != null ? correlationId.value() : null)
+            .open()) {
+      return routeInternal(sourceExecutionId, correlationId, commandId);
+    }
+  }
+
+  private RoutingResult routeInternal(
+      UUID sourceExecutionId, CorrelationId correlationId, CommandId commandId) {
+
     NodeExecution source =
         executionRepository
             .findByIdForUpdate(sourceExecutionId)
@@ -245,24 +257,46 @@ public class RoutingService {
             .findAllByWorkflowVersionIdAndSourceNodeIdAndSourcePortOrderByPriorityAscIdAsc(
                 event.getWorkflowVersionId(), sourceNode.getId(), source.getOutcomePort());
 
+    if (source.getOutputJson() != null && source.getOutputJson().hasNonNull("targetNodeId")) {
+      String targetIdStr = source.getOutputJson().path("targetNodeId").asText();
+      List<EdgeDefinition> targetMatching = outgoing.stream()
+          .filter(edge -> edge.getTargetNodeId().toString().equals(targetIdStr))
+          .toList();
+      if (!targetMatching.isEmpty()) {
+        outgoing = targetMatching;
+      } else {
+        List<EdgeDefinition> allSourceEdges =
+            edgeRepository.findAllByWorkflowVersionIdAndSourceNodeIdOrderByPriorityAscIdAsc(
+                event.getWorkflowVersionId(), sourceNode.getId());
+        List<EdgeDefinition> directToTarget = allSourceEdges.stream()
+            .filter(edge -> edge.getTargetNodeId().toString().equals(targetIdStr))
+            .toList();
+        if (!directToTarget.isEmpty()) {
+          outgoing = directToTarget;
+        }
+      }
+    }
+
     RuntimeScope scope =
         RuntimeScope.occurrence(source.getCycleId(), source.getPathToken(), source.getItemToken());
     EventContext context = contextBuilder.build(event.getId(), scope);
 
     List<EdgeDefinition> selected = select(mode, manifest, outgoing, context);
     if (mode != RoutingMode.NONE && selected.isEmpty()) {
+      recordRoutingFailure(event, source, sourceNode, source.getOutcomePort(), outgoing, context, correlationId, commandId);
       throw new RoutingNoMatchException(
           "No route matched node " + sourceNode.getNodeKey() + " port " + source.getOutcomePort());
     }
 
     Instant now = clock.now();
     PreparedSelection prepared =
-        prepareRework(event, source, sourceNode, manifest, mode, selected, context, now);
+        prepareRework(event, source, sourceNode, manifest, mode, selected, context, now, correlationId, commandId);
     selected = prepared.edges();
 
-    // Persist RoutingDecision first (explainability + replay anchor)
-    ArrayNode evaluatedArray = JsonNodeFactory.instance.arrayNode();
-    outgoing.forEach(e -> evaluatedArray.add(e.getId().toString()));
+    // Persist RoutingDecision first (explainability + replay anchor). P2-11: evaluated
+    // edges carry condition/priority/selected/error evidence so operators see WHY a route was
+    // or was not selected — never just edge IDs, never secrets.
+    ArrayNode evaluatedArray = buildEvaluatedEdgesEvidence(outgoing, selected, context);
     ArrayNode selectedArray = JsonNodeFactory.instance.arrayNode();
     selected.forEach(e -> selectedArray.add(e.getId().toString()));
 
@@ -468,6 +502,36 @@ public class RoutingService {
     };
   }
 
+  /**
+   * P2-11 (§12.5): builds structured evaluated-edge evidence. For each candidate edge: id,
+   * priority, whether it is the default transition, condition presence, evaluation result (or
+   * safe error class — expression text and secrets are never embedded), and selected flag.
+   */
+  private ArrayNode buildEvaluatedEdgesEvidence(
+      List<EdgeDefinition> outgoing, List<EdgeDefinition> selected, EventContext context) {
+    ArrayNode evaluated = JsonNodeFactory.instance.arrayNode();
+    java.util.Set<UUID> selectedIds =
+        java.util.Set.copyOf(selected.stream().map(EdgeDefinition::getId).toList());
+    for (EdgeDefinition edge : outgoing) {
+      ObjectNode row = evaluated.addObject();
+      row.put("edgeId", edge.getId().toString());
+      row.put("priority", edge.getPriority());
+      row.put("defaultTransition", edge.isDefaultTransition());
+      row.put("conditionPresent", edge.getConditionJson() != null);
+      row.put("selected", selectedIds.contains(edge.getId()));
+      if (edge.getConditionJson() != null) {
+        try {
+          row.put("matched", matches(edge, context));
+        } catch (RuntimeException evaluationFailure) {
+          // Safe error evidence: no expression source, no message payloads that could leak data.
+          ObjectNode error = row.putObject("evaluationError");
+          error.put("type", evaluationFailure.getClass().getSimpleName());
+        }
+      }
+    }
+    return evaluated;
+  }
+
   private PreparedSelection prepareRework(
       Event event,
       NodeExecution source,
@@ -476,7 +540,9 @@ public class RoutingService {
       RoutingMode mode,
       List<EdgeDefinition> selected,
       EventContext context,
-      Instant now) {
+      Instant now,
+      CorrelationId correlationId,
+      CommandId commandId) {
     List<EdgeDefinition> reworkEdges = selected.stream().filter(reworkPlanner::isRework).toList();
     if (reworkEdges.size() > 1) {
       throw new IllegalStateException("A routing decision cannot select multiple rework edges");
@@ -496,6 +562,8 @@ public class RoutingService {
                 event.getWorkflowVersionId(), sourceNode.getId(), plan.exhaustionPort());
     List<EdgeDefinition> routed = select(mode, manifest, fallback, context);
     if (routed.isEmpty()) {
+      recordRoutingFailure(
+          event, source, sourceNode, plan.exhaustionPort(), fallback, context, correlationId, commandId);
       throw new RoutingNoMatchException(
           "No exhaustion route matched port " + plan.exhaustionPort());
     }
@@ -581,6 +649,66 @@ public class RoutingService {
       throw new IllegalStateException("Runtime path scope exceeds supported depth");
     }
     return path;
+  }
+
+  /**
+   * Emits the ROUTING_FAILED audit event consumed by the operational routing-failure metric.
+   * Includes evaluated-edge evidence (condition + result) so operators can see why no route
+   * matched without re-running the expression engine. Never throws: audit failure must not
+   * mask the original routing exception.
+   */
+  private void recordRoutingFailure(
+      Event event,
+      NodeExecution source,
+      NodeDefinition sourceNode,
+      String outcomePort,
+      List<EdgeDefinition> outgoing,
+      EventContext context,
+      CorrelationId correlationId,
+      CommandId commandId) {
+    try {
+      if (auditRepository == null) return;
+      ObjectNode metadata = JsonNodeFactory.instance.objectNode();
+      metadata.put("eventId", event.getId().toString());
+      metadata.put("outcomePort", outcomePort);
+      metadata.put("nodeKey", sourceNode.getNodeKey());
+      ArrayNode evaluated = metadata.putArray("evaluatedEdges");
+      for (EdgeDefinition edge : outgoing) {
+        ObjectNode edgeEvidence = evaluated.addObject();
+        edgeEvidence.put("edgeId", edge.getId().toString());
+        edgeEvidence.put("priority", edge.getPriority());
+        edgeEvidence.put("defaultTransition", edge.isDefaultTransition());
+        edgeEvidence.put("conditionPresent", edge.getConditionJson() != null);
+        if (edge.getConditionJson() != null) {
+          try {
+            edgeEvidence.put("matched", matches(edge, context));
+          } catch (RuntimeException evaluationFailure) {
+            ObjectNode error = edgeEvidence.putObject("evaluationError");
+            error.put("message", String.valueOf(evaluationFailure.getMessage()));
+          }
+        }
+        edgeEvidence.put("selected", false);
+      }
+      UUID actorId =
+          actorProvider != null
+              ? actorProvider.currentActor().map(ActorContext::actorId).orElse(event.getStartedBy())
+              : event.getStartedBy();
+      auditRepository.save(
+          AuditEvent.record(
+              uuidGenerator.generate(),
+              "NODE_EXECUTION",
+              source.getId(),
+              "ROUTING_FAILED",
+              actorId,
+              actorId,
+              correlationId,
+              commandId,
+              metadata,
+              clock.now()));
+    } catch (RuntimeException auditFailure) {
+      org.slf4j.LoggerFactory.getLogger(RoutingService.class)
+          .warn("Failed to record ROUTING_FAILED audit event for execution {}", source.getId(), auditFailure);
+    }
   }
 
   private void recordAudit(

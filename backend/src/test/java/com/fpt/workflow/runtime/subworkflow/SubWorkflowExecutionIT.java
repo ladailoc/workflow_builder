@@ -31,6 +31,7 @@ import com.fpt.workflow.shared.domain.CommandId;
 import com.fpt.workflow.shared.domain.CorrelationId;
 import com.fpt.workflow.shared.domain.lifecycle.EventStatus;
 import com.fpt.workflow.shared.domain.lifecycle.NodeExecutionStatus;
+import com.fpt.workflow.ticket.service.TicketMutationBoundary;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -374,6 +375,205 @@ class SubWorkflowExecutionIT {
   }
 
   // ────────────────────────────────────────────────────────────────────────────
+  // P1-24: Per-node sub-workflow child failure strategies (§16.1 / §16.2)
+  // ────────────────────────────────────────────────────────────────────────────
+
+  @Test
+  @WithMockActor(roles = "WORKFLOW_OWNER")
+  void testChildNoPublishedVersion_routesFailedPort() {
+    // Given: parent workflow with ROUTE_FAILED strategy and a FAILED edge → error END
+    String suffix = suffix();
+    String childKey = "NO_PUB_FAIL_" + suffix;
+    String parentKey = "PARENT_NO_PUB_" + suffix;
+
+    // Create child definition WITHOUT any published version
+    UUID childDefId = UUID.randomUUID();
+    jdbcTemplate.update(
+        "INSERT INTO workflow_definitions (id, key, name, lifecycle, owner_id, created_by, created_at, updated_at) "
+            + "VALUES (?, ?, 'Unpublished Child', 'ACTIVE', ?, ?, now(), now())",
+        childDefId, childKey, ACTOR_ID, ACTOR_ID);
+    // No PUBLISHED version, no current_published_version_id
+
+    // Parent with ROUTE_FAILED (default) strategy + FAILED edge to error END
+    ParentWorkflowWithFailureFixture parentFixture =
+        createParentWorkflowWithFailedPort(parentKey, childKey, "ROUTE_FAILED");
+    Event parentEvent = startEventForWorkflow(parentFixture.versionId());
+
+    // When: activate START → route to SUB_WORKFLOW node
+    CorrelationId corr = new CorrelationId(uuidGenerator.generate());
+    CommandId cmd = new CommandId(uuidGenerator.generate());
+    NodeExecution startExecution =
+        activationService.activate(
+            ActivationRequest.root(
+                parentEvent.getId(), parentFixture.startNodeId(), UUID.randomUUID(), corr, cmd));
+    RoutingResult startRoute = routingService.route(startExecution.getId(), corr, cmd);
+    NodeExecution subNodeExecution = startRoute.activations().get(0);
+
+    // Then: SubWorkflow node completes with outcomePort=FAILED (not throws)
+    assertThat(subNodeExecution.getStatus()).isEqualTo(NodeExecutionStatus.COMPLETED);
+    assertThat(subNodeExecution.getOutcomePort()).isEqualTo("FAILED");
+
+    // And: routing through FAILED port reaches the error END node
+    RoutingResult failRoute = routingService.route(subNodeExecution.getId(), corr, cmd);
+    assertThat(failRoute.activations()).hasSize(1);
+    assertThat(failRoute.activations().get(0).getNodeDefinitionId())
+        .isEqualTo(parentFixture.errorEndNodeId());
+  }
+
+  @Test
+  @WithMockActor(roles = "WORKFLOW_OWNER")
+  void testChildNoPublishedVersion_failParentStrategy() {
+    // Given: parent workflow with FAIL_PARENT strategy
+    String suffix = suffix();
+    String childKey = "NO_PUB_FP_" + suffix;
+    String parentKey = "PARENT_FP_" + suffix;
+
+    UUID childDefId = UUID.randomUUID();
+    jdbcTemplate.update(
+        "INSERT INTO workflow_definitions (id, key, name, lifecycle, owner_id, created_by, created_at, updated_at) "
+            + "VALUES (?, ?, 'Unpublished Child', 'ACTIVE', ?, ?, now(), now())",
+        childDefId, childKey, ACTOR_ID, ACTOR_ID);
+
+    ParentWorkflowWithFailureFixture parentFixture =
+        createParentWorkflowWithFailedPort(parentKey, childKey, "FAIL_PARENT");
+    Event parentEvent = startEventForWorkflow(parentFixture.versionId());
+
+    CorrelationId corr = new CorrelationId(uuidGenerator.generate());
+    CommandId cmd = new CommandId(uuidGenerator.generate());
+    NodeExecution startExecution =
+        activationService.activate(
+            ActivationRequest.root(
+                parentEvent.getId(), parentFixture.startNodeId(), UUID.randomUUID(), corr, cmd));
+    RoutingResult startRoute = routingService.route(startExecution.getId(), corr, cmd);
+    NodeExecution subNodeExecution = startRoute.activations().get(0);
+
+    // Then: SubWorkflow node is FAILED (not COMPLETED/FAILED port)
+    assertThat(subNodeExecution.getStatus()).isEqualTo(NodeExecutionStatus.FAILED);
+
+    // And: parent event is FAILED
+    eventLifecycleService.syncEventStatus(parentEvent.getId());
+    Event reloadedParentEvent = eventRepository.findById(parentEvent.getId()).orElseThrow();
+    assertThat(reloadedParentEvent.getStatus()).isEqualTo(EventStatus.FAILED);
+  }
+
+  @Test
+  @WithMockActor(roles = "WORKFLOW_OWNER")
+  void testChildRuntimeFailure_routesFailedPort() {
+    // Given: child workflow that runs but then FAILS at runtime
+    String suffix = suffix();
+    String childKey = "CHILD_RTF_" + suffix;
+    String parentKey = "PARENT_RTF_" + suffix;
+
+    createAndPublishChildWorkflow(childKey, 1);
+    ParentWorkflowWithFailureFixture parentFixture =
+        createParentWorkflowWithFailedPort(parentKey, childKey, "ROUTE_FAILED");
+    Event parentEvent = startEventForWorkflow(parentFixture.versionId());
+
+    CorrelationId corr = new CorrelationId(uuidGenerator.generate());
+    CommandId cmd = new CommandId(uuidGenerator.generate());
+    NodeExecution startExecution =
+        activationService.activate(
+            ActivationRequest.root(
+                parentEvent.getId(), parentFixture.startNodeId(), UUID.randomUUID(), corr, cmd));
+    RoutingResult startRoute = routingService.route(startExecution.getId(), corr, cmd);
+    NodeExecution subNodeExecution = startRoute.activations().get(0);
+
+    // Parent node is WAITING for child
+    assertThat(subNodeExecution.getStatus()).isEqualTo(NodeExecutionStatus.WAITING);
+
+    SubWorkflowExecution subExec =
+        subWorkflowExecutionRepository
+            .findByParentNodeExecutionId(subNodeExecution.getId())
+            .orElseThrow();
+    Event childEvent = eventRepository.findById(subExec.getChildEventId()).orElseThrow();
+
+    // Simulate child runtime FAILURE
+    childEvent.fail(java.time.Instant.now());
+    eventRepository.saveAndFlush(childEvent);
+    subWorkflowService.onChildEventTerminal(childEvent, corr, cmd);
+
+    // Then: parent SubWorkflow node completes with FAILED outcomePort
+    NodeExecution completedSubNode =
+        nodeExecutionRepository.findById(subNodeExecution.getId()).orElseThrow();
+    assertThat(completedSubNode.getStatus()).isEqualTo(NodeExecutionStatus.COMPLETED);
+    assertThat(completedSubNode.getOutcomePort()).isEqualTo("FAILED");
+
+    // And: routes to error END node via FAILED port
+    List<NodeExecution> allNodes =
+        nodeExecutionRepository.findAllByEventIdOrderByCreatedAtAsc(parentEvent.getId());
+    assertThat(allNodes)
+        .anyMatch(n -> n.getNodeDefinitionId().equals(parentFixture.errorEndNodeId()));
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // P1-25: Ticket mutation isolation boundary (§16.5 / Appendix E §11.5)
+  // ────────────────────────────────────────────────────────────────────────────
+
+  @Autowired private TicketMutationBoundary ticketMutationBoundary;
+
+  @Test
+  @WithMockActor(roles = "WORKFLOW_OWNER")
+  void testTicketMutationIsolation_childContextBlocksMutationOnParentTicket() {
+    // Given: two arbitrary UUIDs — requireCanMutateTicket(UUID) is ThreadLocal-only,
+    // no DB lookup is required for this code path.
+    UUID parentTicketId = UUID.randomUUID();
+    UUID childEventId = UUID.randomUUID();
+
+    // When: inside a child workflow context referencing parentTicketId
+    try (var ignored = ticketMutationBoundary.enterChildWorkflow(childEventId, parentTicketId)) {
+      // Then: requireCanMutateTicket throws CHILD_WORKFLOW_TICKET_MUTATION_FORBIDDEN
+      org.assertj.core.api.Assertions.assertThatThrownBy(
+              () -> ticketMutationBoundary.requireCanMutateTicket(parentTicketId))
+          .isInstanceOf(com.fpt.workflow.shared.api.CommandConflictException.class)
+          .satisfies(
+              ex -> {
+                com.fpt.workflow.shared.api.CommandConflictException cce =
+                    (com.fpt.workflow.shared.api.CommandConflictException) ex;
+                assertThat(cce.code()).isEqualTo("CHILD_WORKFLOW_TICKET_MUTATION_FORBIDDEN");
+              });
+    }
+  }
+
+  @Test
+  @WithMockActor(roles = "WORKFLOW_OWNER")
+  void testTicketMutationIsolation_explicitPermissionScopeAllowsMutation() {
+    // Given: same child workflow context
+    UUID parentTicketId = UUID.randomUUID();
+    UUID childEventId = UUID.randomUUID();
+
+    try (var childScope = ticketMutationBoundary.enterChildWorkflow(childEventId, parentTicketId)) {
+      // Inside explicit permission scope: no exception should be thrown
+      try (var permScope = ticketMutationBoundary.openExplicitPermissionScope()) {
+        org.assertj.core.api.Assertions.assertThatNoException()
+            .isThrownBy(() -> ticketMutationBoundary.requireCanMutateTicket(parentTicketId));
+      }
+      // After explicit scope closes, the block is restored
+      org.assertj.core.api.Assertions.assertThatThrownBy(
+              () -> ticketMutationBoundary.requireCanMutateTicket(parentTicketId))
+          .isInstanceOf(com.fpt.workflow.shared.api.CommandConflictException.class);
+    }
+
+    // After child scope closes: no restriction on mutations at all
+    org.assertj.core.api.Assertions.assertThatNoException()
+        .isThrownBy(() -> ticketMutationBoundary.requireCanMutateTicket(parentTicketId));
+  }
+
+  @Test
+  @WithMockActor(roles = "WORKFLOW_OWNER")
+  void testTicketMutationIsolation_nonParentTicketNotBlocked() {
+    // Given: child context on parentTicketId
+    UUID parentTicketId = UUID.randomUUID();
+    UUID otherTicketId = UUID.randomUUID();
+    UUID childEventId = UUID.randomUUID();
+
+    try (var ignored = ticketMutationBoundary.enterChildWorkflow(childEventId, parentTicketId)) {
+      // Mutating a DIFFERENT ticket is allowed
+      org.assertj.core.api.Assertions.assertThatNoException()
+          .isThrownBy(() -> ticketMutationBoundary.requireCanMutateTicket(otherTicketId));
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
   // Fixture helpers
   // ────────────────────────────────────────────────────────────────────────────
 
@@ -639,5 +839,104 @@ class SubWorkflowExecutionIT {
             Instant.now());
     ev.markRunning();
     return eventRepository.save(ev);
+  }
+
+  private record ParentWorkflowWithFailureFixture(
+      UUID definitionId,
+      UUID versionId,
+      UUID startNodeId,
+      UUID subNodeId,
+      UUID endNodeId,
+      UUID errorEndNodeId) {}
+
+  /**
+   * Creates a parent workflow with:
+   * <ul>
+   *   <li>START → SUB_WORKFLOW (with configured failureStrategy)
+   *   <li>SUB_WORKFLOW[COMPLETED] → success END
+   *   <li>SUB_WORKFLOW[FAILED] → error END
+   * </ul>
+   */
+  private ParentWorkflowWithFailureFixture createParentWorkflowWithFailedPort(
+      String parentKey, String childKey, String failureStrategy) {
+    UUID defId = UUID.randomUUID();
+    UUID verId = UUID.randomUUID();
+    UUID startId = UUID.randomUUID();
+    UUID subId = UUID.randomUUID();
+    UUID endId = UUID.randomUUID();
+    UUID errorEndId = UUID.randomUUID();
+    UUID edge1 = UUID.randomUUID();
+    UUID edge2 = UUID.randomUUID();
+    UUID edge3 = UUID.randomUUID();
+
+    jdbcTemplate.update(
+        "INSERT INTO workflow_definitions (id, key, name, lifecycle, owner_id, created_by, created_at, updated_at) "
+            + "VALUES (?, ?, 'Parent Workflow', 'ACTIVE', ?, ?, now(), now())",
+        defId, parentKey, ACTOR_ID, ACTOR_ID);
+
+    jdbcTemplate.update(
+        "INSERT INTO workflow_versions (id, definition_id, version_no, status, revision, created_by, created_at) "
+            + "VALUES (?, ?, 1, 'DRAFT', 0, ?, now())",
+        verId, defId, ACTOR_ID);
+
+    ObjectNode startConfig = objectMapper.createObjectNode();
+    startConfig.put("routingMode", "ALL_OUTGOING");
+    jdbcTemplate.update(
+        "INSERT INTO workflow_nodes (id, workflow_version_id, node_key, node_type, name, config_schema_version, config_json, position_json) "
+            + "VALUES (?, ?, 'start', 'START', 'Start', 1, ?::jsonb, '{}'::jsonb)",
+        startId, verId, startConfig.toString());
+
+    ObjectNode subConfig = objectMapper.createObjectNode();
+    subConfig.put("childWorkflowDefinitionKey", childKey);
+    subConfig.put("executionMode", "WAIT_FOR_COMPLETION");
+    subConfig.put("cancellationPolicy", "PROPAGATE");
+    subConfig.put("failureStrategy", failureStrategy);
+    subConfig.put("routingMode", "SINGLE_BY_PORT");
+    jdbcTemplate.update(
+        "INSERT INTO workflow_nodes (id, workflow_version_id, node_key, node_type, name, config_schema_version, config_json, position_json) "
+            + "VALUES (?, ?, 'sub_workflow', 'SUB_WORKFLOW', 'Sub Workflow Node', 1, ?::jsonb, '{}'::jsonb)",
+        subId, verId, subConfig.toString());
+
+    ObjectNode endConfig = objectMapper.createObjectNode();
+    endConfig.put("outcome", "PARENT_COMPLETED");
+    jdbcTemplate.update(
+        "INSERT INTO workflow_nodes (id, workflow_version_id, node_key, node_type, name, config_schema_version, config_json, position_json) "
+            + "VALUES (?, ?, 'end', 'END', 'Success End', 1, ?::jsonb, '{}'::jsonb)",
+        endId, verId, endConfig.toString());
+
+    ObjectNode errorEndConfig = objectMapper.createObjectNode();
+    errorEndConfig.put("outcome", "PARENT_FAILED");
+    jdbcTemplate.update(
+        "INSERT INTO workflow_nodes (id, workflow_version_id, node_key, node_type, name, config_schema_version, config_json, position_json) "
+            + "VALUES (?, ?, 'error_end', 'END', 'Error End', 1, ?::jsonb, '{}'::jsonb)",
+        errorEndId, verId, errorEndConfig.toString());
+
+    // START → SUB_WORKFLOW
+    jdbcTemplate.update(
+        "INSERT INTO workflow_edges (id, workflow_version_id, source_node_id, source_port, target_node_id, priority, is_default, transition_type, config_json) "
+            + "VALUES (?, ?, ?, 'STARTED', ?, 0, true, 'CONDITIONAL', '{}'::jsonb)",
+        edge1, verId, startId, subId);
+
+    // SUB_WORKFLOW[COMPLETED] → success END
+    jdbcTemplate.update(
+        "INSERT INTO workflow_edges (id, workflow_version_id, source_node_id, source_port, target_node_id, priority, is_default, transition_type, config_json) "
+            + "VALUES (?, ?, ?, 'COMPLETED', ?, 0, true, 'CONDITIONAL', '{}'::jsonb)",
+        edge2, verId, subId, endId);
+
+    // SUB_WORKFLOW[FAILED] → error END
+    jdbcTemplate.update(
+        "INSERT INTO workflow_edges (id, workflow_version_id, source_node_id, source_port, target_node_id, priority, is_default, transition_type, config_json) "
+            + "VALUES (?, ?, ?, 'FAILED', ?, 0, false, 'CONDITIONAL', '{}'::jsonb)",
+        edge3, verId, subId, errorEndId);
+
+    jdbcTemplate.update(
+        "UPDATE workflow_versions SET status = 'PUBLISHED', checksum = 'checksum', execution_package_json = '{}'::jsonb, published_by = ?, published_at = now() WHERE id = ?",
+        ACTOR_ID, verId);
+
+    jdbcTemplate.update(
+        "UPDATE workflow_definitions SET current_published_version_id = ? WHERE id = ?",
+        verId, defId);
+
+    return new ParentWorkflowWithFailureFixture(defId, verId, startId, subId, endId, errorEndId);
   }
 }

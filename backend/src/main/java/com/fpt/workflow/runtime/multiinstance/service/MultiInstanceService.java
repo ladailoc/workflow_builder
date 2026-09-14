@@ -14,6 +14,8 @@ import com.fpt.workflow.runtime.multiinstance.domain.NodeItemExecution;
 import com.fpt.workflow.runtime.multiinstance.domain.RemainingItemPolicy;
 import com.fpt.workflow.runtime.multiinstance.repository.MultiInstanceStateRepository;
 import com.fpt.workflow.runtime.multiinstance.repository.NodeItemExecutionRepository;
+import com.fpt.workflow.runtime.lifecycle.ActiveTaskCancellationPort;
+import com.fpt.workflow.runtime.lifecycle.NoOpActiveTaskCancellationPort;
 import com.fpt.workflow.runtime.repository.NodeExecutionRepository;
 import com.fpt.workflow.runtime.routing.RoutingResult;
 import com.fpt.workflow.runtime.routing.RoutingService;
@@ -28,6 +30,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,6 +52,28 @@ public class MultiInstanceService {
   private final UuidGenerator uuidGenerator;
   private final PlatformClock clock;
   private final ObjectMapper objectMapper;
+  private final ActiveTaskCancellationPort taskCancellationPort;
+
+  @Autowired
+  public MultiInstanceService(
+      MultiInstanceStateRepository stateRepository,
+      NodeItemExecutionRepository itemRepository,
+      NodeExecutionRepository executionRepository,
+      @Lazy RoutingService routingService,
+      UuidGenerator uuidGenerator,
+      PlatformClock clock,
+      ObjectMapper objectMapper,
+      @Autowired(required = false) ActiveTaskCancellationPort taskCancellationPort) {
+    this.stateRepository = stateRepository;
+    this.itemRepository = itemRepository;
+    this.executionRepository = executionRepository;
+    this.routingService = routingService;
+    this.uuidGenerator = uuidGenerator;
+    this.clock = clock;
+    this.objectMapper = objectMapper;
+    this.taskCancellationPort =
+        taskCancellationPort != null ? taskCancellationPort : new NoOpActiveTaskCancellationPort();
+  }
 
   public MultiInstanceService(
       MultiInstanceStateRepository stateRepository,
@@ -58,13 +83,15 @@ public class MultiInstanceService {
       UuidGenerator uuidGenerator,
       PlatformClock clock,
       ObjectMapper objectMapper) {
-    this.stateRepository = stateRepository;
-    this.itemRepository = itemRepository;
-    this.executionRepository = executionRepository;
-    this.routingService = routingService;
-    this.uuidGenerator = uuidGenerator;
-    this.clock = clock;
-    this.objectMapper = objectMapper;
+    this(
+        stateRepository,
+        itemRepository,
+        executionRepository,
+        routingService,
+        uuidGenerator,
+        clock,
+        objectMapper,
+        null);
   }
 
   /** Checks whether the node definition config declares multi-instance execution. */
@@ -144,7 +171,20 @@ public class MultiInstanceService {
 
     List<NodeItemExecution> items = new ArrayList<>();
     for (int i = 0; i < totalItems; i++) {
-      String itemToken = "item-" + i;
+      JsonNode itemData = collectionItems.get(i);
+      String itemKey = null;
+      if (itemData != null && itemData.isObject()) {
+        if (itemData.hasNonNull("itemKey")) {
+          itemKey = itemData.get("itemKey").asText();
+        } else if (itemData.hasNonNull("id")) {
+          itemKey = itemData.get("id").asText();
+        } else if (itemData.hasNonNull("key")) {
+          itemKey = itemData.get("key").asText();
+        } else if (itemData.hasNonNull("code")) {
+          itemKey = itemData.get("code").asText();
+        }
+      }
+      String itemToken = (itemKey != null && !itemKey.isBlank()) ? "item-" + i + "-" + itemKey : "item-" + i;
       NodeItemExecution item =
           NodeItemExecution.create(
               uuidGenerator.generate(),
@@ -153,7 +193,7 @@ public class MultiInstanceService {
               execution.getId(),
               i,
               itemToken,
-              collectionItems.get(i),
+              itemData,
               now);
       if (config.executionMode() == ExecutionMode.PARALLEL || i == 0) {
         item.markRunning(now);
@@ -220,6 +260,7 @@ public class MultiInstanceService {
         // First time threshold reached: route downstream exactly once!
         if (state.getRemainingItemPolicy() == RemainingItemPolicy.CANCEL_REMAINING) {
           cancelRemainingItems(state.getId(), now);
+          taskCancellationPort.cancelActiveTasks(parentExecutionId, now);
           state.markCompleted(now);
         } else {
           // KEEP_RUNNING: only mark COMPLETED when all items finish
@@ -282,14 +323,29 @@ public class MultiInstanceService {
   }
 
   private List<JsonNode> extractCollection(String path, EventContext context) {
+    if (path == null || context == null) return List.of();
+    String cleanPath = path.trim();
+    if (cleanPath.startsWith("${") && cleanPath.endsWith("}")) {
+      cleanPath = cleanPath.substring(2, cleanPath.length() - 1).trim();
+    }
     JsonNode root = context.value();
     if (root == null) return List.of();
 
     JsonNode current = root;
-    String[] segments = path.split("\\.");
+    String[] segments = cleanPath.split("\\.");
     for (String segment : segments) {
       if (current == null) return List.of();
       current = current.path(segment);
+    }
+
+    if (current == null || !current.isArray()) {
+      if (cleanPath.startsWith("data.") && root.has("ticket")) {
+        current = root.path("ticket");
+        for (String segment : segments) {
+          if (current == null) return List.of();
+          current = current.path(segment);
+        }
+      }
     }
 
     if (current == null || !current.isArray()) {

@@ -8,10 +8,16 @@ public enum JoinPolicy {
 
   public static JoinPolicy fromString(String val) {
     if (val == null || val.isBlank()) return AND;
+    String normalized = val.trim().toUpperCase(java.util.Locale.ROOT);
+    if ("ANY".equals(normalized) || "XOR".equals(normalized)) {
+      return FIRST;
+    }
+    if ("ALL".equals(normalized)) {
+      return AND;
+    }
     try {
-      return valueOf(val.trim().toUpperCase(java.util.Locale.ROOT));
+      return valueOf(normalized);
     } catch (IllegalArgumentException e) {
-      if ("XOR".equalsIgnoreCase(val)) return FIRST;
       return AND;
     }
   }

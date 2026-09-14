@@ -67,6 +67,8 @@ public class EventLifecycleService {
   private final PlatformClock clock;
   private final ObjectMapper objectMapper;
   private final com.fpt.workflow.runtime.subworkflow.service.SubWorkflowService subWorkflowService;
+  private final TicketLifecycleSyncPort ticketLifecycleSyncPort;
+  private final EventCompensationPort eventCompensationPort;
 
   public EventLifecycleService(
       EventRepository eventRepository,
@@ -90,6 +92,36 @@ public class EventLifecycleService {
         uuidGenerator,
         clock,
         objectMapper,
+        null,
+        null,
+        null);
+  }
+
+  public EventLifecycleService(
+      EventRepository eventRepository,
+      NodeExecutionRepository nodeExecutionRepository,
+      NodeDefinitionRepository nodeRepository,
+      NodeTypeRegistry registry,
+      ActiveTaskCancellationPort taskCancellationPort,
+      AuditEventRepository auditRepository,
+      ActorContextProvider actorProvider,
+      UuidGenerator uuidGenerator,
+      PlatformClock clock,
+      ObjectMapper objectMapper,
+      com.fpt.workflow.runtime.subworkflow.service.SubWorkflowService subWorkflowService) {
+    this(
+        eventRepository,
+        nodeExecutionRepository,
+        nodeRepository,
+        registry,
+        taskCancellationPort,
+        auditRepository,
+        actorProvider,
+        uuidGenerator,
+        clock,
+        objectMapper,
+        subWorkflowService,
+        null,
         null);
   }
 
@@ -106,7 +138,11 @@ public class EventLifecycleService {
       PlatformClock clock,
       ObjectMapper objectMapper,
       @org.springframework.context.annotation.Lazy
-          com.fpt.workflow.runtime.subworkflow.service.SubWorkflowService subWorkflowService) {
+          com.fpt.workflow.runtime.subworkflow.service.SubWorkflowService subWorkflowService,
+      @org.springframework.context.annotation.Lazy
+          TicketLifecycleSyncPort ticketLifecycleSyncPort,
+      @org.springframework.beans.factory.annotation.Autowired(required = false)
+          EventCompensationPort eventCompensationPort) {
     this.eventRepository = eventRepository;
     this.nodeExecutionRepository = nodeExecutionRepository;
     this.nodeRepository = nodeRepository;
@@ -118,6 +154,11 @@ public class EventLifecycleService {
     this.clock = clock;
     this.objectMapper = objectMapper;
     this.subWorkflowService = subWorkflowService;
+    this.ticketLifecycleSyncPort =
+        ticketLifecycleSyncPort != null
+            ? ticketLifecycleSyncPort
+            : new NoOpTicketLifecycleSyncPort();
+    this.eventCompensationPort = eventCompensationPort;
   }
 
   @Transactional
@@ -143,6 +184,7 @@ public class EventLifecycleService {
       return event.getStatus();
     }
 
+    Instant now = clock.now();
     boolean hasRunnable =
         executions.stream().anyMatch(e -> RUNNABLE_NODE_STATUSES.contains(e.getStatus()));
     boolean hasWaiting =
@@ -164,7 +206,6 @@ public class EventLifecycleService {
         event.waitFor(reason);
       }
     } else {
-      Instant now = clock.now();
       boolean hasFailed =
           executions.stream().anyMatch(e -> e.getStatus() == NodeExecutionStatus.FAILED);
       if (hasFailed) {
@@ -189,6 +230,11 @@ public class EventLifecycleService {
       }
     }
     eventRepository.save(event);
+    if (event.getEventType() == com.fpt.workflow.runtime.domain.EventType.ROOT
+        && ticketLifecycleSyncPort != null) {
+      ticketLifecycleSyncPort.syncTicketStatus(
+          event.getTicketId(), event.getStatus(), event.getOutcome(), now);
+    }
     if (subWorkflowService != null
         && event.getEventType() == com.fpt.workflow.runtime.domain.EventType.CHILD
         && TERMINAL_EVENT_STATUSES.contains(event.getStatus())) {
@@ -200,10 +246,24 @@ public class EventLifecycleService {
   @Transactional
   public Event cancelEvent(
       UUID eventId, CommandId commandId, CorrelationId correlationId, String reason) {
+    return cancelEvent(eventId, commandId, correlationId, reason, null);
+  }
+
+  @Transactional
+  public Event cancelEvent(
+      UUID eventId,
+      CommandId commandId,
+      CorrelationId correlationId,
+      String reason,
+      Long expectedVersion) {
     Event event =
         eventRepository
             .findByIdForUpdate(eventId)
             .orElseThrow(() -> new IllegalArgumentException("Event not found: " + eventId));
+    if (expectedVersion != null && event.getLockVersion() != expectedVersion) {
+      throw new com.fpt.workflow.shared.api.CommandConflictException(
+          "STALE_EXPECTED_VERSION", "Event version does not match If-Match");
+    }
     if (TERMINAL_EVENT_STATUSES.contains(event.getStatus())) {
       throw new IllegalStateException("Cannot cancel terminal Event: " + event.getStatus());
     }
@@ -226,6 +286,18 @@ public class EventLifecycleService {
     String outcome = "CANCELLED";
     event.cancel(outcome, now);
     eventRepository.saveAndFlush(event);
+
+    if (event.getEventType() == com.fpt.workflow.runtime.domain.EventType.ROOT
+        && ticketLifecycleSyncPort != null) {
+      ticketLifecycleSyncPort.syncTicketStatus(
+          event.getTicketId(), EventStatus.CANCELLED, outcome, now);
+    }
+
+    // §17.6: cancel never rolls back external side effects automatically; plan explicit
+    // compensation per policy (NONE | MANUAL | ACTION) based on completed integration history.
+    if (eventCompensationPort != null) {
+      eventCompensationPort.planForCancelledEvent(event, reason, correlationId, commandId);
+    }
 
     recordAudit(event, "EVENT_CANCELLED", actor.actorId(), correlationId, commandId, reason, now);
     return event;
@@ -276,6 +348,17 @@ public class EventLifecycleService {
 
     event.terminate("TERMINATED", now);
     eventRepository.saveAndFlush(event);
+
+    if (event.getEventType() == com.fpt.workflow.runtime.domain.EventType.ROOT
+        && ticketLifecycleSyncPort != null) {
+      ticketLifecycleSyncPort.syncTicketStatus(
+          event.getTicketId(), EventStatus.TERMINATED, "TERMINATED", now);
+    }
+
+    // §17.6: terminate shares the compensation contract with cancel (explicit policy).
+    if (eventCompensationPort != null) {
+      eventCompensationPort.planForCancelledEvent(event, reason, correlationId, commandId);
+    }
 
     recordAudit(event, "EVENT_TERMINATED", actor.actorId(), correlationId, commandId, reason, now);
     return event;

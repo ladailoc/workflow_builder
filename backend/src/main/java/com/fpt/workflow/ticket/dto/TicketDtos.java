@@ -42,6 +42,17 @@ public final class TicketDtos {
       String changeReason,
       List<SubjectInput> subjects) {}
 
+  public record CancelTicket(String reason) {}
+
+  public record ReopenTicket(String reason) {}
+
+  public record ResubmitTicket(
+      JsonNode dataJson,
+      UUID sourceWorkflowVersionId,
+      String schemaChecksum,
+      String changeReason,
+      List<SubjectInput> subjects) {}
+
   public record TicketView(
       UUID id,
       UUID requestTypeId,

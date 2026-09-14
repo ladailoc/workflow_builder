@@ -70,6 +70,8 @@ class RoutingDecisionPersistenceIT {
   private UUID startNodeId;
   private UUID endNodeId;
   private UUID edgeId;
+  private UUID reviewNodeId;
+  private UUID reworkEdgeId;
   private Event event;
   private NodeExecution completedExecution;
 
@@ -86,6 +88,8 @@ class RoutingDecisionPersistenceIT {
     startNodeId = UUID.randomUUID();
     endNodeId = UUID.randomUUID();
     edgeId = UUID.randomUUID();
+    reviewNodeId = UUID.randomUUID();
+    reworkEdgeId = UUID.randomUUID();
     UUID requestTypeId = UUID.randomUUID();
     UUID ticketId = UUID.randomUUID();
     UUID revisionId = UUID.randomUUID();
@@ -109,7 +113,7 @@ class RoutingDecisionPersistenceIT {
         definitionId,
         ACTOR_ID);
 
-    // 3. Workflow nodes (START and END)
+    // 3. Workflow nodes (START and END and REVIEW)
     jdbcTemplate.update(
         "INSERT INTO workflow_nodes "
             + "(id, workflow_version_id, node_key, node_type, name, config_schema_version, "
@@ -126,6 +130,14 @@ class RoutingDecisionPersistenceIT {
         endNodeId,
         versionId);
 
+    jdbcTemplate.update(
+        "INSERT INTO workflow_nodes "
+            + "(id, workflow_version_id, node_key, node_type, name, config_schema_version, "
+            + "config_json, position_json) "
+            + "VALUES (?, ?, 'review', 'REVIEW', 'Review', 1, '{}'::jsonb, '{}'::jsonb)",
+        reviewNodeId,
+        versionId);
+
     // 4. Edge: start -> end (port 'STARTED')
     jdbcTemplate.update(
         "INSERT INTO workflow_edges "
@@ -136,6 +148,18 @@ class RoutingDecisionPersistenceIT {
         versionId,
         startNodeId,
         endNodeId);
+
+    // 4b. Rework Edge: review -> start (port 'REVISION_REQUESTED')
+    jdbcTemplate.update(
+        "INSERT INTO workflow_edges "
+            + "(id, workflow_version_id, source_node_id, source_port, target_node_id, "
+            + "priority, is_default, transition_type, config_json) "
+            + "VALUES (?, ?, ?, 'REVISION_REQUESTED', ?, 0, true, 'REWORK', "
+            + "'{\"reworkPolicy\":{\"maxIterations\":2,\"onExhausted\":\"FAIL_EVENT\",\"scope\":\"WHOLE_NODE\"}}'::jsonb)",
+        reworkEdgeId,
+        versionId,
+        reviewNodeId,
+        startNodeId);
 
     // Publish workflow version after graph is complete
     jdbcTemplate.update(
@@ -275,5 +299,101 @@ class RoutingDecisionPersistenceIT {
         new CommandId(uuidGenerator.generate()));
 
     assertThat(tokenRepository.count()).isEqualTo(tokenCountAfterFirst);
+  }
+
+  @Test
+  void reworkRouting_createsRoutingDecision_incrementsIteration_andPreservesPathToken() {
+    NodeExecution reviewExec =
+        NodeExecution.create(
+            UUID.randomUUID(),
+            event.getId(),
+            reviewNodeId,
+            "review-" + UUID.randomUUID(),
+            UUID.randomUUID(),
+            0,
+            "root",
+            null,
+            null,
+            null,
+            objectMapper.createObjectNode(),
+            event.getStartedTicketRevisionId(),
+            NOW);
+    reviewExec.markReady();
+    reviewExec.start(NOW);
+    reviewExec.complete("REVISION_REQUESTED", objectMapper.createObjectNode(), NOW);
+    reviewExec = executionRepository.saveAndFlush(reviewExec);
+
+    RoutingResult routed =
+        routingService.route(
+            reviewExec.getId(),
+            new CorrelationId(uuidGenerator.generate()),
+            new CommandId(uuidGenerator.generate()));
+
+    // 1. RoutingDecision persisted
+    Optional<RoutingDecision> decision =
+        decisionRepository.findBySourceNodeExecutionId(reviewExec.getId());
+    assertThat(decision).isPresent();
+    assertThat(decision.get().getEventId()).isEqualTo(event.getId());
+    assertThat(routed.selectedEdgeIds()).contains(reworkEdgeId);
+
+    // 2. ActivationToken persisted with incremented iteration and child pathToken
+    List<ActivationToken> tokens = tokenRepository.findAllByRoutingDecisionId(decision.get().getId());
+    assertThat(tokens).isNotEmpty();
+    ActivationToken reworkToken = tokens.getFirst();
+    assertThat(reworkToken.getIteration()).isEqualTo(1);
+    assertThat(reworkToken.getPathToken()).startsWith("root/");
+    assertThat(reworkToken.getTargetNodeDefinitionId()).isEqualTo(startNodeId);
+
+    // 3. Downstream activation occurred through routing machinery with iteration 1
+    assertThat(routed.activations()).isNotEmpty();
+    NodeExecution targetActivated = routed.activations().getFirst();
+    assertThat(targetActivated.getIteration()).isEqualTo(1);
+    assertThat(targetActivated.getPathToken()).isEqualTo(reworkToken.getPathToken());
+    assertThat(targetActivated.getNodeDefinitionId()).isEqualTo(startNodeId);
+
+    // 4. Duplicate route replays without duplicating RoutingDecision or tokens
+    long decisionCount = decisionRepository.count();
+    long tokenCount = tokenRepository.count();
+    routingService.route(
+        reviewExec.getId(),
+        new CorrelationId(uuidGenerator.generate()),
+        new CommandId(uuidGenerator.generate()));
+    assertThat(decisionRepository.count()).isEqualTo(decisionCount);
+    assertThat(tokenRepository.count()).isEqualTo(tokenCount);
+  }
+
+  @Test
+  void reworkRouting_exhaustionFailsEvent_whenMaxIterationsExceeded() {
+    // Execution is already at iteration 2 (limit is 2, so nextIteration 3 > 2 -> exhausted)
+    NodeExecution reviewExec =
+        NodeExecution.create(
+            UUID.randomUUID(),
+            event.getId(),
+            reviewNodeId,
+            "review2-" + UUID.randomUUID(),
+            UUID.randomUUID(),
+            2,
+            "root/segment",
+            null,
+            null,
+            null,
+            objectMapper.createObjectNode(),
+            event.getStartedTicketRevisionId(),
+            NOW);
+    reviewExec.markReady();
+    reviewExec.start(NOW);
+    reviewExec.complete("REVISION_REQUESTED", objectMapper.createObjectNode(), NOW);
+    reviewExec = executionRepository.saveAndFlush(reviewExec);
+
+    RoutingResult routed =
+        routingService.route(
+            reviewExec.getId(),
+            new CorrelationId(uuidGenerator.generate()),
+            new CommandId(uuidGenerator.generate()));
+
+    // When exhausted with FAIL_EVENT, no downstream activations produced and event failed
+    assertThat(routed.activations()).isEmpty();
+    Event reloadedEvent = eventRepository.findById(event.getId()).orElseThrow();
+    assertThat(reloadedEvent.getStatus()).isEqualTo(com.fpt.workflow.shared.domain.lifecycle.EventStatus.FAILED);
   }
 }
