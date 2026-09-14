@@ -5,6 +5,7 @@ import com.fpt.workflow.rework.repository.RevisionRequestRepository;
 import com.fpt.workflow.runtime.repository.EventRepository;
 import com.fpt.workflow.runtime.repository.NodeExecutionRepository;
 import com.fpt.workflow.security.*;
+import com.fpt.workflow.security.visibility.VisibilityResolver;
 import com.fpt.workflow.task.repository.TaskExecutionRepository;
 import com.fpt.workflow.ticket.repository.TicketRepository;
 import com.fpt.workflow.ticket.repository.TicketRevisionRepository;
@@ -20,6 +21,7 @@ public final class TicketEventFileDownloadAuthorizer implements FileDownloadAuth
   private final NodeExecutionRepository nodes;
   private final TaskExecutionRepository tasks;
   private final RevisionRequestRepository revisionRequests;
+  private final VisibilityResolver visibilityResolver;
 
   public TicketEventFileDownloadAuthorizer(
       TicketRepository tickets,
@@ -27,13 +29,15 @@ public final class TicketEventFileDownloadAuthorizer implements FileDownloadAuth
       EventRepository events,
       NodeExecutionRepository nodes,
       TaskExecutionRepository tasks,
-      RevisionRequestRepository revisionRequests) {
+      RevisionRequestRepository revisionRequests,
+      VisibilityResolver visibilityResolver) {
     this.tickets = tickets;
     this.revisions = revisions;
     this.events = events;
     this.nodes = nodes;
     this.tasks = tasks;
     this.revisionRequests = revisionRequests;
+    this.visibilityResolver = visibilityResolver;
   }
 
   @Override
@@ -43,12 +47,15 @@ public final class TicketEventFileDownloadAuthorizer implements FileDownloadAuth
         && !actor.hasRole(RoleKey.OPERATOR)
         && !actor.hasRole(RoleKey.ADMIN)) return false;
     if (actor.hasRole(RoleKey.OPERATOR) || actor.hasRole(RoleKey.ADMIN)) return true;
+    if (file.getUploadedBy() != null && file.getUploadedBy().equals(actor.actorId())) {
+      return true;
+    }
     return links.stream()
         .map(this::ticketId)
         .flatMap(Optional::stream)
         .map(tickets::findById)
         .flatMap(Optional::stream)
-        .anyMatch(ticket -> ticket.getCreatorId().equals(actor.actorId()));
+        .anyMatch(ticket -> visibilityResolver.mayViewTicket(actor, ticket.getId()));
   }
 
   private Optional<UUID> ticketId(FileLink link) {

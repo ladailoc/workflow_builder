@@ -70,6 +70,63 @@ class FileControllerTest {
   @Autowired private MockMvc mockMvc;
   @MockitoBean private FileService fileService;
   @MockitoBean private StoredFileRepository storedFileRepository;
+  @MockitoBean private com.fpt.workflow.file.service.FileMetadataTransactions fileMetadataTransactions;
+
+  @Test
+  @WithMockActor(roles = "USER")
+  void getMetadataAuthorizedReturnsFileMetadataResponseWithoutStorageKey() throws Exception {
+    UUID fileId = UUID.randomUUID();
+    UUID uploadedBy = UUID.randomUUID();
+    StoredFile file =
+        StoredFile.uploaded(
+            fileId,
+            "document.pdf",
+            "application/pdf",
+            2048,
+            "hashabc",
+            "LOCAL",
+            "bucket",
+            "secret-internal-storage-key/document.pdf",
+            uploadedBy,
+            Instant.now(),
+            null,
+            false,
+            com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode());
+
+    org.mockito.Mockito.when(fileMetadataTransactions.authorizeMetadata(org.mockito.ArgumentMatchers.eq(fileId), org.mockito.ArgumentMatchers.any()))
+        .thenReturn(file);
+
+    mockMvc
+        .perform(get("/api/v1/files/{fileId}", fileId))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.fileId").value(fileId.toString()))
+        .andExpect(jsonPath("$.originalName").value("document.pdf"))
+        .andExpect(jsonPath("$.mimeType").value("application/pdf"))
+        .andExpect(jsonPath("$.size").value(2048))
+        .andExpect(jsonPath("$.storageKey").doesNotExist())
+        .andExpect(jsonPath("$.storageBucket").doesNotExist())
+        .andExpect(jsonPath("$.storageProvider").doesNotExist());
+  }
+
+  @Test
+  @WithMockActor(roles = "USER")
+  void getMetadataUnauthorizedReturnsForbidden() throws Exception {
+    UUID fileId = UUID.randomUUID();
+    org.mockito.Mockito.when(fileMetadataTransactions.authorizeMetadata(org.mockito.ArgumentMatchers.eq(fileId), org.mockito.ArgumentMatchers.any()))
+        .thenThrow(new org.springframework.security.access.AccessDeniedException("File access is forbidden"));
+
+    mockMvc
+        .perform(get("/api/v1/files/{fileId}", fileId))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void getMetadataUnauthenticatedReturnsUnauthorized() throws Exception {
+    UUID fileId = UUID.randomUUID();
+    mockMvc
+        .perform(get("/api/v1/files/{fileId}", fileId))
+        .andExpect(status().isUnauthorized());
+  }
 
   @Test
   @WithMockActor(roles = "USER")

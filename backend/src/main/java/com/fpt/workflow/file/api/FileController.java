@@ -5,10 +5,14 @@ import com.fpt.workflow.file.domain.FileLinkOwnerType;
 import com.fpt.workflow.file.domain.FileRef;
 import com.fpt.workflow.file.domain.FileScanStatus;
 import com.fpt.workflow.file.domain.StoredFile;
+import com.fpt.workflow.file.dto.FileMetadataResponse;
 import com.fpt.workflow.file.repository.StoredFileRepository;
+import com.fpt.workflow.file.service.FileMetadataTransactions;
 import com.fpt.workflow.file.service.FilePolicy;
 import com.fpt.workflow.file.service.FileService;
 import com.fpt.workflow.file.service.FileUpload;
+import com.fpt.workflow.security.ActorContext;
+import com.fpt.workflow.security.ActorContextProvider;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Duration;
@@ -35,15 +39,23 @@ public class FileController {
 
   private final FileService fileService;
   private final StoredFileRepository storedFileRepository;
+  private final FileMetadataTransactions fileMetadataTransactions;
+  private final ActorContextProvider actorContextProvider;
   private final long maxFileSizeBytes;
 
   public FileController(
       FileService fileService,
       StoredFileRepository storedFileRepository,
+      FileMetadataTransactions fileMetadataTransactions,
+      ActorContextProvider actorContextProvider,
       @Value("${platform.files.max-file-size-bytes:26214400}") long maxFileSizeBytes) {
     this.fileService = Objects.requireNonNull(fileService, "fileService");
     this.storedFileRepository =
         Objects.requireNonNull(storedFileRepository, "storedFileRepository");
+    this.fileMetadataTransactions =
+        Objects.requireNonNull(fileMetadataTransactions, "fileMetadataTransactions");
+    this.actorContextProvider =
+        Objects.requireNonNull(actorContextProvider, "actorContextProvider");
     this.maxFileSizeBytes = maxFileSizeBytes;
   }
 
@@ -96,12 +108,10 @@ public class FileController {
   }
 
   @GetMapping("/{fileId}")
-  public ResponseEntity<FileRef> getMetadata(@PathVariable UUID fileId) {
-    StoredFile file =
-        storedFileRepository
-            .findById(fileId)
-            .orElseThrow(() -> new IllegalArgumentException("File not found: " + fileId));
-    return ResponseEntity.ok(file.toRef());
+  public ResponseEntity<FileMetadataResponse> getMetadata(@PathVariable UUID fileId) {
+    ActorContext actor = actorContextProvider.requireActor();
+    StoredFile file = fileMetadataTransactions.authorizeMetadata(fileId, actor);
+    return ResponseEntity.ok(FileMetadataResponse.from(file));
   }
 
   @PostMapping("/{fileId}/scan")

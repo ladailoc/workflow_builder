@@ -80,6 +80,16 @@ public class FileMetadataTransactions {
     return file.getStorageKey();
   }
 
+  @Transactional(readOnly = true)
+  public StoredFile authorizeMetadata(UUID fileId, ActorContext actor) {
+    StoredFile file =
+        files.findById(fileId).orElseThrow(() -> new IllegalArgumentException("File not found: " + fileId));
+    if (!authorizer.mayDownload(actor, file, links.findAllByFileId(fileId))) {
+      throw new AccessDeniedException("File access is forbidden: " + fileId);
+    }
+    return file;
+  }
+
   @Transactional
   public FileRef recordScan(UUID fileId, FileScanStatus result) {
     StoredFile file =
