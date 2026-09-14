@@ -15,6 +15,7 @@ import com.fpt.workflow.runtime.repository.*;
 import com.fpt.workflow.runtime.routing.domain.RoutingDecision;
 import com.fpt.workflow.runtime.routing.repository.RoutingDecisionRepository;
 import com.fpt.workflow.security.*;
+import com.fpt.workflow.security.visibility.VisibilityResolver;
 import com.fpt.workflow.task.domain.*;
 import com.fpt.workflow.task.repository.*;
 import com.fpt.workflow.ticket.domain.Ticket;
@@ -37,9 +38,13 @@ public class EventMonitoringService {
   private final ParticipantSnapshotRepository participants;
   private final TaskAssignmentHistoryRepository assignments;
   private final RoutingDecisionRepository routes;
-  private final TicketRepository tickets;
   private final EventContextBuilder contexts;
   private final ActorContextProvider actors;
+  private final VisibilityResolver visibilityResolver;
+
+  private final com.fpt.workflow.sla.repository.SlaExecutionRepository slaExecutions;
+  private final com.fpt.workflow.integration.repository.IntegrationExecutionRepository integrationExecutions;
+  private final com.fpt.workflow.operations.audit.AuditEventRepository auditEvents;
 
   public EventMonitoringService(
       EventRepository events,
@@ -51,9 +56,48 @@ public class EventMonitoringService {
       ParticipantSnapshotRepository participants,
       TaskAssignmentHistoryRepository assignments,
       RoutingDecisionRepository routes,
-      TicketRepository tickets,
       EventContextBuilder contexts,
-      ActorContextProvider actors) {
+      ActorContextProvider actors,
+      VisibilityResolver visibilityResolver) {
+    this(
+        events,
+        versions,
+        nodeDefinitions,
+        edgeDefinitions,
+        nodes,
+        tasks,
+        participants,
+        assignments,
+        routes,
+        contexts,
+        actors,
+        visibilityResolver,
+        null,
+        null,
+        null);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public EventMonitoringService(
+      EventRepository events,
+      WorkflowVersionRepository versions,
+      NodeDefinitionRepository nodeDefinitions,
+      EdgeDefinitionRepository edgeDefinitions,
+      NodeExecutionRepository nodes,
+      TaskExecutionRepository tasks,
+      ParticipantSnapshotRepository participants,
+      TaskAssignmentHistoryRepository assignments,
+      RoutingDecisionRepository routes,
+      EventContextBuilder contexts,
+      ActorContextProvider actors,
+      VisibilityResolver visibilityResolver,
+      @org.springframework.beans.factory.annotation.Autowired(required = false)
+          com.fpt.workflow.sla.repository.SlaExecutionRepository slaExecutions,
+      @org.springframework.beans.factory.annotation.Autowired(required = false)
+          com.fpt.workflow.integration.repository.IntegrationExecutionRepository
+          integrationExecutions,
+      @org.springframework.beans.factory.annotation.Autowired(required = false)
+          com.fpt.workflow.operations.audit.AuditEventRepository auditEvents) {
     this.events = events;
     this.versions = versions;
     this.nodeDefinitions = nodeDefinitions;
@@ -63,9 +107,12 @@ public class EventMonitoringService {
     this.participants = participants;
     this.assignments = assignments;
     this.routes = routes;
-    this.tickets = tickets;
     this.contexts = contexts;
     this.actors = actors;
+    this.visibilityResolver = visibilityResolver;
+    this.slaExecutions = slaExecutions;
+    this.integrationExecutions = integrationExecutions;
+    this.auditEvents = auditEvents;
   }
 
   @Transactional(readOnly = true)
@@ -74,7 +121,7 @@ public class EventMonitoringService {
         events
             .findById(eventId)
             .orElseThrow(() -> new IllegalArgumentException("Event not found: " + eventId));
-    authorize(event);
+    visibilityResolver.requireEventVisible(actors.requireActor(), event.getId());
     WorkflowVersion version = versions.findById(event.getWorkflowVersionId()).orElseThrow();
     GraphView graph =
         new GraphView(
@@ -117,7 +164,41 @@ public class EventMonitoringService {
         p -> timeline.add(new TimelineEntry(p.resolvedAt(), "PARTICIPANT", p.id(), "RESOLVED")));
     routeViews.forEach(
         r -> timeline.add(new TimelineEntry(r.decidedAt(), "ROUTING", r.id(), r.routingMode())));
+    // P2-18: enriched timeline sources — integration, SLA, child events, audit rework/events
+    if (integrationExecutions != null) {
+      try {
+        integrationExecutions.findAllByEventIdOrderByCreatedAtAsc(eventId).stream()
+            .forEach(
+                e -> timeline.add(new TimelineEntry(e.getCreatedAt(), "INTEGRATION", e.getId(), e.getStatus().name())));
+      } catch (RuntimeException ignored) {
+      }
+    }
+    if (slaExecutions != null) {
+      try {
+        slaExecutions.findAllByEventIdOrderByStartedAtAsc(eventId).stream()
+            .forEach(
+                e -> timeline.add(new TimelineEntry(e.getStartedAt(), "SLA", e.getId(), e.getStatus())));
+      } catch (RuntimeException ignored) {
+      }
+    }
+    if (auditEvents != null) {
+      try {
+        for (com.fpt.workflow.operations.audit.AuditEvent a :
+            auditEvents.findAllByAggregateTypeAndAggregateIdOrderByOccurredAtAsc(
+                "EVENT", eventId)) {
+          timeline.add(new TimelineEntry(a.getOccurredAt(), "AUDIT:" + a.getAggregateType(), a.getId(), a.getEventType()));
+        }
+        // Child events: list children of this event via their parent link.
+        for (Event child : events.findAllByParentEventIdOrderByStartedAtAsc(eventId)) {
+          timeline.add(new TimelineEntry(child.getStartedAt(), "CHILD_EVENT", child.getId(), child.getStatus().name()));
+        }
+      } catch (RuntimeException ignored) {
+      }
+    }
     timeline.sort(Comparator.comparing(TimelineEntry::at).thenComparing(TimelineEntry::type));
+    // P2-18: bounded payload — timeline is the only unbounded list in the view; cap it explicitly.
+    List<TimelineEntry> boundedTimeline =
+        timeline.size() > 1000 ? List.copyOf(timeline.subList(0, 1000)) : List.copyOf(timeline);
     return new EventMonitoringView(
         event.getId(),
         event.getTicketId(),
@@ -135,32 +216,45 @@ public class EventMonitoringService {
         participantViews,
         List.copyOf(assignmentViews),
         routeViews,
-        List.copyOf(timeline),
+        boundedTimeline,
         contexts.build(eventId).maskedValue());
+  }
+
+  /** P2-19: paged timeline slice of the (already visibility-guarded) event view. */
+  @Transactional(readOnly = true)
+  public List<TimelineEntry> timeline(UUID eventId, int page, int size) {
+    EventMonitoringView view = get(eventId);
+    List<TimelineEntry> all = view.timeline();
+    int from = Math.max(0, Math.min(page * Math.max(1, size), all.size()));
+    int to = Math.min(from + Math.max(1, size), all.size());
+    return List.copyOf(all.subList(from, to));
+  }
+
+  /** P2-19: version-pinned graph for the event's bound WorkflowVersion. */
+  @Transactional(readOnly = true)
+  public GraphView graph(UUID eventId) {
+    EventMonitoringView view = get(eventId);
+    return view.graph();
+  }
+
+  /** P2-19: masked (safe) event context only — raw context is never exposed through the API. */
+  @Transactional(readOnly = true)
+  public com.fasterxml.jackson.databind.JsonNode safeContext(UUID eventId) {
+    EventMonitoringView view = get(eventId);
+    return view.maskedContext();
   }
 
   @Transactional(readOnly = true)
   public List<EventSummaryView> listEvents() {
     ActorContext actor = actors.requireActor();
-    List<Event> eventList;
-    if (actor.hasRole(RoleKey.OPERATOR) || actor.hasRole(RoleKey.ADMIN)) {
-      eventList =
-          events.findAll(
-              org.springframework.data.domain.Sort.by(
-                  org.springframework.data.domain.Sort.Direction.DESC, "startedAt"));
-    } else {
-      List<Ticket> myTickets = tickets.findAllByCreatorIdOrderByCreatedAtDesc(actor.actorId());
-      Set<UUID> myTicketIds =
-          myTickets.stream().map(Ticket::getId).collect(java.util.stream.Collectors.toSet());
-      eventList =
-          events
-              .findAll(
-                  org.springframework.data.domain.Sort.by(
-                      org.springframework.data.domain.Sort.Direction.DESC, "startedAt"))
-              .stream()
-              .filter(e -> myTicketIds.contains(e.getTicketId()))
-              .toList();
-    }
+    List<Event> eventList =
+        events
+            .findAll(
+                org.springframework.data.domain.Sort.by(
+                    org.springframework.data.domain.Sort.Direction.DESC, "startedAt"))
+            .stream()
+            .filter(event -> visibilityResolver.mayViewEvent(actor, event.getId()))
+            .toList();
     return eventList.stream()
         .map(
             e ->
@@ -175,15 +269,6 @@ public class EventMonitoringService {
 
   public record EventSummaryView(
       UUID id, UUID ticketId, String status, String outcome, Instant createdAt) {}
-
-  private void authorize(Event event) {
-    ActorContext actor = actors.requireActor();
-    Ticket ticket = tickets.findById(event.getTicketId()).orElseThrow();
-    if (!ticket.getCreatorId().equals(actor.actorId())
-        && !actor.hasRole(RoleKey.OPERATOR)
-        && !actor.hasRole(RoleKey.ADMIN))
-      throw new AccessDeniedException("Event monitoring is not visible to this actor");
-  }
 
   public record EventMonitoringView(
       UUID eventId,
@@ -332,12 +417,23 @@ public class EventMonitoringService {
     }
   }
 
+  /** P2-11: evaluated edge evidence for routing debug. */
+  public record EvaluatedEdgeView(
+      String edgeId,
+      int priority,
+      boolean defaultTransition,
+      boolean conditionPresent,
+      boolean selected,
+      Boolean matched,
+      String evaluationError) {}
+
   public record RouteView(
       UUID id,
       UUID sourceNodeExecutionId,
       String outcomePort,
       String routingMode,
       JsonNode selectedEdgeIds,
+      JsonNode evaluatedEdges,
       Instant decidedAt) {
     static RouteView from(RoutingDecision r) {
       return new RouteView(
@@ -346,7 +442,30 @@ public class EventMonitoringService {
           r.getOutcomePort(),
           r.getRoutingMode(),
           r.getSelectedEdgeIdsJson(),
+          r.getEvaluatedEdgesJson(),
           r.getDecidedAt());
+    }
+
+    /** Monitoring-oriented evidence list for observable debugging (§12.5). */
+    public List<EvaluatedEdgeView> evaluatedEdgesView() {
+      JsonNode json = evaluatedEdges;
+      List<EvaluatedEdgeView> result = new ArrayList<>();
+      if (json == null || !json.isArray()) return List.copyOf(result);
+      for (JsonNode row : json) {
+        JsonNode error = row.path("evaluationError");
+        String errorType =
+            error.isObject() ? error.path("type").asText(null) : (error.isTextual() ? error.asText() : null);
+        result.add(
+            new EvaluatedEdgeView(
+                row.path("edgeId").asText(null),
+                row.path("priority").asInt(0),
+                row.path("defaultTransition").asBoolean(false),
+                row.path("conditionPresent").asBoolean(false),
+                row.path("selected").asBoolean(false),
+                row.path("matched").isBoolean() ? row.path("matched").asBoolean() : null,
+                errorType));
+      }
+      return List.copyOf(result);
     }
   }
 

@@ -69,6 +69,7 @@ import com.fpt.workflow.shared.domain.lifecycle.TaskStatus;
 import com.fpt.workflow.shared.domain.lifecycle.WorkflowVersionStatus;
 import com.fpt.workflow.shared.domain.value.CanonicalValueType;
 import com.fpt.workflow.shared.domain.value.TypeDescriptor;
+import com.fpt.workflow.task.api.TaskController;
 import com.fpt.workflow.task.domain.TaskExecution;
 import com.fpt.workflow.task.repository.TaskExecutionRepository;
 import com.fpt.workflow.ticket.api.TicketController;
@@ -319,12 +320,14 @@ public class StagingDeploymentSmokeIT {
   @Test
   @Order(6)
   void smoke06_approveTask_claimsAndApprovesTaskViaRest() throws Exception {
-    // 1. Claim task
+    // 1. Claim task (command API requires X-Command-Id + If-Match)
     mockMvc
         .perform(
             post("/api/v1/tasks/{taskId}/claim", sharedTaskId)
                 .header(ActorAuthenticationFilter.ACTOR_ID_HEADER, ACTOR_ID.toString())
-                .header(ActorAuthenticationFilter.ACTOR_ROLES_HEADER, "USER,APPROVER"))
+                .header(ActorAuthenticationFilter.ACTOR_ROLES_HEADER, "USER,APPROVER")
+                .header(TaskController.COMMAND_ID_HEADER, UUID.randomUUID())
+                .header("If-Match", 0))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.assigneeId").value(ACTOR_ID.toString()));
 
@@ -339,6 +342,8 @@ public class StagingDeploymentSmokeIT {
             post("/api/v1/tasks/{taskId}/approve", sharedTaskId)
                 .header(ActorAuthenticationFilter.ACTOR_ID_HEADER, ACTOR_ID.toString())
                 .header(ActorAuthenticationFilter.ACTOR_ROLES_HEADER, "USER,APPROVER")
+                .header(TaskController.COMMAND_ID_HEADER, UUID.randomUUID())
+                .header("If-Match", 0)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(approveBody.toString()))
         .andExpect(status().isOk())
@@ -599,7 +604,8 @@ public class StagingDeploymentSmokeIT {
 
       IntegrationExecution exec =
           integrationExecutionRepository.findByNodeExecutionId(sysExecution.getId()).orElseThrow();
-      assertThat(exec.getStatus()).isEqualTo(IntegrationExecutionStatus.COMPLETED);
+      assertThat(exec.getStatus()).isEqualTo(IntegrationExecutionStatus.SUCCEEDED);
+      assertThat(exec.getStatus().isSucceeded()).isTrue();
       assertThat(exec.getIdempotencyKey()).isNotBlank();
       assertThat(exec.getSanitizedResponseJson()).contains("***REDACTED***");
       assertThat(exec.getSanitizedResponseJson()).doesNotContain("staging-masked-token");
@@ -736,7 +742,7 @@ public class StagingDeploymentSmokeIT {
 
     ObjectNode approvalConfig = objectMapper.createObjectNode();
     ObjectNode participant = approvalConfig.putObject("participant");
-    participant.put("type", "MANAGER_OF");
+    participant.put("type", "CREATOR");
     ArrayNode actions = approvalConfig.putArray("allowedActions");
     actions.add("APPROVE");
     actions.add("REJECT");

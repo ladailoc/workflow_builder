@@ -40,6 +40,7 @@ import com.fpt.workflow.shared.time.PlatformClock;
 import com.fpt.workflow.task.domain.TaskExecution;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import java.time.Instant;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.UUID;
@@ -258,6 +259,110 @@ public class OperationalRecoveryService {
                   request.reason(),
                   expectedVersion);
           return result("eventId", terminated.getId(), "status", terminated.getStatus().name());
+        });
+  }
+
+  @PreAuthorize("hasAnyRole('OPERATOR','ADMIN')")
+  public CommandExecutionResult cancelEvent(
+      UUID id, long expectedVersion, OverrideCommand request, CorrelationId correlationId) {
+    return execute(
+        "EVENT",
+        id,
+        "CANCEL_EVENT",
+        expectedVersion,
+        request,
+        () -> {
+          Event cancelled =
+              lifecycle.cancelEvent(
+                  id,
+                  new CommandId(request.commandId()),
+                  correlationId,
+                  request.reason(),
+                  expectedVersion);
+          return result("eventId", cancelled.getId(), "status", cancelled.getStatus().name());
+        });
+  }
+
+  @PreAuthorize("hasAnyRole('OPERATOR','ADMIN')")
+  public CommandExecutionResult restartEvent(
+      UUID id, long expectedVersion, OverrideCommand request, CorrelationId correlationId) {
+    return execute(
+        "EVENT",
+        id,
+        "RESTART_EVENT",
+        expectedVersion,
+        request,
+        () -> {
+          Event previous =
+              events
+                  .findById(id)
+                  .orElseThrow(
+                      () ->
+                          new ResourceNotFoundException("EVENT_NOT_FOUND", "Event was not found"));
+          if (previous.getLockVersion() != expectedVersion) {
+            throw conflict("STALE_EXPECTED_VERSION", "Event lock version does not match If-Match");
+          }
+          if (!TERMINAL_EVENTS.contains(previous.getStatus())) {
+            throw conflict(
+                "EVENT_NOT_RESTARTABLE",
+                "Restart requires a terminal Event; current status is " + previous.getStatus());
+          }
+          Event restarted =
+              lifecycle.restartEvent(id, new CommandId(request.commandId()), correlationId, null);
+          UUID cycleId = uuids.generate();
+          Instant now = clock.now();
+          jobTransactions.enqueue(
+              "EVENT_START",
+              "EVENT",
+              restarted.getId(),
+              objectMapper
+                  .createObjectNode()
+                  .put("eventId", restarted.getId().toString())
+                  .put("cycleId", cycleId.toString())
+                  .put("correlationId", correlationId.toString())
+                  .put("commandId", request.commandId().toString()),
+              5,
+              now,
+              "event-start:" + restarted.getId());
+          audit("EVENT", id, "EVENT_RESTARTED", request, correlationId);
+          return result("newEventId", restarted.getId(), "status", restarted.getStatus().name());
+        });
+  }
+
+  @PreAuthorize("hasAnyRole('OPERATOR','ADMIN')")
+  public CommandExecutionResult resumeExternal(
+      UUID id, long expectedVersion, OverrideCommand request, CorrelationId correlationId) {
+    return execute(
+        "INTEGRATION_EXECUTION",
+        id,
+        "RESUME_EXTERNAL",
+        expectedVersion,
+        request,
+        () -> {
+          IntegrationExecution integration = requireIntegration(id);
+          if (integration.getLockVersion() != expectedVersion) {
+            throw conflict(
+                "STALE_EXPECTED_VERSION", "Integration lock version does not match If-Match");
+          }
+          if (integration.getStatus() != IntegrationExecutionStatus.WAITING_CALLBACK) {
+            throw conflict(
+                "INTEGRATION_NOT_WAITING",
+                "Only an integration waiting for callback can be resumed via RESUME_EXTERNAL");
+          }
+          String port =
+              (request.outcomePort() != null && !request.outcomePort().isBlank())
+                  ? request.outcomePort().trim().toUpperCase(java.util.Locale.ROOT)
+                  : "SUCCESS";
+          var resumed =
+              systemActionTransactions.resumeExternalTx(
+                  id,
+                  expectedVersion,
+                  port,
+                  request.output(),
+                  correlationId,
+                  new CommandId(request.commandId()));
+          audit("INTEGRATION_EXECUTION", id, "EXTERNAL_RESUMED", request, correlationId);
+          return result("nodeExecutionId", resumed.nodeExecution().getId(), "status", "RESUMED");
         });
   }
 

@@ -29,7 +29,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * outputs) 5. Tasks (assignees, outcomes, assignment history) 6. AuditEvents (immutable audit logs)
  * 7. Jobs (durable outbox jobs in ready, retry, dead states) 8. Integration executions (attempts,
  * idempotency keys, sanitized payloads) 9. Organization hierarchy (departments/units, positions,
- * employees, assignments) + Flyway compatibility (all 34 migrations recorded as successful) +
+ * employees, assignments) + Flyway compatibility (all applied migrations recorded as successful) +
  * Object-storage attachment metadata & checksum integrity
  */
 @Testcontainers
@@ -464,13 +464,18 @@ class BackupRestoreRehearsalIT {
             new SingleConnectionDataSource(
                 restoredJdbcUrl, postgres.getUsername(), postgres.getPassword(), true));
 
-    // 4.1 Flyway Compatibility Check: All 34 migrations recorded and valid
+    // 4.1 Flyway Compatibility Check: all applied migrations recorded and valid.
+    // Count is captured from the live database before backup so adding new forward-only
+    // migrations does not require editing this rehearsal.
+    Integer expectedFlywayCount =
+        sourceJdbc.queryForObject(
+            "SELECT count(*) FROM flyway_schema_history WHERE success = true", Integer.class);
     Integer flywayCount =
         restoredJdbc.queryForObject(
             "SELECT count(*) FROM flyway_schema_history WHERE success = true", Integer.class);
     assertThat(flywayCount)
-        .as("Flyway schema history must have all 34 migrations intact")
-        .isEqualTo(34);
+        .as("Flyway schema history must have all %s migrations intact", expectedFlywayCount)
+        .isEqualTo(expectedFlywayCount);
 
     // 4.2 Entity 1: WorkflowVersion history
     Integer versionCount =

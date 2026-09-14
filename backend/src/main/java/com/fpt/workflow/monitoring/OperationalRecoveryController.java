@@ -78,6 +78,33 @@ public class OperationalRecoveryController {
     return service.terminateEvent(id, expectedVersion, command, correlation(request));
   }
 
+  @PostMapping("/events/{id}/cancel")
+  public CommandExecutionResult cancelEvent(
+      @PathVariable UUID id,
+      @RequestHeader("If-Match") long expectedVersion,
+      @Valid @RequestBody OperationalRecoveryService.OverrideCommand command,
+      HttpServletRequest request) {
+    return service.cancelEvent(id, expectedVersion, command, correlation(request));
+  }
+
+  @PostMapping("/events/{id}/restart")
+  public CommandExecutionResult restartEvent(
+      @PathVariable UUID id,
+      @RequestHeader("If-Match") long expectedVersion,
+      @Valid @RequestBody OperationalRecoveryService.OverrideCommand command,
+      HttpServletRequest request) {
+    return service.restartEvent(id, expectedVersion, command, correlation(request));
+  }
+
+  @PostMapping("/integrations/{id}/resume")
+  public CommandExecutionResult resumeExternal(
+      @PathVariable UUID id,
+      @RequestHeader("If-Match") long expectedVersion,
+      @Valid @RequestBody OperationalRecoveryService.OverrideCommand command,
+      HttpServletRequest request) {
+    return service.resumeExternal(id, expectedVersion, command, correlation(request));
+  }
+
   private CorrelationId correlation(HttpServletRequest request) {
     return CorrelationId.parse(RequestCorrelationFilter.correlationId(request));
   }

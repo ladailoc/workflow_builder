@@ -896,6 +896,7 @@ public class DemoWorkflowSeeder {
     edgeRepository.save(edge(draft.getId(), subwfNode, "COMPLETED", splitNode, 0));
     edgeRepository.save(edge(draft.getId(), subwfNode, "FAILED", endRejected, 0));
     edgeRepository.save(edge(draft.getId(), subwfNode, "CANCELLED", endRejected, 1));
+    edgeRepository.save(edge(draft.getId(), subwfNode, "REJECTED", endRejected, 2));
     edgeRepository.save(edge(draft.getId(), splitNode, "SPLIT", financeNode, 0));
     edgeRepository.save(edge(draft.getId(), splitNode, "SPLIT", legalNode, 1));
     edgeRepository.save(edge(draft.getId(), financeNode, "APPROVED", joinNode, 0));

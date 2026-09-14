@@ -9,14 +9,19 @@ import com.fpt.workflow.operations.job.WorkflowJobRepository;
 import com.fpt.workflow.operations.job.WorkflowJobStatus;
 import com.fpt.workflow.operations.outbox.OutboxEventRepository;
 import com.fpt.workflow.operations.outbox.OutboxStatus;
+import com.fpt.workflow.organization.domain.Employee;
+import com.fpt.workflow.organization.repository.EmployeeRepository;
 import com.fpt.workflow.runtime.domain.Event;
 import com.fpt.workflow.runtime.domain.NodeExecution;
 import com.fpt.workflow.runtime.repository.EventRepository;
 import com.fpt.workflow.runtime.repository.NodeExecutionRepository;
 import com.fpt.workflow.shared.domain.lifecycle.EventStatus;
 import com.fpt.workflow.shared.domain.lifecycle.NodeExecutionStatus;
+import com.fpt.workflow.shared.domain.lifecycle.TaskStatus;
 import com.fpt.workflow.slanotification.domain.NotificationDispatchStatus;
 import com.fpt.workflow.slanotification.repository.NotificationDispatchRepository;
+import com.fpt.workflow.task.domain.TaskExecution;
+import com.fpt.workflow.task.repository.TaskExecutionRepository;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -34,6 +39,30 @@ public class OperationalFailureService {
   private final EventRepository events;
   private final NodeExecutionRepository nodes;
   private final ObjectMapper objectMapper;
+  private final TaskExecutionRepository tasks;
+  private final EmployeeRepository employees;
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public OperationalFailureService(
+      WorkflowJobRepository jobs,
+      OutboxEventRepository outbox,
+      NotificationDispatchRepository notifications,
+      IntegrationExecutionRepository integrations,
+      EventRepository events,
+      NodeExecutionRepository nodes,
+      ObjectMapper objectMapper,
+      TaskExecutionRepository tasks,
+      EmployeeRepository employees) {
+    this.jobs = jobs;
+    this.outbox = outbox;
+    this.notifications = notifications;
+    this.integrations = integrations;
+    this.events = events;
+    this.nodes = nodes;
+    this.objectMapper = objectMapper;
+    this.tasks = tasks;
+    this.employees = employees;
+  }
 
   public OperationalFailureService(
       WorkflowJobRepository jobs,
@@ -43,13 +72,7 @@ public class OperationalFailureService {
       EventRepository events,
       NodeExecutionRepository nodes,
       ObjectMapper objectMapper) {
-    this.jobs = jobs;
-    this.outbox = outbox;
-    this.notifications = notifications;
-    this.integrations = integrations;
-    this.events = events;
-    this.nodes = nodes;
-    this.objectMapper = objectMapper;
+    this(jobs, outbox, notifications, integrations, events, nodes, objectMapper, null, null);
   }
 
   @Transactional(readOnly = true)
@@ -144,8 +167,49 @@ public class OperationalFailureService {
     events
         .findAllByStatusOrderByStartedAtAsc(EventStatus.FAILED)
         .forEach(event -> failures.add(eventFailure(event)));
+    addInactiveAssigneeFailures(failures);
     failures.sort(Comparator.comparing(OperationalFailure::occurredAt).reversed());
     return List.copyOf(failures);
+  }
+
+  private void addInactiveAssigneeFailures(List<OperationalFailure> failures) {
+    if (tasks == null || employees == null) return;
+    for (TaskStatus status : List.of(TaskStatus.READY, TaskStatus.CLAIMED, TaskStatus.IN_PROGRESS)) {
+      tasks.findAllByStatusOrderByCreatedAtDesc(status).stream()
+          .filter(task -> task.getAssigneeId() != null)
+          .filter(
+              task ->
+                  !employees
+                      .findByUserId(task.getAssigneeId())
+                      .map(Employee::isActive)
+                      .orElse(false))
+          .forEach(task -> failures.add(inactiveAssigneeFailure(task)));
+    }
+  }
+
+  private OperationalFailure inactiveAssigneeFailure(TaskExecution task) {
+    UUID eventId =
+        nodes.findById(task.getNodeExecutionId()).map(NodeExecution::getEventId).orElse(null);
+    JsonNode error =
+        objectMapper
+            .createObjectNode()
+            .put("code", "ASSIGNEE_INACTIVE")
+            .put("assigneeId", task.getAssigneeId().toString())
+            .put("requiresExplicitReassignment", true);
+    return new OperationalFailure(
+        "TASK_EXECUTION",
+        task.getId(),
+        task.getLockVersion(),
+        "ASSIGNEE_INACTIVE",
+        "TASK_EXECUTION",
+        task.getId(),
+        eventId,
+        eventId == null ? null : eventVersion(eventId),
+        "ATTENTION",
+        null,
+        null,
+        task.getCreatedAt(),
+        error);
   }
 
   private OperationalFailure nodeFailure(NodeExecution execution) {

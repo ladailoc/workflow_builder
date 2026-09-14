@@ -14,6 +14,7 @@ import com.fpt.workflow.runtime.domain.*;
 import com.fpt.workflow.runtime.repository.*;
 import com.fpt.workflow.runtime.routing.repository.RoutingDecisionRepository;
 import com.fpt.workflow.security.*;
+import com.fpt.workflow.security.visibility.VisibilityResolver;
 import com.fpt.workflow.task.repository.*;
 import com.fpt.workflow.ticket.domain.Ticket;
 import com.fpt.workflow.ticket.repository.TicketRepository;
@@ -36,6 +37,7 @@ class EventMonitoringServiceTest {
     var tickets = mock(TicketRepository.class);
     var contexts = mock(EventContextBuilder.class);
     var actors = mock(ActorContextProvider.class);
+    var visibility = mock(VisibilityResolver.class);
     var context = mock(EventContext.class);
     UUID actor = UUID.randomUUID(),
         ticketId = UUID.randomUUID(),
@@ -122,9 +124,9 @@ class EventMonitoringServiceTest {
             participants,
             assignments,
             routes,
-            tickets,
             contexts,
-            actors);
+            actors,
+            visibility);
     var view = service.get(eventId);
     assertThat(view.workflowVersion().id()).isEqualTo(versionId);
     assertThat(view.workflowVersion().versionNo()).isEqualTo(7);
@@ -137,5 +139,6 @@ class EventMonitoringServiceTest {
     assertThat(view.nodeExecutions().get(1).item()).isEqualTo("B");
     assertThat(view.maskedContext()).isEqualTo(masked);
     verify(context, never()).value();
+    verify(visibility).requireEventVisible(any(), eq(event.getId()));
   }
 }
