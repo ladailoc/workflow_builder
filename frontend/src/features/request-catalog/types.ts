@@ -4,6 +4,8 @@ export interface CatalogItem {
   name: string;
   description: string;
   category: string;
+  categoryKey?: string;
+  icon?: string | null;
 }
 
 export type CanonicalValueTypeName =
@@ -126,6 +128,11 @@ export interface CreateSchemaResponse {
   formSchemaVersion: number;
   formSchemaChecksum: string;
   ticketFormSchema: FormSchema;
+  categoryKey?: string;
+  categoryVersionId?: string;
+  categoryChecksum?: string;
+  formVersionId?: string;
+  mappingChecksum?: string;
 }
 
 export interface TicketSubjectInput {
@@ -163,4 +170,15 @@ export interface CreatedTicketAggregate {
   };
   revisions: unknown[];
   subjects: unknown[];
+}
+
+export interface CreatedCategoryTicket {
+  ticketId: string;
+  eventId: string;
+  categoryVersionId: string;
+  formSubmissionId: string;
+  workflowVersionId: string;
+  inputs: Record<string, unknown>;
+  businessState: string;
+  createdAt: string;
 }

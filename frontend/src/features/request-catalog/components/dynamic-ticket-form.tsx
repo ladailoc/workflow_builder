@@ -3,11 +3,13 @@
 import { useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { evaluateExpression } from "../expression-evaluator";
-import { createTicketDraft, fetchCreateSchema, submitTicket } from "../api";
-import type {
-  CreateSchemaResponse,
-  FormFieldDefinition,
-} from "../types";
+import {
+  createCategoryTicket,
+  createTicketDraft,
+  fetchCreateSchema,
+  submitTicket,
+} from "../api";
+import type { CreateSchemaResponse, FormFieldDefinition } from "../types";
 import { ApiRequestError } from "@/shared/api/client";
 
 interface DynamicTicketFormProps {
@@ -23,7 +25,8 @@ export function DynamicTicketForm({
   const formHtmlId = useId();
 
   // Schema state (can be updated on concurrent publish reload)
-  const [schemaData, setSchemaData] = useState<CreateSchemaResponse>(initialSchema);
+  const [schemaData, setSchemaData] =
+    useState<CreateSchemaResponse>(initialSchema);
   const [formData, setFormData] = useState<Record<string, unknown>>(() => {
     const initialValues: Record<string, unknown> = {};
     initialSchema.ticketFormSchema.fields.forEach((f) => {
@@ -35,10 +38,14 @@ export function DynamicTicketForm({
   });
 
   // Track newly required fields after schema reload
-  const [newlyRequiredKeys, setNewlyRequiredKeys] = useState<Set<string>>(new Set());
+  const [newlyRequiredKeys, setNewlyRequiredKeys] = useState<Set<string>>(
+    new Set(),
+  );
 
   // Password / sensitive mask state
-  const [revealedSensitive, setRevealedSensitive] = useState<Record<string, boolean>>({});
+  const [revealedSensitive, setRevealedSensitive] = useState<
+    Record<string, boolean>
+  >({});
 
   // Validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -65,7 +72,10 @@ export function DynamicTicketForm({
   const isFieldRequired = (field: FormFieldDefinition): boolean => {
     if (field.requirement.mode === "ALWAYS") return true;
     if (field.requirement.mode === "NEVER") return false;
-    if (field.requirement.mode === "CONDITIONAL" && field.requirement.condition) {
+    if (
+      field.requirement.mode === "CONDITIONAL" &&
+      field.requirement.condition
+    ) {
       return Boolean(evaluateExpression(field.requirement.condition, formData));
     }
     return false;
@@ -75,7 +85,10 @@ export function DynamicTicketForm({
   const isFieldEditable = (field: FormFieldDefinition): boolean => {
     if (field.editability.mode === "EDITABLE") return true;
     if (field.editability.mode === "READ_ONLY") return false;
-    if (field.editability.mode === "CONDITIONAL" && field.editability.condition) {
+    if (
+      field.editability.mode === "CONDITIONAL" &&
+      field.editability.condition
+    ) {
       return Boolean(evaluateExpression(field.editability.condition, formData));
     }
     return true;
@@ -134,13 +147,15 @@ export function DynamicTicketForm({
             field.validation.minimum !== undefined &&
             val < field.validation.minimum
           ) {
-            newErrors[field.key] = `${field.label} must be at least ${field.validation.minimum}`;
+            newErrors[field.key] =
+              `${field.label} must be at least ${field.validation.minimum}`;
           } else if (
             field.validation.maximum !== null &&
             field.validation.maximum !== undefined &&
             val > field.validation.maximum
           ) {
-            newErrors[field.key] = `${field.label} must be at most ${field.validation.maximum}`;
+            newErrors[field.key] =
+              `${field.label} must be at most ${field.validation.maximum}`;
           }
         }
 
@@ -151,13 +166,15 @@ export function DynamicTicketForm({
             field.validation.minimumLength !== undefined &&
             val.length < field.validation.minimumLength
           ) {
-            newErrors[field.key] = `${field.label} must be at least ${field.validation.minimumLength} characters`;
+            newErrors[field.key] =
+              `${field.label} must be at least ${field.validation.minimumLength} characters`;
           } else if (
             field.validation.maximumLength !== null &&
             field.validation.maximumLength !== undefined &&
             val.length > field.validation.maximumLength
           ) {
-            newErrors[field.key] = `${field.label} must be at most ${field.validation.maximumLength} characters`;
+            newErrors[field.key] =
+              `${field.label} must be at most ${field.validation.maximumLength} characters`;
           } else if (field.validation.regex?.pattern) {
             try {
               const rx = new RegExp(field.validation.regex.pattern);
@@ -181,7 +198,7 @@ export function DynamicTicketForm({
     setSubmitError(null);
     try {
       const latest = await fetchCreateSchema(requestTypeKey);
-      
+
       // Calculate newly required fields
       const previousRequired = new Set(
         fields.filter(isFieldRequired).map((f) => f.key),
@@ -213,7 +230,9 @@ export function DynamicTicketForm({
       setSchemaMismatch(false);
     } catch (err: unknown) {
       setSubmitError(
-        err instanceof Error ? err.message : "Failed to reload updated form schema",
+        err instanceof Error
+          ? err.message
+          : "Failed to reload updated form schema",
       );
     } finally {
       setReloadingSchema(false);
@@ -231,6 +250,15 @@ export function DynamicTicketForm({
     setSubmitting(true);
 
     try {
+      if (schemaData.categoryVersionId) {
+        const created = await createCategoryTicket(
+          requestTypeKey,
+          schemaData,
+          formData,
+        );
+        router.push(`/tickets/${created.ticketId}`);
+        return;
+      }
       // 1. Create Draft
       const draftResult = await createTicketDraft({
         requestTypeId: schemaData.requestTypeId,
@@ -278,7 +306,7 @@ export function DynamicTicketForm({
   };
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="max-w-3xl space-y-6">
       {/* Concurrent Publish / Schema Mismatch Alert */}
       {schemaMismatch && (
         <div
@@ -288,7 +316,7 @@ export function DynamicTicketForm({
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-3">
               <svg
-                className="h-5 w-5 text-amber-600 mt-0.5 shrink-0"
+                className="mt-0.5 h-5 w-5 shrink-0 text-amber-600"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -305,8 +333,9 @@ export function DynamicTicketForm({
                   Form Schema Updated
                 </h4>
                 <p className="mt-1 text-xs text-amber-800">
-                  An administrator published a new version of this workflow while you
-                  were editing. Your compatible answers will be preserved.
+                  An administrator published a new version of this workflow
+                  while you were editing. Your compatible answers will be
+                  preserved.
                 </p>
               </div>
             </div>
@@ -331,7 +360,7 @@ export function DynamicTicketForm({
         >
           <div className="flex items-center gap-2">
             <svg
-              className="h-4 w-4 text-rose-500 shrink-0"
+              className="h-4 w-4 shrink-0 text-rose-500"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -351,13 +380,13 @@ export function DynamicTicketForm({
       <form
         data-testid="dynamic-ticket-form"
         onSubmit={handleSubmit}
-        className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs space-y-6"
+        className="space-y-6 rounded-xl border border-slate-200 bg-white p-6 shadow-xs"
       >
         <div className="border-b border-slate-100 pb-4">
           <h2 className="text-lg font-semibold text-slate-900">
             Request Information
           </h2>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="mt-1 text-xs text-slate-500">
             Please fill out all required fields marked with an asterisk (*).
           </p>
         </div>
@@ -381,7 +410,9 @@ export function DynamicTicketForm({
                 key={field.key}
                 data-testid={`form-field-${field.key}`}
                 className={`space-y-1.5 rounded-lg p-2.5 transition-colors ${
-                  isNewlyRequired ? "bg-amber-50/60 border border-amber-200" : ""
+                  isNewlyRequired
+                    ? "border border-amber-200 bg-amber-50/60"
+                    : ""
                 }`}
               >
                 <div className="flex items-center justify-between">
@@ -390,7 +421,9 @@ export function DynamicTicketForm({
                     className="flex items-center gap-1.5 text-xs font-semibold text-slate-700"
                   >
                     <span>{field.label}</span>
-                    {required && <span className="text-rose-500 font-bold">*</span>}
+                    {required && (
+                      <span className="font-bold text-rose-500">*</span>
+                    )}
                     {isNewlyRequired && (
                       <span
                         data-testid={`newly-required-badge-${field.key}`}
@@ -435,18 +468,21 @@ export function DynamicTicketForm({
                       data-testid={`field-input-${field.key}`}
                       disabled={!editable}
                       value={String(value ?? "")}
-                      onChange={(e) => handleFieldChange(field.key, e.target.value)}
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-2xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
+                      onChange={(e) =>
+                        handleFieldChange(field.key, e.target.value)
+                      }
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-2xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400"
                     >
                       <option value="">-- Select an option --</option>
                       {field.options.staticValues.map((opt) => {
                         const optVal =
                           typeof opt === "object" && opt !== null
-                            ? (opt as Record<string, unknown>).value ?? JSON.stringify(opt)
+                            ? ((opt as Record<string, unknown>).value ??
+                              JSON.stringify(opt))
                             : String(opt);
                         const optLabel =
                           typeof opt === "object" && opt !== null
-                            ? (opt as Record<string, unknown>).label ?? optVal
+                            ? ((opt as Record<string, unknown>).label ?? optVal)
                             : String(opt);
                         return (
                           <option key={String(optVal)} value={String(optVal)}>
@@ -457,7 +493,7 @@ export function DynamicTicketForm({
                     </select>
                   ) : field.type.type === "BOOLEAN" ? (
                     /* Boolean Toggle */
-                    <label className="flex items-center gap-2.5 cursor-pointer pt-1">
+                    <label className="flex cursor-pointer items-center gap-2.5 pt-1">
                       <input
                         id={`${formHtmlId}-${field.key}`}
                         type="checkbox"
@@ -482,14 +518,20 @@ export function DynamicTicketForm({
                       data-testid={`field-input-${field.key}`}
                       disabled={!editable}
                       placeholder={field.placeholder ?? ""}
-                      value={value !== undefined && value !== null ? String(value) : ""}
+                      value={
+                        value !== undefined && value !== null
+                          ? String(value)
+                          : ""
+                      }
                       onChange={(e) =>
                         handleFieldChange(
                           field.key,
-                          e.target.value === "" ? null : parseInt(e.target.value, 10),
+                          e.target.value === ""
+                            ? null
+                            : parseInt(e.target.value, 10),
                         )
                       }
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-2xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100"
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-2xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none disabled:bg-slate-100"
                     />
                   ) : field.type.type === "DECIMAL" ||
                     field.type.type === "NUMBER" ||
@@ -502,14 +544,20 @@ export function DynamicTicketForm({
                       data-testid={`field-input-${field.key}`}
                       disabled={!editable}
                       placeholder={field.placeholder ?? ""}
-                      value={value !== undefined && value !== null ? String(value) : ""}
+                      value={
+                        value !== undefined && value !== null
+                          ? String(value)
+                          : ""
+                      }
                       onChange={(e) =>
                         handleFieldChange(
                           field.key,
-                          e.target.value === "" ? null : parseFloat(e.target.value),
+                          e.target.value === ""
+                            ? null
+                            : parseFloat(e.target.value),
                         )
                       }
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-2xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100"
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-2xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none disabled:bg-slate-100"
                     />
                   ) : field.type.type === "DATE" ? (
                     /* Date */
@@ -519,8 +567,10 @@ export function DynamicTicketForm({
                       data-testid={`field-input-${field.key}`}
                       disabled={!editable}
                       value={String(value ?? "")}
-                      onChange={(e) => handleFieldChange(field.key, e.target.value)}
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-2xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100"
+                      onChange={(e) =>
+                        handleFieldChange(field.key, e.target.value)
+                      }
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-2xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none disabled:bg-slate-100"
                     />
                   ) : field.type.type === "DATETIME" ||
                     field.type.type === "DATE_TIME" ? (
@@ -531,8 +581,10 @@ export function DynamicTicketForm({
                       data-testid={`field-input-${field.key}`}
                       disabled={!editable}
                       value={String(value ?? "")}
-                      onChange={(e) => handleFieldChange(field.key, e.target.value)}
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-2xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100"
+                      onChange={(e) =>
+                        handleFieldChange(field.key, e.target.value)
+                      }
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-2xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none disabled:bg-slate-100"
                     />
                   ) : field.type.type === "FILE_REF" ||
                     field.type.type === "FILE_LIST" ? (
@@ -543,10 +595,15 @@ export function DynamicTicketForm({
                         type="text"
                         data-testid={`field-input-${field.key}`}
                         disabled={!editable}
-                        placeholder={field.placeholder ?? "Enter attachment reference or URI"}
+                        placeholder={
+                          field.placeholder ??
+                          "Enter attachment reference or URI"
+                        }
                         value={String(value ?? "")}
-                        onChange={(e) => handleFieldChange(field.key, e.target.value)}
-                        className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-2xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100"
+                        onChange={(e) =>
+                          handleFieldChange(field.key, e.target.value)
+                        }
+                        className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-2xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none disabled:bg-slate-100"
                       />
                       <span className="rounded-md bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-600">
                         Attachment
@@ -568,14 +625,16 @@ export function DynamicTicketForm({
                                 newArr[idx] = e.target.value;
                                 handleFieldChange(field.key, newArr);
                               }}
-                              className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100"
+                              className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none disabled:bg-slate-100"
                             />
                             {editable && (
                               <button
                                 type="button"
                                 data-testid={`remove-array-item-${field.key}-${idx}`}
                                 onClick={() => {
-                                  const newArr = value.filter((_, i) => i !== idx);
+                                  const newArr = value.filter(
+                                    (_, i) => i !== idx,
+                                  );
                                   handleFieldChange(field.key, newArr);
                                 }}
                                 className="rounded p-1.5 text-slate-400 hover:text-rose-600"
@@ -619,7 +678,7 @@ export function DynamicTicketForm({
                           handleFieldChange(field.key, e.target.value);
                         }
                       }}
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-xs text-slate-800 shadow-2xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100"
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-xs text-slate-800 shadow-2xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none disabled:bg-slate-100"
                     />
                   ) : (
                     /* Standard String / Text Input */
@@ -630,8 +689,10 @@ export function DynamicTicketForm({
                       disabled={!editable}
                       placeholder={field.placeholder ?? ""}
                       value={String(value ?? "")}
-                      onChange={(e) => handleFieldChange(field.key, e.target.value)}
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-2xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100"
+                      onChange={(e) =>
+                        handleFieldChange(field.key, e.target.value)
+                      }
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-2xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none disabled:bg-slate-100"
                     />
                   )}
                 </div>

@@ -124,8 +124,12 @@ describe("DynamicTicketForm Component", () => {
       />,
     );
 
-    expect(screen.getByLabelText(/Business Justification/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Is this request urgent\?/i)).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/Business Justification/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/Is this request urgent\?/i),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText(/Estimated Cost/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/API Access Key/i)).toBeInTheDocument();
 
@@ -148,7 +152,9 @@ describe("DynamicTicketForm Component", () => {
     );
 
     // Initially isUrgent is false, so urgencyReason should not be visible
-    expect(screen.queryByLabelText(/Reason for Urgency/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText(/Reason for Urgency/i),
+    ).not.toBeInTheDocument();
 
     // Toggle isUrgent to true
     const urgentCheckbox = screen.getByTestId("field-input-isUrgent");
@@ -159,7 +165,9 @@ describe("DynamicTicketForm Component", () => {
 
     // Toggle back to false
     fireEvent.click(urgentCheckbox);
-    expect(screen.queryByLabelText(/Reason for Urgency/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText(/Reason for Urgency/i),
+    ).not.toBeInTheDocument();
   });
 
   it("validates required fields before allowing submission", async () => {
@@ -178,8 +186,56 @@ describe("DynamicTicketForm Component", () => {
       expect(
         screen.getByText("Business Justification is required"),
       ).toBeInTheDocument();
-      expect(screen.getByText("Estimated Cost is required")).toBeInTheDocument();
+      expect(
+        screen.getByText("Estimated Cost is required"),
+      ).toBeInTheDocument();
     });
+  });
+
+  it("submits the categoryKey contract atomically without the legacy draft selector", async () => {
+    const create = vi.spyOn(api, "createCategoryTicket").mockResolvedValue({
+      ticketId: "ticket-v241",
+      eventId: "event-v241",
+      categoryVersionId: "category-v1",
+      formSubmissionId: "submission-v1",
+      workflowVersionId: "workflow-v7",
+      inputs: { amount: 25 },
+      businessState: "SUBMITTED",
+      createdAt: new Date().toISOString(),
+    });
+    const legacyDraft = vi.spyOn(api, "createTicketDraft");
+    render(
+      <DynamicTicketForm
+        initialSchema={{
+          ...INITIAL_SCHEMA,
+          categoryKey: "PURCHASE",
+          categoryVersionId: "category-v1",
+          categoryChecksum: "category-sum",
+          formVersionId: "form-v4",
+          mappingChecksum: "mapping-sum",
+        }}
+        requestTypeKey="PURCHASE"
+      />,
+    );
+    fireEvent.change(screen.getByTestId("field-input-justification"), {
+      target: { value: "Purchase equipment for the platform team" },
+    });
+    fireEvent.change(screen.getByTestId("field-input-estimatedCost"), {
+      target: { value: "25" },
+    });
+    fireEvent.click(screen.getByTestId("submit-ticket-button"));
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(
+        "PURCHASE",
+        expect.objectContaining({ categoryVersionId: "category-v1" }),
+        expect.objectContaining({
+          justification: "Purchase equipment for the platform team",
+          estimatedCost: 25,
+        }),
+      ),
+    );
+    expect(legacyDraft).not.toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledWith("/tickets/ticket-v241");
   });
 
   it("handles concurrent publish schema mismatch (FORM_SCHEMA_CHANGED) by reloading schema and preserving values", async () => {
@@ -260,9 +316,7 @@ describe("DynamicTicketForm Component", () => {
     // Verify mismatch banner appears
     await waitFor(() => {
       expect(screen.getByTestId("schema-mismatch-banner")).toBeInTheDocument();
-      expect(
-        screen.getByText("Form Schema Updated"),
-      ).toBeInTheDocument();
+      expect(screen.getByText("Form Schema Updated")).toBeInTheDocument();
     });
 
     // Click Reload Schema
