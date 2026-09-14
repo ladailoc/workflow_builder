@@ -26,12 +26,32 @@ public record ValidationCompilation(
   }
 
   public boolean publishable() {
-    return valid()
-        && issues.stream()
-            .noneMatch(
-                issue ->
-                    issue.severity()
-                        == com.fpt.workflow.definition.domain.ValidationSeverity
-                            .ACK_REQUIRED_WARNING);
+    return publishable(java.util.Set.of());
+  }
+
+  public boolean publishable(java.util.Set<String> acknowledgedWarnings) {
+    if (!valid()) {
+      return false;
+    }
+    java.util.Set<String> acks =
+        acknowledgedWarnings == null ? java.util.Set.of() : acknowledgedWarnings;
+    return issues.stream()
+        .filter(
+            issue ->
+                issue.severity()
+                    == com.fpt.workflow.definition.domain.ValidationSeverity.ACK_REQUIRED_WARNING)
+        .allMatch(issue -> acks.contains(issue.code()) || acks.contains("*"));
+  }
+
+  public boolean hasErrors() {
+    return !valid();
+  }
+
+  public boolean hasAckRequiredWarnings() {
+    return issues.stream()
+        .anyMatch(
+            issue ->
+                issue.severity()
+                    == com.fpt.workflow.definition.domain.ValidationSeverity.ACK_REQUIRED_WARNING);
   }
 }

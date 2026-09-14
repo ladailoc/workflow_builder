@@ -13,6 +13,7 @@ import com.fpt.workflow.shared.api.ResourceNotFoundException;
 import com.fpt.workflow.shared.domain.AggregateVersion;
 import com.fpt.workflow.shared.domain.ExpectedVersion;
 import com.fpt.workflow.shared.domain.OptimisticVersionGuard;
+import com.fpt.workflow.shared.domain.lifecycle.WorkflowDefinitionLifecycle;
 import com.fpt.workflow.shared.domain.page.PageRequest;
 import com.fpt.workflow.shared.domain.page.PageResult;
 import com.fpt.workflow.shared.time.PlatformClock;
@@ -56,6 +57,10 @@ public class WorkflowVersionService {
   @PreAuthorize("hasAnyRole('WORKFLOW_OWNER', 'WORKFLOW_EDITOR', 'ADMIN')")
   public WorkflowVersionDtos.View createDraft(WorkflowVersionDtos.CreateDraft request) {
     WorkflowDefinition definition = requireDefinitionForUpdate(request.definitionId());
+    if (definition.getLifecycle() == WorkflowDefinitionLifecycle.ARCHIVED) {
+      throw new CommandConflictException(
+          "WORKFLOW_DEFINITION_ARCHIVED", "Archived workflow definitions cannot create Drafts");
+    }
     if (definition.getActiveDraftVersionId() != null) {
       throw new CommandConflictException(
           "ACTIVE_DRAFT_EXISTS", "Workflow definition already has an active draft");

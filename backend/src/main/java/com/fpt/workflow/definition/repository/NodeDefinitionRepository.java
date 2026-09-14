@@ -14,4 +14,6 @@ public interface NodeDefinitionRepository extends JpaRepository<NodeDefinition, 
   boolean existsByWorkflowVersionIdAndNodeKey(UUID workflowVersionId, String nodeKey);
 
   List<NodeDefinition> findAllByWorkflowVersionIdOrderByNodeKeyAsc(UUID workflowVersionId);
+
+  void deleteAllByWorkflowVersionId(UUID workflowVersionId);
 }

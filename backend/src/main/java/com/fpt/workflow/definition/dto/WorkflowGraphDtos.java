@@ -1,10 +1,12 @@
 package com.fpt.workflow.definition.dto;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fpt.workflow.definition.domain.EdgeDefinition;
 import com.fpt.workflow.definition.domain.NodeDefinition;
 import com.fpt.workflow.definition.domain.TransitionType;
 import com.fpt.workflow.definition.domain.WorkflowVersion;
+import java.util.List;
 import java.util.UUID;
 
 public final class WorkflowGraphDtos {
@@ -124,4 +126,52 @@ public final class WorkflowGraphDtos {
   public record NodeMutation(NodeView node, DraftState draft) {}
 
   public record EdgeMutation(EdgeView edge, DraftState draft) {}
+
+  /** A complete draft graph document. Client references are local to one save request. */
+  public record ReplaceGraph(List<GraphNode> nodes, List<GraphEdge> edges) {
+    public ReplaceGraph {
+      nodes = List.copyOf(nodes == null ? List.of() : nodes);
+      edges = List.copyOf(edges == null ? List.of() : edges);
+    }
+  }
+
+  public record GraphNode(
+      String clientRef,
+      String nodeKey,
+      String nodeType,
+      String name,
+      String description,
+      int configSchemaVersion,
+      JsonNode configJson,
+      JsonNode inputSchemaJson,
+      JsonNode outputSchemaJson,
+      JsonNode positionJson) {
+    public GraphNode {
+      configJson = configJson == null ? JsonNodeFactory.instance.objectNode() : configJson;
+      positionJson = positionJson == null ? JsonNodeFactory.instance.objectNode() : positionJson;
+    }
+  }
+
+  public record GraphEdge(
+      String clientRef,
+      String sourceClientRef,
+      String sourcePort,
+      String targetClientRef,
+      JsonNode conditionJson,
+      int priority,
+      boolean defaultTransition,
+      TransitionType transitionType,
+      String label,
+      JsonNode configJson) {
+    public GraphEdge {
+      configJson = configJson == null ? JsonNodeFactory.instance.objectNode() : configJson;
+    }
+  }
+
+  public record GraphView(List<NodeView> nodes, List<EdgeView> edges, DraftState draft) {
+    public GraphView {
+      nodes = List.copyOf(nodes);
+      edges = List.copyOf(edges);
+    }
+  }
 }

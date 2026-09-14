@@ -28,4 +28,8 @@ public interface WorkflowVersionRepository extends JpaRepository<WorkflowVersion
   int findMaxVersionNoByDefinitionId(@Param("definitionId") UUID definitionId);
 
   Page<WorkflowVersion> findAllByDefinitionId(UUID definitionId, Pageable pageable);
+
+  long countByDefinitionId(UUID definitionId);
+
+  java.util.List<WorkflowVersion> findAllByDefinitionIdOrderByVersionNoDesc(UUID definitionId);
 }

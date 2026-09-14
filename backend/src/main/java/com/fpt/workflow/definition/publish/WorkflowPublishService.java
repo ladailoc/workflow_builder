@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fpt.workflow.definition.domain.StaleDraftRevisionException;
 import com.fpt.workflow.definition.domain.WorkflowDefinition;
 import com.fpt.workflow.definition.domain.WorkflowVersion;
+import com.fpt.workflow.definition.repository.NodeDefinitionRepository;
 import com.fpt.workflow.definition.repository.WorkflowDefinitionRepository;
 import com.fpt.workflow.definition.repository.WorkflowVersionRepository;
 import com.fpt.workflow.definition.validation.ValidationCompilation;
@@ -22,6 +23,7 @@ import com.fpt.workflow.shared.domain.CommandId;
 import com.fpt.workflow.shared.domain.CorrelationId;
 import com.fpt.workflow.shared.domain.ExpectedVersion;
 import com.fpt.workflow.shared.domain.OptimisticVersionGuard;
+import com.fpt.workflow.shared.domain.lifecycle.WorkflowDefinitionLifecycle;
 import com.fpt.workflow.shared.domain.lifecycle.WorkflowVersionStatus;
 import com.fpt.workflow.shared.time.PlatformClock;
 import com.fpt.workflow.shared.transaction.TransactionalCommand;
@@ -38,6 +40,8 @@ public class WorkflowPublishService {
   private final WorkflowVersionRepository versionRepository;
   private final WorkflowValidationService validationService;
   private final ExecutionPackageCompiler packageCompiler;
+  private final PlatformSemanticDefaults semanticDefaults;
+  private final NodeDefinitionRepository nodeRepository;
   private final AuditEventRepository auditRepository;
   private final ActorContextProvider actorContextProvider;
   private final UuidGenerator uuidGenerator;
@@ -48,6 +52,8 @@ public class WorkflowPublishService {
       WorkflowVersionRepository versionRepository,
       WorkflowValidationService validationService,
       ExecutionPackageCompiler packageCompiler,
+      PlatformSemanticDefaults semanticDefaults,
+      NodeDefinitionRepository nodeRepository,
       AuditEventRepository auditRepository,
       ActorContextProvider actorContextProvider,
       UuidGenerator uuidGenerator,
@@ -56,6 +62,8 @@ public class WorkflowPublishService {
     this.versionRepository = versionRepository;
     this.validationService = validationService;
     this.packageCompiler = packageCompiler;
+    this.semanticDefaults = semanticDefaults;
+    this.nodeRepository = nodeRepository;
     this.auditRepository = auditRepository;
     this.actorContextProvider = actorContextProvider;
     this.uuidGenerator = uuidGenerator;
@@ -69,6 +77,18 @@ public class WorkflowPublishService {
       ExpectedVersion expectedVersion,
       long expectedRevision,
       CommandId commandId) {
+    return publish(
+        workflowVersionId, expectedVersion, expectedRevision, commandId, java.util.Set.of());
+  }
+
+  @TransactionalCommand
+  @PreAuthorize("hasAnyRole('WORKFLOW_OWNER', 'ADMIN')")
+  public PublishResult publish(
+      UUID workflowVersionId,
+      ExpectedVersion expectedVersion,
+      long expectedRevision,
+      CommandId commandId,
+      java.util.Set<String> acknowledgedWarnings) {
     WorkflowVersion draft =
         versionRepository
             .findByIdForUpdate(workflowVersionId)
@@ -85,6 +105,10 @@ public class WorkflowPublishService {
                         "WORKFLOW_DEFINITION_NOT_FOUND", "WorkflowDefinition was not found"));
     OptimisticVersionGuard.requireMatch(
         new AggregateVersion(draft.getLockVersion()), expectedVersion);
+    if (definition.getLifecycle() == WorkflowDefinitionLifecycle.ARCHIVED) {
+      throw new CommandConflictException(
+          "WORKFLOW_DEFINITION_ARCHIVED", "Archived workflow definitions cannot be published");
+    }
     try {
       draft.requireDraft();
     } catch (IllegalStateException exception) {
@@ -99,11 +123,30 @@ public class WorkflowPublishService {
     // Always compile current normalized rows inside this transaction; stale ValidationRun is
     // ignored.
     ValidationCompilation validation = validationService.compileCurrent(workflowVersionId);
-    if (!validation.publishable()) {
+    if (validation.hasErrors()) {
       throw new UnprocessableCommandException(
           "WORKFLOW_VALIDATION_FAILED", "Current Draft failed full server-side validation");
     }
+    if (!validation.publishable(acknowledgedWarnings)) {
+      throw new UnprocessableCommandException(
+          "WORKFLOW_VALIDATION_ACK_REQUIRED",
+          "Current Draft has warnings that require explicit acknowledgement before publish");
+    }
     ValidationDefinition snapshot = validationService.loadCurrent(workflowVersionId);
+    snapshot
+        .nodes()
+        .forEach(
+            node ->
+                node.update(
+                    node.getNodeType(),
+                    node.getName(),
+                    node.getDescription(),
+                    node.getConfigSchemaVersion(),
+                    semanticDefaults.effectiveConfig(node),
+                    node.getInputSchemaJson(),
+                    node.getOutputSchemaJson(),
+                    node.getPositionJson()));
+    nodeRepository.saveAllAndFlush(snapshot.nodes());
     ExecutionPackageCompiler.CompiledExecutionPackage executionPackage =
         packageCompiler.compile(snapshot);
 

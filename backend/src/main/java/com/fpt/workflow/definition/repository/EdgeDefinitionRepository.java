@@ -13,8 +13,13 @@ public interface EdgeDefinitionRepository extends JpaRepository<EdgeDefinition, 
       findAllByWorkflowVersionIdAndSourceNodeIdAndSourcePortOrderByPriorityAscIdAsc(
           UUID workflowVersionId, UUID sourceNodeId, String sourcePort);
 
+  List<EdgeDefinition> findAllByWorkflowVersionIdAndSourceNodeIdOrderByPriorityAscIdAsc(
+      UUID workflowVersionId, UUID sourceNodeId);
+
   List<EdgeDefinition> findAllByWorkflowVersionIdAndTargetNodeId(
       UUID workflowVersionId, UUID targetNodeId);
 
   boolean existsBySourceNodeIdOrTargetNodeId(UUID sourceNodeId, UUID targetNodeId);
+
+  void deleteAllByWorkflowVersionId(UUID workflowVersionId);
 }

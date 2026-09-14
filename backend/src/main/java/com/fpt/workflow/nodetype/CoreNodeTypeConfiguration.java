@@ -82,7 +82,8 @@ public class CoreNodeTypeConfiguration {
         CanonicalSchema.strict(
             Map.of(
                 "policy", TypeDescriptor.nullable(CanonicalValueType.STRING),
-                "threshold", TypeDescriptor.nullable(CanonicalValueType.INTEGER)),
+                "threshold", TypeDescriptor.nullable(CanonicalValueType.INTEGER),
+                "remainingBranchPolicy", TypeDescriptor.nullable(CanonicalValueType.STRING)),
             Set.of());
     return provider(
         NodeType.JOIN,
@@ -92,7 +93,7 @@ public class CoreNodeTypeConfiguration {
         Set.of("DEFAULT"),
         config,
         "control",
-        new ContractOnlyNodeHandler(NodeType.JOIN));
+        new JoinNodeHandler());
   }
 
   @Bean
@@ -116,11 +117,15 @@ public class CoreNodeTypeConfiguration {
                 "connectorKey", TypeDescriptor.required(CanonicalValueType.STRING),
                 "actionKey", TypeDescriptor.required(CanonicalValueType.STRING),
                 "actionVersion", TypeDescriptor.required(CanonicalValueType.INTEGER),
-                "credentialRef", TypeDescriptor.nullable(CanonicalValueType.STRING)),
+                "credentialRef", TypeDescriptor.nullable(CanonicalValueType.STRING),
+                "asyncCallback", TypeDescriptor.nullable(CanonicalValueType.BOOLEAN),
+                "pattern", TypeDescriptor.nullable(CanonicalValueType.STRING),
+                "failureStrategy", TypeDescriptor.nullable(CanonicalValueType.STRING),
+                "timeoutMs", TypeDescriptor.nullable(CanonicalValueType.INTEGER)),
             Set.of("connectorKey", "actionKey", "actionVersion"));
     return provider(
         NodeType.SYSTEM_ACTION,
-        Set.of(NodeCapability.OUTPUT),
+        Set.of(NodeCapability.OUTPUT, NodeCapability.CONNECTOR),
         EMPTY_SCHEMA,
         EMPTY_SCHEMA,
         Set.of("SUCCESS", "ERROR"),
@@ -135,8 +140,12 @@ public class CoreNodeTypeConfiguration {
         CanonicalSchema.strict(
             Map.of(
                 "childWorkflowDefinitionKey", TypeDescriptor.required(CanonicalValueType.STRING),
+                "childWorkflowDefinitionId", TypeDescriptor.nullable(CanonicalValueType.STRING),
+                "childWorkflowKey", TypeDescriptor.nullable(CanonicalValueType.STRING),
                 "executionMode", TypeDescriptor.nullable(CanonicalValueType.STRING),
                 "cancellationPolicy", TypeDescriptor.nullable(CanonicalValueType.STRING),
+                "failureStrategy", TypeDescriptor.nullable(CanonicalValueType.STRING),
+                "failurePolicy", TypeDescriptor.nullable(CanonicalValueType.OBJECT),
                 "inputMappings", TypeDescriptor.nullable(CanonicalValueType.OBJECT),
                 "outputMappings", TypeDescriptor.nullable(CanonicalValueType.OBJECT)),
             Set.of("childWorkflowDefinitionKey"));
@@ -145,7 +154,7 @@ public class CoreNodeTypeConfiguration {
         Set.of(NodeCapability.OUTPUT),
         EMPTY_SCHEMA,
         CanonicalSchema.open(),
-        Set.of("COMPLETED", "FAILED", "CANCELLED"),
+        Set.of("COMPLETED", "FAILED", "CANCELLED", "REJECTED"),
         config,
         "sub-workflow",
         new SubWorkflowNodeHandler());
@@ -187,6 +196,8 @@ public class CoreNodeTypeConfiguration {
                 TypeDescriptor.required(CanonicalValueType.OBJECT),
                 "formKey",
                 TypeDescriptor.nullable(CanonicalValueType.STRING),
+                "taskFormVersionId",
+                TypeDescriptor.nullable(CanonicalValueType.STRING),
                 "allowedActions",
                 TypeDescriptor.arrayOf(TypeDescriptor.required(CanonicalValueType.STRING))),
             Set.of("participant", "allowedActions"));
@@ -196,7 +207,9 @@ public class CoreNodeTypeConfiguration {
             NodeCapability.HUMAN_TASK,
             NodeCapability.PARTICIPANT,
             NodeCapability.FORM,
-            NodeCapability.OUTPUT),
+            NodeCapability.OUTPUT,
+            NodeCapability.SLA,
+            NodeCapability.MULTI_INSTANCE),
         EMPTY_SCHEMA,
         EMPTY_SCHEMA,
         outputPorts,
@@ -243,6 +256,7 @@ public class CoreNodeTypeConfiguration {
     properties.put("sla", TypeDescriptor.nullable(CanonicalValueType.OBJECT));
     properties.put("taskAggregation", TypeDescriptor.nullable(CanonicalValueType.OBJECT));
     properties.put("failure", TypeDescriptor.nullable(CanonicalValueType.OBJECT));
+    properties.put("businessStateKey", TypeDescriptor.nullable(CanonicalValueType.STRING));
     return CanonicalSchema.strict(properties, nodeSpecific.requiredProperties());
   }
 }

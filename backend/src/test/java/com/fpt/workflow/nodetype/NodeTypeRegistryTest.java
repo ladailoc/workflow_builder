@@ -80,10 +80,13 @@ class NodeTypeRegistryTest {
             .require(NodeType.START)
             .validate("start", 2, JsonNodeFactory.instance.objectNode());
 
+    // P2-07: current manifestation currentConfigSchemaVersion is 1; historical (<current)
+    // remains executable, future (>current) is rejected with a distinct code for operators
+    // to act (UNKNOWN = newer than this deployment, UNSUPPORTED was the old catch-all).
     assertThat(issues)
         .singleElement()
         .extracting(NodeValidationIssue::code)
-        .isEqualTo("NODE.CONFIG_SCHEMA_VERSION_UNSUPPORTED");
+        .isEqualTo("NODE.CONFIG_SCHEMA_VERSION_UNKNOWN");
   }
 
   @Test
@@ -111,7 +114,18 @@ class NodeTypeRegistryTest {
     var permissive =
         new com.fpt.workflow.shared.domain.value.CanonicalSchema(
             java.util.Map.of(), Set.of(), true);
-    NodeHandler handler = new ContractOnlyNodeHandler(NodeType.START);
+    NodeHandler handler =
+        new NodeHandler() {
+          @Override
+          public NodeType supports() {
+            return NodeType.START;
+          }
+
+          @Override
+          public NodeExecutionResult execute(NodeHandlerContext context) {
+            throw new UnsupportedOperationException("not used in this test");
+          }
+        };
 
     assertThatThrownBy(
             () ->

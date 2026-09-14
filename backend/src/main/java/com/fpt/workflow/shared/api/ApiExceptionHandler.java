@@ -18,6 +18,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.validation.ObjectError;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
@@ -44,6 +45,7 @@ public final class ApiExceptionHandler {
 
   @ExceptionHandler({
     HttpMessageNotReadableException.class,
+    MissingRequestHeaderException.class,
     MethodArgumentTypeMismatchException.class,
     HttpMediaTypeNotSupportedException.class
   })

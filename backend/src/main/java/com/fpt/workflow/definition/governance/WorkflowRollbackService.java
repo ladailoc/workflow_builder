@@ -83,6 +83,24 @@ public class WorkflowRollbackService {
   @PreAuthorize("hasAnyRole('WORKFLOW_OWNER', 'ADMIN')")
   public RollbackResult rollback(
       UUID sourceVersionId, ExpectedVersion expectedDefinitionVersion, CommandId commandId) {
+    DraftClone clone = cloneDraft(sourceVersionId, expectedDefinitionVersion, commandId);
+    WorkflowVersion draft = clone.draft();
+    WorkflowPublishService.PublishResult published =
+        publishService.publish(
+            draft.getId(), new ExpectedVersion(draft.getLockVersion()), 0, commandId);
+    return new RollbackResult(
+        sourceVersionId, draft.getId(), published.versionNo(), published.checksum());
+  }
+
+  @TransactionalCommand
+  @PreAuthorize("hasAnyRole('WORKFLOW_OWNER', 'ADMIN')")
+  public CloneDraftResult cloneAsDraft(
+      UUID sourceVersionId, ExpectedVersion expectedDefinitionVersion, CommandId commandId) {
+    return cloneDraft(sourceVersionId, expectedDefinitionVersion, commandId).result();
+  }
+
+  private DraftClone cloneDraft(
+      UUID sourceVersionId, ExpectedVersion expectedDefinitionVersion, CommandId commandId) {
     WorkflowVersion source = requireVersion(sourceVersionId);
     if (source.getStatus() != WorkflowVersionStatus.PUBLISHED
         && source.getStatus() != WorkflowVersionStatus.SUPERSEDED) {
@@ -123,11 +141,9 @@ public class WorkflowRollbackService {
     definition.assignActiveDraft(draftId, now);
     definitionRepository.saveAndFlush(definition);
     recordRollbackAudit(sourceVersionId, draftId, nextVersionNo, commandId, actor, now);
-
-    WorkflowPublishService.PublishResult published =
-        publishService.publish(draftId, new ExpectedVersion(draft.getLockVersion()), 0, commandId);
-    return new RollbackResult(
-        sourceVersionId, draftId, published.versionNo(), published.checksum());
+    return new DraftClone(
+        draft,
+        new CloneDraftResult(sourceVersionId, draftId, nextVersionNo, draft.getLockVersion()));
   }
 
   private void cloneContracts(UUID sourceVersionId, UUID draftId) {
@@ -256,4 +272,9 @@ public class WorkflowRollbackService {
 
   public record RollbackResult(
       UUID sourceVersionId, UUID publishedVersionId, int versionNo, String checksum) {}
+
+  public record CloneDraftResult(
+      UUID sourceVersionId, UUID draftVersionId, int versionNo, long lockVersion) {}
+
+  private record DraftClone(WorkflowVersion draft, CloneDraftResult result) {}
 }

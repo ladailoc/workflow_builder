@@ -36,6 +36,8 @@ public class WorkflowValidationService {
   private final ActorContextProvider actorContextProvider;
   private final UuidGenerator uuidGenerator;
   private final PlatformClock clock;
+  private final com.fpt.workflow.definition.repository.WorkflowInputDefinitionRepository inputRepository;
+  private final com.fpt.workflow.definition.repository.WorkflowStateDefinitionRepository stateRepository;
 
   public WorkflowValidationService(
       WorkflowVersionRepository versionRepository,
@@ -48,7 +50,11 @@ public class WorkflowValidationService {
       WorkflowValidationCompiler compiler,
       ActorContextProvider actorContextProvider,
       UuidGenerator uuidGenerator,
-      PlatformClock clock) {
+      PlatformClock clock,
+      @org.springframework.beans.factory.annotation.Autowired(required = false)
+          com.fpt.workflow.definition.repository.WorkflowInputDefinitionRepository inputRepository,
+      @org.springframework.beans.factory.annotation.Autowired(required = false)
+          com.fpt.workflow.definition.repository.WorkflowStateDefinitionRepository stateRepository) {
     this.versionRepository = versionRepository;
     this.nodeRepository = nodeRepository;
     this.edgeRepository = edgeRepository;
@@ -60,6 +66,8 @@ public class WorkflowValidationService {
     this.actorContextProvider = actorContextProvider;
     this.uuidGenerator = uuidGenerator;
     this.clock = clock;
+    this.inputRepository = inputRepository;
+    this.stateRepository = stateRepository;
   }
 
   @Transactional
@@ -122,12 +130,41 @@ public class WorkflowValidationService {
                 () ->
                     new ResourceNotFoundException(
                         "WORKFLOW_VERSION_NOT_FOUND", "WorkflowVersion was not found"));
+    // v2.4.1: the typed input/state contract rows travel with the definition so the compiler can
+    // validate inputs.* and business states against the exact pinned contract.
+    java.util.List<com.fpt.workflow.definition.domain.WorkflowInputDefinition> inputs =
+        inputRepository == null
+            ? java.util.List.of()
+            : inputRepository.findAllByWorkflowVersionIdOrderByOrdinalAsc(workflowVersionId);
+    java.util.List<com.fpt.workflow.definition.domain.WorkflowStateDefinition> states =
+        stateRepository == null
+            ? java.util.List.of()
+            : stateRepository.findAllByWorkflowVersionIdOrderByDisplayOrderAsc(workflowVersionId);
     return new ValidationDefinition(
         version,
         nodeRepository.findAllByWorkflowVersionIdOrderByNodeKeyAsc(workflowVersionId),
         edgeRepository.findAllByWorkflowVersionIdOrderByPriorityAscIdAsc(workflowVersionId),
         formRepository.findAllByWorkflowVersionIdOrderByFormKeyAsc(workflowVersionId),
-        variableRepository.findAllByWorkflowVersionIdOrderByKeyAsc(workflowVersionId));
+        variableRepository.findAllByWorkflowVersionIdOrderByKeyAsc(workflowVersionId),
+        inputs,
+        states);
+  }
+
+  @Transactional(readOnly = true)
+  @PreAuthorize("hasAnyRole('WORKFLOW_OWNER', 'WORKFLOW_EDITOR', 'OPERATOR', 'ADMIN')")
+  public com.fpt.workflow.definition.dto.WorkflowManagementDtos.ValidationView getLatestValidation(
+      UUID workflowVersionId) {
+    List<WorkflowValidationRun> runs =
+        runRepository.findAllByWorkflowVersionIdOrderByValidatedAtDesc(workflowVersionId);
+    if (!runs.isEmpty()) {
+      WorkflowValidationRun latest = runs.get(0);
+      List<WorkflowValidationIssue> issues =
+          issueRepository.findAllByValidationRunIdOrderBySeverityAscRuleCodeAsc(latest.getId());
+      return com.fpt.workflow.definition.dto.WorkflowManagementDtos.ValidationView.from(
+          latest, issues);
+    }
+    return com.fpt.workflow.definition.dto.WorkflowManagementDtos.ValidationView.from(
+        compileCurrent(workflowVersionId));
   }
 
   private int count(ValidationCompilation compilation, ValidationSeverity severity) {

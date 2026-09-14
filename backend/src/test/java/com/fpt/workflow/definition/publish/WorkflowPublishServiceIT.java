@@ -3,7 +3,9 @@ package com.fpt.workflow.definition.publish;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fpt.workflow.definition.domain.EdgeDefinition;
 import com.fpt.workflow.definition.domain.NodeDefinition;
 import com.fpt.workflow.definition.domain.RequestType;
@@ -15,6 +17,7 @@ import com.fpt.workflow.definition.repository.NodeDefinitionRepository;
 import com.fpt.workflow.definition.repository.RequestTypeRepository;
 import com.fpt.workflow.definition.repository.WorkflowDefinitionRepository;
 import com.fpt.workflow.definition.repository.WorkflowVersionRepository;
+import com.fpt.workflow.definition.validation.ValidationDefinition;
 import com.fpt.workflow.definition.validation.WorkflowValidationService;
 import com.fpt.workflow.operations.audit.AuditEventRepository;
 import com.fpt.workflow.runtime.domain.Event;
@@ -37,6 +40,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.core.env.ConfigurableEnvironment;
+import org.springframework.core.env.MapPropertySource;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -60,6 +65,7 @@ class WorkflowPublishServiceIT {
           .withPassword("workflow_test");
 
   @Autowired private WorkflowPublishService publishService;
+  @Autowired private ExecutionPackageCompiler packageCompiler;
   @Autowired private WorkflowValidationService validationService;
   @Autowired private WorkflowDefinitionRepository definitionRepository;
   @Autowired private WorkflowVersionRepository versionRepository;
@@ -71,6 +77,7 @@ class WorkflowPublishServiceIT {
   @Autowired private TicketRevisionRepository ticketRevisionRepository;
   @Autowired private EventRepository eventRepository;
   @Autowired private ObjectMapper objectMapper;
+  @Autowired private ConfigurableEnvironment environment;
 
   @Test
   @WithMockActor(roles = "WORKFLOW_OWNER")
@@ -92,6 +99,30 @@ class WorkflowPublishServiceIT {
     assertThat(result.status()).isEqualTo(WorkflowVersionStatus.PUBLISHED);
     assertThat(published.getExecutionPackageJson().path("executionPackageSchemaVersion").asInt())
         .isEqualTo(1);
+    assertThat(
+            published
+                .getExecutionPackageJson()
+                .path("platformSemanticDefaults")
+                .path("schemaVersion")
+                .asInt())
+        .isEqualTo(1);
+    assertThat(
+            published
+                .getExecutionPackageJson()
+                .path("platformSemanticDefaults")
+                .path("subWorkflow")
+                .path("versionResolution")
+                .asText())
+        .isEqualTo("RESOLVE_AT_ACTIVATION");
+    assertThat(
+            published
+                .getExecutionPackageJson()
+                .path("nodes")
+                .get(0)
+                .path("effectiveConfig")
+                .path("routingMode")
+                .asText())
+        .isEqualTo("NONE");
     assertThat(published.getChecksum()).isEqualTo(result.checksum()).hasSize(64);
     assertThat(definition.getCurrentPublishedVersionId()).isEqualTo(published.getId());
     assertThat(definition.getActiveDraftVersionId()).isNull();
@@ -131,6 +162,87 @@ class WorkflowPublishServiceIT {
         .isEqualTo(WorkflowVersionStatus.SUPERSEDED);
     assertThat(eventRepository.findById(oldEvent.getId()).orElseThrow().getWorkflowVersionId())
         .isEqualTo(first.version().getId());
+  }
+
+  @Test
+  @WithMockActor(roles = "WORKFLOW_OWNER")
+  void compilerMaterializesEffectivePlatformDefaultsIntoPackageChecksum() {
+    Fixture fixture = fixture("defaults");
+    NodeDefinition subWorkflow =
+        node(fixture.version(), "child", "SUB_WORKFLOW", objectMapper.createObjectNode());
+    NodeDefinition systemAction =
+        node(fixture.version(), "system", "SYSTEM_ACTION", objectMapper.createObjectNode());
+
+    ExecutionPackageCompiler.CompiledExecutionPackage compiled =
+        packageCompiler.compile(
+            new ValidationDefinition(
+                fixture.version(), List.of(subWorkflow, systemAction), List.of(), List.of(), List.of()));
+
+    assertThat(compiled.checksum()).hasSize(64);
+    assertThat(compiled.json().path("platformSemanticDefaults").path("resolvedAt").asText())
+        .isEqualTo("PUBLISH");
+    assertThat(effectiveConfig(compiled.json(), "child").path("executionMode").asText())
+        .isEqualTo("WAIT_FOR_COMPLETION");
+    assertThat(effectiveConfig(compiled.json(), "child").path("cancellationPolicy").asText())
+        .isEqualTo("PROPAGATE");
+    assertThat(effectiveConfig(compiled.json(), "child").path("failureStrategy").asText())
+        .isEqualTo("ROUTE_FAILED");
+    assertThat(effectiveConfig(compiled.json(), "child").path("childVersionResolution").asText())
+        .isEqualTo("RESOLVE_AT_ACTIVATION");
+    assertThat(effectiveConfig(compiled.json(), "system").path("actionVersion").asInt()).isEqualTo(1);
+    assertThat(effectiveConfig(compiled.json(), "system").path("asyncCallback").asBoolean()).isFalse();
+  }
+
+  @Test
+  @WithMockActor(roles = "WORKFLOW_OWNER")
+  void publishFreezesRuntimeSemanticDefaultsPerVersionAndEvent() {
+    String sourceName = "p2-24-semantic-defaults-" + UUID.randomUUID();
+    java.util.Map<String, Object> values = new java.util.HashMap<>();
+    values.put(
+        "workflow.semantic-defaults.routing.routing-node-mode", "EXCLUSIVE_CONDITIONAL");
+    environment.getPropertySources().addFirst(new MapPropertySource(sourceName, values));
+    try {
+      Fixture first = fixture("defaults_a");
+      publishService.publish(
+          first.version().getId(), new ExpectedVersion(0), 0, new CommandId(UUID.randomUUID()));
+      Event oldEvent = eventBoundTo(first);
+
+      values.put("workflow.semantic-defaults.routing.routing-node-mode", "ALL_OUTGOING");
+      Fixture second =
+          nextDraft(definitionRepository.findById(first.definition().getId()).orElseThrow(), 2);
+      publishService.publish(
+          second.version().getId(), new ExpectedVersion(0), 0, new CommandId(UUID.randomUUID()));
+      Event newEvent = eventBoundTo(second);
+
+      NodeDefinition oldRuntimeNode =
+          nodeRepository
+              .findByWorkflowVersionIdAndNodeKey(oldEvent.getWorkflowVersionId(), "start")
+              .orElseThrow();
+      NodeDefinition newRuntimeNode =
+          nodeRepository
+              .findByWorkflowVersionIdAndNodeKey(newEvent.getWorkflowVersionId(), "start")
+              .orElseThrow();
+      assertThat(oldRuntimeNode.getConfigJson().path("routingMode").asText())
+          .isEqualTo("EXCLUSIVE_CONDITIONAL");
+      assertThat(newRuntimeNode.getConfigJson().path("routingMode").asText())
+          .isEqualTo("ALL_OUTGOING");
+      assertThat(
+              effectiveConfig(
+                      versionRepository.findById(oldEvent.getWorkflowVersionId()).orElseThrow(),
+                      "start")
+                  .path("routingMode")
+                  .asText())
+          .isEqualTo("EXCLUSIVE_CONDITIONAL");
+      assertThat(
+              effectiveConfig(
+                      versionRepository.findById(newEvent.getWorkflowVersionId()).orElseThrow(),
+                      "start")
+                  .path("routingMode")
+                  .asText())
+          .isEqualTo("ALL_OUTGOING");
+    } finally {
+      environment.getPropertySources().remove(sourceName);
+    }
   }
 
   @Test
@@ -214,6 +326,10 @@ class WorkflowPublishServiceIT {
   }
 
   private NodeDefinition node(WorkflowVersion version, String key, String type) {
+    return node(version, key, type, objectMapper.createObjectNode());
+  }
+
+  private NodeDefinition node(WorkflowVersion version, String key, String type, ObjectNode config) {
     return NodeDefinition.create(
         UUID.randomUUID(),
         version.getId(),
@@ -222,10 +338,23 @@ class WorkflowPublishServiceIT {
         key,
         null,
         1,
-        objectMapper.createObjectNode(),
+        config,
         null,
         null,
         objectMapper.createObjectNode());
+  }
+
+  private JsonNode effectiveConfig(WorkflowVersion version, String nodeKey) {
+    return effectiveConfig(version.getExecutionPackageJson(), nodeKey);
+  }
+
+  private JsonNode effectiveConfig(JsonNode executionPackage, String nodeKey) {
+    for (JsonNode node : executionPackage.path("nodes")) {
+      if (node.path("key").asText().equals(nodeKey)) {
+        return node.path("effectiveConfig");
+      }
+    }
+    throw new AssertionError("No node in package: " + nodeKey);
   }
 
   private Event eventBoundTo(Fixture fixture) {

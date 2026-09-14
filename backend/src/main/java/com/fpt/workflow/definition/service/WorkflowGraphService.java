@@ -21,8 +21,12 @@ import com.fpt.workflow.shared.domain.ExpectedVersion;
 import com.fpt.workflow.shared.domain.OptimisticVersionGuard;
 import com.fpt.workflow.shared.transaction.TransactionalCommand;
 import com.fpt.workflow.shared.transaction.TransactionalQuery;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
@@ -203,6 +207,105 @@ public class WorkflowGraphService {
     edgeDefinitionRepository.delete(edge);
     WorkflowVersion savedVersion = workflowVersionRepository.saveAndFlush(version);
     return WorkflowGraphDtos.DraftState.from(savedVersion);
+  }
+
+  @PreAuthorize("hasAnyRole('WORKFLOW_OWNER', 'WORKFLOW_EDITOR', 'ADMIN')")
+  @TransactionalCommand
+  public WorkflowGraphDtos.GraphView replaceGraph(
+      UUID workflowVersionId,
+      WorkflowGraphDtos.ReplaceGraph request,
+      ExpectedVersion expectedVersion,
+      long expectedRevision) {
+    WorkflowVersion version =
+        beginGraphMutation(workflowVersionId, expectedVersion, expectedRevision);
+    Map<String, WorkflowGraphDtos.GraphNode> requestedNodes = new LinkedHashMap<>();
+    Set<String> nodeKeys = new HashSet<>();
+    for (WorkflowGraphDtos.GraphNode node : request.nodes()) {
+      if (node.clientRef() == null || node.clientRef().isBlank()) {
+        throw new UnprocessableCommandException(
+            "WORKFLOW_GRAPH_CLIENT_REF_REQUIRED", "Every graph node requires a clientRef");
+      }
+      if (requestedNodes.putIfAbsent(node.clientRef(), node) != null) {
+        throw new UnprocessableCommandException(
+            "WORKFLOW_GRAPH_CLIENT_REF_DUPLICATE", "Graph node clientRef must be unique");
+      }
+      if (!nodeKeys.add(node.nodeKey())) {
+        throw new CommandConflictException(
+            "WORKFLOW_NODE_KEY_CONFLICT", "Node key already exists in this WorkflowVersion");
+      }
+      validateNodeManifest(
+          node.nodeKey(), node.nodeType(), node.configSchemaVersion(), node.configJson());
+    }
+
+    Set<String> edgeRefs = new HashSet<>();
+    for (WorkflowGraphDtos.GraphEdge edge : request.edges()) {
+      if (edge.clientRef() == null
+          || edge.clientRef().isBlank()
+          || !edgeRefs.add(edge.clientRef())) {
+        throw new UnprocessableCommandException(
+            "WORKFLOW_EDGE_CLIENT_REF_INVALID", "Graph edge clientRef must be present and unique");
+      }
+      WorkflowGraphDtos.GraphNode source = requestedNodes.get(edge.sourceClientRef());
+      if (source == null || !requestedNodes.containsKey(edge.targetClientRef())) {
+        throw new UnprocessableCommandException(
+            "WORKFLOW_EDGE_NODE_MISSING", "Every edge endpoint must reference a submitted node");
+      }
+      NodeTypeManifest sourceManifest = manifest(source.nodeType());
+      if (!sourceManifest.outputPorts().contains(edge.sourcePort())) {
+        throw new UnprocessableCommandException(
+            "NODE_OUTPUT_PORT_UNKNOWN",
+            "Edge sourcePort is not declared by the source node manifest");
+      }
+    }
+
+    edgeDefinitionRepository.deleteAllByWorkflowVersionId(workflowVersionId);
+    edgeDefinitionRepository.flush();
+    nodeDefinitionRepository.deleteAllByWorkflowVersionId(workflowVersionId);
+    nodeDefinitionRepository.flush();
+
+    Map<String, NodeDefinition> persistedByClientRef = new LinkedHashMap<>();
+    for (WorkflowGraphDtos.GraphNode requested : request.nodes()) {
+      NodeDefinition node =
+          NodeDefinition.create(
+              uuidGenerator.generate(),
+              workflowVersionId,
+              requested.nodeKey(),
+              requested.nodeType(),
+              requested.name(),
+              requested.description(),
+              requested.configSchemaVersion(),
+              requested.configJson(),
+              requested.inputSchemaJson(),
+              requested.outputSchemaJson(),
+              requested.positionJson());
+      persistedByClientRef.put(requested.clientRef(), node);
+    }
+    List<NodeDefinition> savedNodes =
+        nodeDefinitionRepository.saveAllAndFlush(persistedByClientRef.values());
+
+    List<EdgeDefinition> savedEdges =
+        edgeDefinitionRepository.saveAllAndFlush(
+            request.edges().stream()
+                .map(
+                    edge ->
+                        EdgeDefinition.create(
+                            uuidGenerator.generate(),
+                            workflowVersionId,
+                            persistedByClientRef.get(edge.sourceClientRef()).getId(),
+                            edge.sourcePort(),
+                            persistedByClientRef.get(edge.targetClientRef()).getId(),
+                            edge.conditionJson(),
+                            edge.priority(),
+                            edge.defaultTransition(),
+                            edge.transitionType(),
+                            edge.label(),
+                            edge.configJson()))
+                .toList());
+    WorkflowVersion savedVersion = workflowVersionRepository.saveAndFlush(version);
+    return new WorkflowGraphDtos.GraphView(
+        savedNodes.stream().map(WorkflowGraphDtos.NodeView::from).toList(),
+        savedEdges.stream().map(WorkflowGraphDtos.EdgeView::from).toList(),
+        WorkflowGraphDtos.DraftState.from(savedVersion));
   }
 
   @TransactionalQuery
