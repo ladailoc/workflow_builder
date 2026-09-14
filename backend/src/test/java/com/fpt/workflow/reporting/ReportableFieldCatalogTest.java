@@ -73,4 +73,30 @@ class ReportableFieldCatalogTest {
 
     assertThat(new ReportableFieldCatalog().fields(form)).isEmpty();
   }
+
+  @Test
+  void readsCanonicalNestedTypeAndSemanticMetadata() throws Exception {
+    var json =
+        new ObjectMapper()
+            .readTree(
+                """
+                {"fields":[{
+                  "key":"amount",
+                  "type":{"type":"MONEY","nullable":false},
+                  "semantics":{"filterable":true,"reportable":true,"searchable":false}
+                }]}
+                """);
+    WorkflowForm form =
+        WorkflowForm.create(
+            UUID.randomUUID(),
+            UUID.randomUUID(),
+            "ticket",
+            WorkflowFormType.TICKET_FORM,
+            json,
+            "checksum");
+
+    assertThat(new ReportableFieldCatalog().fields(form))
+        .containsExactly(
+            new ReportableFieldCatalog.FieldProjection("amount", "MONEY", false, true, true));
+  }
 }

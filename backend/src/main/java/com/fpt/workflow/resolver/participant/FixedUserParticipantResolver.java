@@ -20,4 +20,38 @@ public final class FixedUserParticipantResolver implements ParticipantResolver {
     }
     return UUID.fromString(context.config().path("userId").asText());
   }
+
+  @Override
+  public com.fpt.workflow.resolver.domain.ParticipantResolutionResult resolveResult(
+      ParticipantResolverContext context) {
+    com.fasterxml.jackson.databind.JsonNode config = context.config();
+    java.util.List<UUID> users = new java.util.ArrayList<>();
+    if (config.hasNonNull("userId")) {
+      try {
+        users.add(UUID.fromString(config.path("userId").asText()));
+      } catch (IllegalArgumentException ignored) {
+      }
+    }
+    if (config.path("users").isArray()) {
+      for (com.fasterxml.jackson.databind.JsonNode u : config.path("users")) {
+        try {
+          users.add(UUID.fromString(u.asText()));
+        } catch (IllegalArgumentException ignored) {
+        }
+      }
+    }
+    if (config.path("userIds").isArray()) {
+      for (com.fasterxml.jackson.databind.JsonNode u : config.path("userIds")) {
+        try {
+          users.add(UUID.fromString(u.asText()));
+        } catch (IllegalArgumentException ignored) {
+        }
+      }
+    }
+    if (users.isEmpty()) {
+      return com.fpt.workflow.resolver.domain.ParticipantResolutionResult.notFound(
+          "FIXED_USER requires userId or users array", type());
+    }
+    return com.fpt.workflow.resolver.domain.ParticipantResolutionResult.resolved(users, type());
+  }
 }

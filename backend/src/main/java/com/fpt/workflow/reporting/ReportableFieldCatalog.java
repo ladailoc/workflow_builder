@@ -18,12 +18,20 @@ public class ReportableFieldCatalog {
     List<FieldProjection> result = new ArrayList<>();
     fields.forEach(
         field -> {
-          boolean searchable = field.path("searchable").asBoolean(false);
-          boolean filterable = field.path("filterable").asBoolean(false);
-          boolean reportable = field.path("reportable").asBoolean(false);
+          JsonNode semantics = field.path("semantics");
+          boolean searchable =
+              semantics.path("searchable").asBoolean(field.path("searchable").asBoolean(false));
+          boolean filterable =
+              semantics.path("filterable").asBoolean(field.path("filterable").asBoolean(false));
+          boolean reportable =
+              semantics.path("reportable").asBoolean(field.path("reportable").asBoolean(false));
           if (searchable || filterable || reportable) {
             String key = field.path("key").asText();
-            String type = field.path("type").isTextual() ? field.path("type").asText() : "OBJECT";
+            JsonNode typeNode = field.path("type");
+            String type =
+                typeNode.isTextual()
+                    ? typeNode.asText()
+                    : typeNode.path("type").asText("OBJECT");
             if (!key.isBlank()) {
               result.add(new FieldProjection(key, type, searchable, filterable, reportable));
             }

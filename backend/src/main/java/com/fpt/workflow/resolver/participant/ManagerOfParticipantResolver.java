@@ -23,23 +23,36 @@ public final class ManagerOfParticipantResolver implements ParticipantResolver {
   }
 
   public Set<String> configProperties() {
-    return Set.of("type", "depth");
+    return Set.of("type", "depth", "subject");
   }
 
   public UUID resolve(ParticipantResolverContext context) {
     int depth = context.config().path("depth").asInt(1);
     if (depth < 1) throw new IllegalArgumentException("MANAGER_OF depth must be positive");
+    UUID targetUserId = context.subjectUserId();
+    if (targetUserId == null) {
+      throw new IllegalArgumentException("MANAGER_OF subject did not resolve to a user");
+    }
+    return hierarchy.resolveManagerAtDepth(
+        targetUserId,
+        depth,
+        context.resolvedAt().atOffset(ZoneOffset.UTC).toLocalDate());
+  }
+
+  @Override
+  public com.fpt.workflow.resolver.domain.ParticipantResolutionResult resolveResult(
+      ParticipantResolverContext context) {
+    if (context.subjectUserId() == null) {
+      return com.fpt.workflow.resolver.domain.ParticipantResolutionResult.notFound(
+          "MANAGER_OF subject did not resolve to a user", type());
+    }
     try {
-      return hierarchy.resolveManagerAtDepth(
-          context.referenceUserId(),
-          depth,
-          context.resolvedAt().atOffset(ZoneOffset.UTC).toLocalDate());
-    } catch (ManagerNotFoundException exception) {
-      LOGGER.warn(
-          "MANAGER_OF resolution failed for user {} depth {}; using explicit creator fallback",
-          context.referenceUserId(),
-          depth);
-      return context.creatorId();
+      UUID managerId = resolve(context);
+      return com.fpt.workflow.resolver.domain.ParticipantResolutionResult.resolved(managerId, type());
+    } catch (ManagerNotFoundException ex) {
+      return com.fpt.workflow.resolver.domain.ParticipantResolutionResult.vacant(ex.getMessage(), type());
+    } catch (Exception ex) {
+      return com.fpt.workflow.resolver.domain.ParticipantResolutionResult.failed(ex.getMessage(), type());
     }
   }
 }

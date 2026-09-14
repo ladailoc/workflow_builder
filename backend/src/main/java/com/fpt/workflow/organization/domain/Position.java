@@ -31,6 +31,10 @@ public class Position {
   @Column(name = "is_head_of_unit", nullable = false)
   private boolean headOfUnit;
 
+  /** Depth from the position-tree root (root = 1). Maintained alongside position_closure. */
+  @Column(nullable = false)
+  private int level = 1;
+
   @Column(nullable = false, length = 32)
   private String status;
 
@@ -111,6 +115,18 @@ public class Position {
 
   public boolean isHeadOfUnit() {
     return headOfUnit;
+  }
+
+  public int getLevel() {
+    return level;
+  }
+
+  /** Assigns the depth level (root = 1); maintained by hierarchy maintenance code. */
+  public void assignLevel(int level) {
+    if (level < 1) {
+      throw new IllegalArgumentException("level must be >= 1");
+    }
+    this.level = level;
   }
 
   public String getStatus() {

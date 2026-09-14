@@ -32,6 +32,16 @@ public final class ParticipantResolverRegistry {
     return require(type).resolve(context);
   }
 
+  public com.fpt.workflow.resolver.domain.ParticipantResolutionResult resolveResult(
+      String type, ParticipantResolverContext context) {
+    return require(type).resolveResult(context);
+  }
+
+  public boolean hasResolver(String type) {
+    if (type == null || type.isBlank()) return false;
+    return resolvers.containsKey(normalize(type));
+  }
+
   public List<ParticipantResolverValidationIssue> validate(JsonNode config) {
     if (config == null || !config.isObject()) {
       return List.of(
