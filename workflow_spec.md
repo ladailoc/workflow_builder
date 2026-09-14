@@ -2,29 +2,29 @@
 
 **TÀI LIỆU ĐẶC TẢ HỆ THỐNG & KIẾN TRÚC RUNTIME**
 
-FINAL FULL EXPANDED SPECIFICATION v2.3
+FINAL FULL EXPANDED SPECIFICATION v2.4.1
 
-Workflow Builder • Request Type • Ticket • Event Runtime • Node Configuration • Dynamic Form • Organization Hierarchy • Participant Engine • Routing • Validation • Multi-instance • Sub-workflow • Integration • Reliability
+Workflow Builder • Form Catalog • Ticket Category • Workflow Input Contract • Ticket • Event Runtime • Node Configuration • Organization Hierarchy • Participant Engine • Routing • Validation • Multi-instance • Sub-workflow • Integration • Reliability
 
 |  |
 | --- |
-| TRẠNG THÁI: Bản FULL EXPANDED. Giữ nguyên toàn bộ quyết định cuối của v2.1 và bảo lưu đầy đủ các chi tiết kỹ thuật, ví dụ, bảng, rule và checklist của v2.0 để không bị rút gọn. Phần v2.3/v2.1 ở thân chính là semantics ưu tiên khi có khác biệt. |
+| TRẠNG THÁI: Bản FULL EXPANDED v2.4.1. Giữ toàn bộ runtime/database baseline đã chốt trước đó và làm rõ create-ticket semantics: Form là reusable versioned resource độc lập; Workflow có typed Input Contract; TicketCategoryVersion là versioned binding giữa exact FormVersion + exact WorkflowVersion + explicit Mapping. Business Intent của user/application xác định categoryKey trước khi render Form; Form không được dùng để suy ra Workflow. Không có TicketEntryPoint subsystem trong baseline. Chương 34 là normative override cho các tham chiếu legacy xung đột. |
 
 |  |  |
 | --- | --- |
-| **Phiên bản** | 2.2 – Full Expanded Consolidated Baseline |
-| **Ngày chốt** | 03/09/2026 |
-| **Thay thế** | Workflow\_Platform\_Final\_Detailed\_Specification\_v2.2\_FULL\_EXPANDED |
-| **Mục tiêu** | Đủ rõ để chuyển trực tiếp sang physical ERD, PostgreSQL schema/Flyway migrations, Java runtime, REST APIs, React Flow Builder và integration/concurrency tests |
-| **Quy tắc thay đổi** | Thay đổi semantics nền tảng hoặc physical DB invariant sau v2.3 phải được ghi nhận bằng ADR / decision record mới |
+| **Phiên bản** | 2.4.1 – Full Expanded Business Intent / Form / Workflow / Category Binding Baseline |
+| **Ngày chốt** | 13/09/2026 |
+| **Thay thế** | Workflow\_Platform\_Final\_Detailed\_Specification\_v2.3\_FULL\_EXPANDED\_DATABASE\_BASELINE |
+| **Mục tiêu** | Source of truth cho Business Intent → categoryKey → TicketCategoryVersion, Form Catalog, Ticket Category Binding, Workflow Input Contract, runtime engine, physical DB, API, Admin/User UI và implementation migration. |
+| **Quy tắc thay đổi** | Thay đổi foundational sau v2.4.1 phải có ADR; mọi implementation phải đối chiếu workflow\_spec.md và Chapter 34 trước khi sửa code. |
 
 # 0. Thông tin tài liệu, phạm vi và quyết định nền tảng
 
-LƯU Ý VỀ TÍNH ĐẦY ĐỦ: Phần chính của tài liệu giữ toàn bộ quyết định cuối của v2.1. Phụ lục E bảo lưu đầy đủ chi tiết triển khai từ baseline v2.0 (không lược bỏ), bao gồm các ví dụ, bảng, command/state rule, API, test, roadmap và checklist. Nếu có khác biệt semantics, quyết định ở phần chính v2.3/v2.1 có hiệu lực ưu tiên.
+LƯU Ý VỀ TÍNH ĐẦY ĐỦ: Bản v2.4.1 giữ nguyên các runtime semantics đã chốt (routing token-driven, participant snapshot, multi-instance, join, rework, version immutability, idempotency, integration/outbox, organization hierarchy và database invariants), đồng thời làm rõ boundary Form/Ticket creation. Chương 34 là normative override cho mọi nội dung cũ còn nói TicketFormSchema thuộc WorkflowVersion, TicketCategory map trực tiếp WorkflowDefinition, hoặc Form được dùng để tự suy ra Workflow.
 
 ## 0.1 Mục đích
 
-Tài liệu này mô tả kiến trúc đích cho một Workflow Platform nội bộ có khả năng định nghĩa, publish, thực thi, theo dõi và mở rộng quy trình nghiệp vụ mà không hard-code theo từng workflow. Bản v2.1 tập trung làm rõ các boundary thường gây lỗi khi triển khai thực tế: cấu hình node, cách chọn node tiếp theo, form đầu vào của Ticket, yêu cầu bổ sung thông tin, validation/publish gate, hierarchy nhân sự, concurrency, integration và recovery.
+Tài liệu này mô tả kiến trúc đích cho Workflow Platform reusable giữa nhiều hệ thống. v2.4.1 làm Form, Workflow và Ticket Category thành ba resource độc lập: Form thu thập dữ liệu, Workflow xử lý typed inputs, TicketCategoryVersion bind/version/map hai phía. User/application thể hiện Business Intent; Business Intent được biểu diễn bằng categoryKey ổn định để chọn đúng Published TicketCategoryVersion trước khi render Form.
 
 ## 0.2 Các invariant đã chốt
 
@@ -35,7 +35,13 @@ Tài liệu này mô tả kiến trúc đích cho một Workflow Platform nội 
 * NodeDefinition là cấu hình; NodeExecution là occurrence runtime. Một NodeDefinition có thể có nhiều execution do rework, loop hoặc multi-instance.
 * NodeHandler không chọn node tiếp theo. EdgeDefinition + RoutingService là source of truth duy nhất cho routing.
 * Participant được resolve tại activation và snapshot. Organization thay đổi không âm thầm đổi task đang active.
-* Ticket Creator không được thêm field tùy ý. Chỉ Workflow Owner/Editor thay đổi Workflow Form Schema trên Draft.
+* Form là reusable/versioned resource độc lập. Ticket Creator chỉ điền Form theo Published TicketCategoryVersion; không sửa schema. Workflow không sở hữu create-ticket Form và không phụ thuộc Form fieldKey.
+* TicketCategoryVersion pin exact FormVersion + exact WorkflowVersion + explicit CategoryMapping; một create-ticket request đã xác định categoryKey mặc định chỉ start một Primary Workflow.
+* Business Intent/categoryKey là discriminator để chọn TicketCategoryVersion. FormVersion không phải Workflow selector; nếu một Form được nhiều Category/Workflow reuse thì cùng formId không đủ để chọn Workflow.
+* Baseline không có TicketEntryPoint entity/service riêng. UI có thể hiển thị business-friendly label như “Báo sự cố IT”, “Yêu cầu mua thiết bị”; frontend/backend chỉ cần truyền categoryKey tương ứng.
+* Workflow khai báo typed WorkflowInputContract và runtime ưu tiên inputs.\*; original FormSubmission được giữ riêng để audit/revision.
+* semanticTag/businessConcept là metadata optional cho design-time suggestion; explicit Published CategoryMapping là source of truth runtime.
+* Không silent implicit default cho required WorkflowInput; unresolved required mapping là blocking Category validation error.
 * Reviewer/Approver có thể REQUEST\_REVISION và yêu cầu Runtime Requested Fields cho riêng Ticket/revision; chúng không làm thay đổi WorkflowVersion.
 * Runtime sử dụng at-least-once + idempotency; không giả định exactly-once.
 * Mọi state-changing operation là command có authorization, state guard, expected version/revision, idempotency và audit.
@@ -56,7 +62,7 @@ Tài liệu này mô tả kiến trúc đích cho một Workflow Platform nội 
 |  |  |
 | --- | --- |
 | **Thuật ngữ** | **Định nghĩa chốt** |
-| Request Type | Loại yêu cầu nghiệp vụ user chọn khi tạo Ticket; map tới WorkflowDefinition. |
+| Ticket Category | Versioned business-use-case/binding được xác định bằng categoryKey; Published CategoryVersion pin exact FormVersion + WorkflowVersion + mapping. User không cần biết thuật ngữ kỹ thuật “Ticket Category”. |
 | Ticket | Business request/case và dữ liệu nghiệp vụ do user tạo. |
 | Event | Runtime instance chạy một WorkflowVersion cho Ticket. |
 | WorkflowDefinition | Identity/capability của một workflow qua nhiều version. |
@@ -69,6 +75,13 @@ Tài liệu này mô tả kiến trúc đích cho một Workflow Platform nội 
 | Runtime Requested Field | Field phát sinh khi REQUEST\_REVISION, chỉ áp dụng Ticket/Event/revision hiện tại. |
 | Organization Unit | Đơn vị tổ chức: company/division/department/team. |
 | Position | Chức danh/vị trí trong reporting hierarchy. |
+| FormDefinition | Identity của reusable Form qua nhiều version. |
+| FormVersion | Immutable published schema/rules của một Form. |
+| WorkflowInput | Typed input contract mà Workflow consume qua namespace inputs.\*. |
+| CategoryMapping | Explicit versioned mapping từ Form/System Context/Constant/Expression/Default sang WorkflowInput. |
+| WorkflowState | User-facing business state; tách khỏi technical Event/NodeExecution status. |
+| Business Intent | Ý định/nghiệp vụ user muốn thực hiện, ví dụ “Báo sự cố IT”. Đây là UX/business concept, không phải entity mới; nó xác định categoryKey. |
+| categoryKey | Stable key của TicketCategory dùng để chọn đúng Published TicketCategoryVersion trước khi render/submit Form. Không suy categoryKey từ formId. |
 
 # MỤC LỤC NỘI DUNG
 
@@ -76,15 +89,15 @@ Tài liệu này mô tả kiến trúc đích cho một Workflow Platform nội 
 
 2. Domain model và boundary Definition–Ticket–Event
 
-3. Request Catalog, Ticket Creation và Workflow Selection
+3. Form Catalog, Ticket Category và Workflow Binding
 
 4. WorkflowVersion và Immutable Execution Package
 
 5. Node Configuration Contract và NodeType Registry
 
-6. Dynamic Form Engine, Ticket Form và Runtime Requested Fields
+6. Reusable Form Engine, Form Submission và Runtime Requested Fields
 
-7. EventContext, Canonical Type System, Mapping và Expression
+7. EventContext, Workflow Inputs, Mapping và Expression
 
 8. Organization & Personnel Hierarchy
 
@@ -120,23 +133,27 @@ Tài liệu này mô tả kiến trúc đích cho một Workflow Platform nội 
 
 24. Monitoring, Audit, Operational Recovery và Outbox
 
-25. Mô hình dữ liệu vật lý & Database Design chốt
+25. Mô hình dữ liệu vật lý & Database Design chốt (v2.4 override)
 
 26. API Contract khuyến nghị
 
 27. Backend module/component architecture
 
-28. Frontend Workflow Builder & Runtime UI
+28. Frontend Admin Builder & User Runtime UI
 
 29. Security, Privacy, Retention và Data Handling
 
 30. Test Strategy & Acceptance Criteria
+
+v2.4.1 bắt buộc bổ sung test Form/Category binding và selection: N Form→1 Workflow; 1 Form→N Workflow qua Category; Business Intent/categoryKey chọn đúng CategoryVersion; submit một resolved Category không fan-out; formId-only ambiguous phải fail; mapping/default/type validation; pinned version immutability; stale form/category checksum; original FormSubmission vs WorkflowInputSnapshot; business state history.
 
 31. Roadmap triển khai
 
 32. Anti-pattern và implementation rules
 
 33. Checklist & Definition of Done
+
+34. v2.4.1 Business Intent–Form–Workflow–Ticket Category Binding Baseline (Normative Override)
 
 Phụ lục A–E. JSON mẫu, state matrix, runtime pseudocode, decision log và toàn bộ chi tiết kỹ thuật bảo lưu từ v2.0
 
@@ -148,7 +165,7 @@ Runtime engine chỉ hiểu các primitive generic: node type, edge, port, condi
 
 |  |
 | --- |
-| WorkflowDefinition  └─ WorkflowVersion  ├─ TicketFormSchema  ├─ TriggerDefinition  ├─ VariableDefinition[]  ├─ NodeDefinition[]  ├─ EdgeDefinition[]  ├─ ParticipantRule[]  └─ Policies / Metadata  Ticket  └─ Event  ├─ EventContext  ├─ NodeExecution[]  │ └─ TaskExecution[]  ├─ ParticipantSnapshot[]  ├─ IntegrationExecution[]  ├─ SLAExecution[]  └─ AuditEvent[] |
+| FormDefinition  └─ FormVersion  └─ FormFieldDefinition[]  WorkflowDefinition  └─ WorkflowVersion  ├─ WorkflowInputDefinition[]  ├─ WorkflowStateDefinition[]  ├─ TriggerDefinition  ├─ VariableDefinition[]  ├─ NodeDefinition[]  ├─ EdgeDefinition[]  └─ Policies / Metadata  TicketCategory  └─ TicketCategoryVersion  ├─ exact FormVersion  ├─ exact WorkflowVersion  └─ CategoryMapping[]  Ticket  ├─ FormSubmission / TicketRevision  └─ Event  ├─ WorkflowInputSnapshot  ├─ NodeExecution[] → TaskExecution[]  ├─ ParticipantSnapshot[]  └─ Integration/SLA/Audit[] |
 
 ## 1.2 Bốn lớp dynamic
 
@@ -182,7 +199,7 @@ Runtime engine chỉ hiểu các primitive generic: node type, edge, port, condi
 
 |  |
 | --- |
-| Ticket  id, requestType, creatorId, status, dataJson, dataRevision  Event  id, ticketId, workflowVersionId  status, outcome, rootEventId, parentEventId?  NodeExecution  id, eventId, nodeDefinitionId  cycleId, iteration, pathToken, itemToken?  status, outcomePort, inputSnapshot, outputSnapshot  TaskExecution  id, nodeExecutionId  assignee/candidates, status, outcome, dueAt |
+| Ticket  id, ticketCategoryVersionId, creatorId, status  currentBusinessStateKey, currentFormSubmissionId, dataRevision  Event  id, ticketId, workflowVersionId, startedTicketRevisionId  status, outcome, rootEventId, parentEventId?  workflowInputSnapshot / inputRevision  NodeExecution  id, eventId, nodeDefinitionId  cycleId, iteration, pathToken, itemToken?  status, outcomePort, inputSnapshot, outputSnapshot  TaskExecution  id, nodeExecutionId  assignee/candidates, status, outcome, dueAt |
 
 ## 2.3 NodeDefinition ≠ NodeExecution
 
@@ -205,66 +222,141 @@ Không đặt unique(eventId, nodeDefinitionId). Rework hoặc loop tạo occurr
 | --- |
 | **QUYẾT ĐỊNH CHỐT:** Reject task không phải TaskStatus.REJECTED. Task hoàn thành với outcome=REJECTED; node aggregation tạo outcomePort=REJECTED rồi RoutingService xử lý. |
 
-# 3. Request Catalog, Ticket Creation và Workflow Selection
+# 3. Form Catalog, Ticket Category và Workflow Binding
 
-## 3.1 End user chọn Request Type, không chọn workflow kỹ thuật
+## 3.1 Ba tài nguyên độc lập
 
-|  |
-| --- |
-| Create Ticket  ↓  Choose Request Type  ↓  Resolve active WorkflowDefinition  ↓  Load current Published TicketFormSchema  ↓  Render Dynamic Form  ↓  Submit  ↓  Resolve current Published version again  ↓  Validate ticket data  ↓  Create Ticket + Event + bind version |
+Kiến trúc v2.4.1 tách Form, Workflow và Ticket Category thành ba resource độc lập. Form chỉ mô tả dữ liệu cần thu thập; Workflow chỉ mô tả cách xử lý; TicketCategoryVersion là binding contract gắn một FormVersion với một WorkflowVersion thông qua explicit mapping. Business Intent/categoryKey xác định binding nào được dùng.
 
-UI hiển thị business capability như Nghỉ phép, Mua hàng, Cấp quyền, Đánh giá nhân viên. Workflow name/version chỉ dành cho Owner/Admin/Operator.
+FORM = WHAT DATA TO COLLECT
+TICKET CATEGORY = WHAT BUSINESS REQUEST THIS IS + BINDING CONTRACT
+WORKFLOW = HOW TO PROCESS IT
 
-## 3.2 RequestType model P0
+QUYẾT ĐỊNH CHỐT: Form là passive resource. Việc một FormVersion được nhiều Category/Workflow sử dụng KHÔNG làm Form submission tự kích hoạt tất cả Workflow liên quan.
 
-|  |  |
-| --- | --- |
-| **Field** | **Ý nghĩa** |
-| key | Stable business key, ví dụ PURCHASE\_REQUEST. |
-| name | Tên hiển thị. |
-| category | Nhóm nghiệp vụ. |
-| active | Có cho tạo mới hay không. |
-| creationPolicy | Ai được tạo. |
-| workflowDefinitionId | WorkflowDefinition active cho Request Type trong P0. |
+## 3.2 Cardinality và reuse semantics
 
-|  |
-| --- |
-| **SCOPE CHỐT:** P0: một Request Type map tới một active WorkflowDefinition. Khi thật sự cần rule theo amount/department mới mở rộng routing ở tầng Request Type. |
+FormDefinition 1 ── N FormVersion
+WorkflowDefinition 1 ── N WorkflowVersion
+TicketCategory 1 ── N TicketCategoryVersion
+TicketCategoryVersion N ── 1 FormVersion
+TicketCategoryVersion N ── 1 WorkflowVersion
 
-## 3.3 Ticket Form là Workflow Input Contract
+Suy ra ở mức platform: FormVersion <-> WorkflowVersion là many-to-many gián tiếp qua TicketCategoryVersion. Ở runtime, một Published TicketCategoryVersion mặc định chỉ bind đúng một FormVersion và một Primary WorkflowVersion.
 
-TicketFormSchema của current Published WorkflowVersion quyết định các field user phải nhập. Backend dùng cùng schema để validate; frontend chỉ render/validate sớm cho UX.
+* Pattern ưu tiên để tái sử dụng platform: nhiều Form có thể feed cùng một Workflow thông qua các Category/Mapping khác nhau.
+* Một Form cũng có thể được nhiều Category reuse và mỗi Category bind Workflow khác nhau.
+* Không có semantics mặc định “submit một Form → chạy tất cả Workflow đang dùng Form”.
+* Nếu một business request cần nhiều process con, Primary Workflow orchestration qua SubWorkflow/Parallel thay vì biến Category thành workflow engine thứ hai.
 
-## 3.4 Version đổi trong lúc user đang nhập Ticket
+## 3.3 Admin flow
 
-1. Khi mở form, client nhận sourceWorkflowVersionId + formSchemaVersion/checksum.
+1. Admin tạo FormDefinition, chỉnh Draft FormVersion, define fields/rules, Validate và Publish.
+2. Admin tạo WorkflowDefinition, define WorkflowInputContract, WorkflowStateDefinition, nodes, edges, participant/task/integration policies, Validate và Publish.
+3. Admin tạo TicketCategory, chọn exact Published FormVersion + exact Published WorkflowVersion.
+4. Admin cấu hình CategoryMapping cho từng Workflow Input, bao gồm form field, system context, constant, safe expression hoặc explicit default.
+5. Category Validator kiểm tra cross-artifact compatibility. Chỉ Published CategoryVersion mới được dùng cho create-ticket flow; UI có thể expose business-friendly intent/label và giữ categoryKey ở phía kỹ thuật.
 
-2. Ticket draft chưa bind Event version.
+## 3.4 User flow – Business Intent → categoryKey
 
-3. Khi Submit, backend resolve current Published WorkflowVersion lại.
+Business Intent
+↓
+categoryKey
+↓
+Published TicketCategoryVersion
+├─ exact FormVersion
+├─ exact WorkflowVersion
+└─ explicit CategoryMapping
+↓
+Render Form
+↓
+Submit Form
+↓
+validate + persist FormSubmission
+↓
+execute CategoryMapping
+↓
+WorkflowInputSnapshot
+↓
+Ticket + one Primary Event bound exact WorkflowVersion
 
-4. Nếu schema mới tương thích, validate data theo version mới và bind version mới.
+User không chọn Workflow kỹ thuật và không chọn Form như một Workflow selector. User chỉ chọn/đi vào một Business Intent (hoặc màn hình đã biết sẵn intent), hệ thống truyền categoryKey tương ứng. Business endpoint bắt đầu từ categoryKey; Form được load từ TicketCategoryVersion sau khi Category đã xác định.
 
-5. Nếu version mới thêm required field, trả FORM\_SCHEMA\_CHANGED/TICKET\_SCHEMA\_OUTDATED và yêu cầu user bổ sung; chưa tạo Event.
+## 3.5 Workflow Input Contract
 
-6. Chỉ sau khi Ticket data hợp lệ mới tạo Event và bind version.
+Workflow không phụ thuộc fieldKey của Form. Mỗi WorkflowVersion khai báo typed inputs riêng và workflow logic ưu tiên tham chiếu inputs.\*. Điều này cho phép nhiều Form/hệ thống có naming khác nhau cùng sử dụng một Workflow.
 
-|  |
-| --- |
-| **QUYẾT ĐỊNH CHỐT:** Event creation/start là version binding point. Mở form hoặc lưu Ticket Draft không pin workflow cũ. |
+|  |  |  |  |
+| --- | --- | --- | --- |
+| **Workflow Input** | **Type** | **Required** | **Default** |
+| amount | MONEY | true | — |
+| vendorId | STRING | true | — |
+| departmentId | DEPARTMENT\_ID | true | — |
+| requesterId | USER\_ID | true | actor.userId via mapping |
+| currency | STRING | false | VND |
+
+${inputs.amount}
+${inputs.vendorId}
+${inputs.departmentId}
+
+## 3.6 Category Mapping Contract
+
+|  |  |  |
+| --- | --- | --- |
+| **Source Type** | **Ví dụ** | **Semantics** |
+| FORM\_FIELD | form.totalAmount → inputs.amount | Map explicit field của FormSubmission. |
+| SYSTEM\_CONTEXT | actor.userId → inputs.requesterId | Lấy từ trusted runtime/system context. |
+| CONSTANT | "VND" → inputs.currency | Literal explicit do Admin cấu hình. |
+| EXPRESSION | qty \* unitPrice → inputs.amount | Safe/type-aware expression; không arbitrary code. |
+| DEFAULT | inputs.currency = VND | Explicit default, chỉ dùng khi policy cho phép. |
+
+Default resolution order chốt: explicit mapping → explicit Category default → WorkflowInput default. Nếu target input required vẫn không resolve được thì CategoryVersion không được Publish. Không có silent implicit default như 0/empty/null để che lỗi mapping.
+
+## 3.7 Auto-match và semantic metadata
+
+semanticKey không phải global identity và không được runtime dùng làm source of truth. v2.4/v2.4.1 dùng semanticTag/businessConcept như metadata optional cho search, documentation và design-time suggestion. Explicit CategoryMapping mới là contract chính thức.
+
+|  |  |  |
+| --- | --- | --- |
+| **Signal** | **Mục đích** | **Runtime authority?** |
+| businessConcept/semanticTag giống nhau | Gợi ý mapping confidence cao | Không |
+| fieldKey/inputKey giống nhau + type compatible | Gợi ý mapping | Không |
+| label tương tự + type compatible | Gợi ý mức thấp | Không |
+| Published CategoryMapping | Mapping executable | Có |
+
+## 3.8 Version binding
+
+Published TicketCategoryVersion pin exact FormVersion + exact WorkflowVersion + immutable Mapping snapshot/checksum. Publish Form V5 hoặc Workflow V8 không âm thầm đổi behavior của Category V4. Admin tạo Category Draft/Version mới, validate mapping rồi publish.
+
+## 3.9 Một Form dùng cho nhiều Workflow – categoryKey là discriminator
+
+Generic Request Form V4
+ ← Category IT Support [categoryKey=IT\_SUPPORT] → IT\_SUPPORT\_WORKFLOW V7
+ ← Category Facilities [categoryKey=FACILITIES] → FACILITY\_WORKFLOW V3
+ ← Category Security [categoryKey=SECURITY\_INCIDENT] → SECURITY\_WORKFLOW V6
+
+Nếu user chọn Business Intent “Báo sự cố bảo mật”, UI/backend đã có categoryKey=SECURITY\_INCIDENT trước khi render Form. System load CategoryVersion tương ứng, render Generic Request Form V4 và khi submit chỉ SECURITY\_WORKFLOW V6 chạy. Không bao giờ tìm Workflow bằng cách query tất cả Category đang dùng cùng FormVersion.
+
+## 3.10 Quy tắc resolve Category khi Form được reuse
+
+Resolve Category trong baseline không phải rule engine. Nó chỉ là lookup deterministic theo categoryKey: categoryKey → TicketCategory → current Published TicketCategoryVersion. categoryKey đến từ Business Intent/user action hoặc context màn hình đã biết sẵn. Nếu request chỉ có formId trong khi Form đang được nhiều Category reuse, dữ liệu là AMBIGUOUS và hệ thống phải reject; không chọn đại và không fan-out.
+
+INVARIANT: categoryKey được xác định trước Form render trong create-ticket flow chuẩn. FormVersion chỉ là data-collection contract; không phải khóa chọn Workflow.
 
 # 4. WorkflowVersion và Immutable Execution Package
 
 ## 4.1 Những gì phải freeze/version khi publish
 
+v2.4.1: WorkflowVersion freeze WorkflowInputContract/WorkflowState/graph/config. TicketCategoryVersion là artifact riêng freeze exact FormVersion + exact WorkflowVersion + CategoryMapping. Create-ticket FormVersion không được copy sở hữu vào WorkflowVersion.
+
 |  |  |
 | --- | --- |
 | **Thành phần** | **Publish behavior** |
 | Trigger/config | Snapshot/versioned. |
-| TicketFormSchema | Snapshot immutable. |
+| WorkflowInputContract | Snapshot immutable trong WorkflowVersion. Create-ticket Form không thuộc WorkflowVersion. |
 | NodeDefinition + configSchemaVersion | Snapshot immutable. |
 | Edge/condition | Snapshot immutable. |
-| Task form schemas | Snapshot immutable. |
+| Task form schemas | WorkflowVersion pin exact reusable FormVersion cho Human Task nếu node sử dụng form. |
 | Participant rules | Snapshot immutable; actual users resolve runtime. |
 | Multi-instance / completion policies | Snapshot immutable. |
 | SLA / notification template/config | Effective values snapshot. |
@@ -331,7 +423,7 @@ Mỗi Node Type có version schema cấu hình. Draft có thể migrate schema; 
 
 |  |
 | --- |
-| InputBinding {  target: "amount",  expression: "${ticket.data.amount}",  expectedType: MONEY,  required: true,  onMissing: ERROR | USE\_DEFAULT | NULL,  defaultValue?: ...  } |
+| InputBinding {  target: "amount",  expression: "${inputs.amount}",  expectedType: MONEY,  required: true,  onMissing: ERROR | USE\_DEFAULT | NULL,  defaultValue?: ...  } |
 
 Khi activation, binding được resolve + type-check, sau đó lưu inputSnapshot. Handler không query lại mutable context để tái diễn giải input cũ.
 
@@ -361,109 +453,137 @@ Khi activation, binding được resolve + type-check, sau đó lưu inputSnapsh
 | --- |
 | **QUYẾT ĐỊNH CHỐT:** Unknown config field là blocking validation error. Không silently ignore typo như completionPolciy. UI metadata (x/y/collapsed tab) tách khỏi executable config. |
 
-# 6. Dynamic Form Engine, Ticket Form và Runtime Requested Fields
+# 6. Reusable Form Engine, Form Submission và Runtime Requested Fields
 
-## 6.1 Ba lớp field được hỗ trợ
+## 6.1 Form là reusable resource độc lập
 
-|  |  |  |  |
-| --- | --- | --- | --- |
-| **Loại** | **Ai định nghĩa** | **Phạm vi** | **Workflow logic dùng?** |
-| System Field | Platform | Toàn hệ thống | Có theo contract hệ thống. |
-| Workflow Field | Workflow Owner/Editor trên Draft | WorkflowVersion | Có; type-safe, versioned. |
-| Runtime Requested Field | Reviewer/Approver qua REQUEST\_REVISION | Ticket/Event/revision hiện tại | Không là static input contract; chủ yếu cho bổ sung hồ sơ/audit. |
+FormDefinition/FormVersion không thuộc WorkflowVersion. Published FormVersion immutable và có thể được nhiều TicketCategoryVersion hoặc Human Task Node reference. Form không chứa workflowId và không tự trigger workflow.
 
-|  |
-| --- |
-| **QUYẾT ĐỊNH CHỐT:** Không có Ticket Custom Field. Ticket Creator không được tự thêm field tùy ý. |
+FormDefinition
+ ├─ FormVersion V1
+ ├─ FormVersion V2
+ └─ FormVersion V3
 
-## 6.2 Form types
-
-* TicketFormSchema: business input khi tạo/submit Ticket.
-* TaskFormSchema: dữ liệu user nhập tại Human Task.
-* RevisionRequestedForm: existing data + Runtime Requested Fields trong rework cycle.
-
-## 6.3 Canonical field definition
-
-|  |
-| --- |
-| FormFieldDefinition  ├─ fieldId / key  ├─ label, description, placeholder, order  ├─ type, defaultValue, sensitive  ├─ requirement: ALWAYS | NEVER | CONDITIONAL  ├─ visibility: ALWAYS | CONDITIONAL  ├─ editability: EDITABLE | READ\_ONLY | CONDITIONAL  ├─ validation: min/max/length/regex/safe rule  ├─ options: STATIC | DATA\_SOURCE  └─ semantic metadata: participantCapable, businessSubject, filterable/reportable |
-
-## 6.4 “Required động”
-
-Required động nghĩa là field đã có trong schema nhưng trạng thái bắt buộc phụ thuộc dữ liệu/context; không có nghĩa runtime tự sinh schema tùy ý.
-
-|  |
-| --- |
-| quotation  type = FILE  requirement = CONDITIONAL  condition = ${form.amount >= 100000000} |
-
-## 6.5 Workflow Owner thêm field mới
-
-|  |
-| --- |
-| Edit Draft V4  ↓ Add Field costCenter  ↓ Dependency/type validation  ↓ Validate workflow  ↓ Publish V4  Running V3 Events remain V3. |
-
-Draft được phép tạm incomplete. Save Draft không cần full validation; Publish bắt buộc full validation pass.
-
-## 6.6 Field dependency analysis
-
-Trước khi đổi key/type/xóa field, Builder phải hiển thị usages trong node input, condition, participant resolver, multi-instance, notification và integration mapping. Draft có thể vẫn lưu nhưng Publish bị chặn đến khi dependencies được sửa.
-
-## 6.7 Runtime Requested Fields
-
-Reviewer/Approver có thể yêu cầu field bổ sung khi REQUEST\_REVISION. Các field này được version theo RevisionRequest, không làm thay đổi WorkflowVersion và không trở thành field mặc định cho Ticket khác.
+## 6.2 FormDefinition / FormVersion lifecycle
 
 |  |  |
 | --- | --- |
-| **P1 allowed types** | **Ghi chú** |
-| TEXT / TEXTAREA | Thông tin bổ sung. |
-| NUMBER | Số liệu bổ sung. |
-| DATE / DATETIME | Mốc thời gian. |
-| SELECT / BOOLEAN | Lựa chọn có schema runtime. |
-| FILE / FILE\_LIST | Tài liệu bổ sung. |
+| **Aggregate** | **Lifecycle** |
+| FormDefinition | ACTIVE | SUSPENDED | ARCHIVED |
+| FormVersion | DRAFT | PUBLISHED | SUPERSEDED | ARCHIVED |
 
-P1 không cho runtime requester/reviewer tạo USER/ROLE/DEPARTMENT field để tránh gián tiếp thay đổi participant/authorization. Nếu business cần loại này, phải mở capability có policy riêng.
+Chỉ Draft editable. Published FormVersion không đổi schema/rule. Muốn thay đổi field/rule thì publish FormVersion mới.
 
-# 7. EventContext, Canonical Type System, Mapping và Expression
+## 6.3 Canonical FormFieldDefinition
 
-## 7.1 Context namespaces
+FormFieldDefinition
+├─ fieldId / fieldKey
+├─ label / description / placeholder / order
+├─ type / defaultValue / sensitive
+├─ requirement: ALWAYS | NEVER | CONDITIONAL
+├─ visibility: ALWAYS | CONDITIONAL
+├─ editability: EDITABLE | READ\_ONLY | CONDITIONAL
+├─ validation
+├─ options: STATIC | DATA\_SOURCE
+├─ semanticTag/businessConcept? (optional metadata)
+└─ filterable/reportable/participantCapable/businessSubject metadata
 
-|  |
-| --- |
-| EventContext {  ticket,  creator,  organization,  event,  variables,  nodes,  item?,  task?,  actor?  } |
+fieldKey chỉ cần stable trong FormVersion; không bắt buộc trùng Workflow inputKey hoặc field của hệ thống khác.
+
+## 6.4 FormSubmission là dữ liệu gốc user nhập
+
+Khi user submit Form theo categoryKey đã xác định, system tạo FormSubmission snapshot theo exact FormVersion. Dữ liệu gốc này được giữ để audit, hiển thị và revision; Mapping Engine tạo WorkflowInputSnapshot riêng cho Event. Không bỏ original submission sau mapping.
+
+FormSubmission(data user nhập)
+ ↓ CategoryMapping
+WorkflowInputSnapshot(data workflow nhận)
+
+## 6.5 Form validation và dynamic rules
+
+Form rules được validate trong scope form.\*, actor.\*, organization.\*, category.\* và deterministic data sources. Form validation không biết graph/routing của Workflow. Required động nghĩa field đã tồn tại nhưng requirement phụ thuộc condition; không runtime sinh arbitrary schema.
+
+## 6.6 Human Task Form
+
+Human Task Node có thể pin reusable FormVersion bằng taskFormVersionId. WorkflowVersion snapshot/reference exact FormVersion để task UI nhiều năm sau vẫn tái dựng được. Publish FormVersion mới không thay active/published WorkflowVersion cũ.
+
+## 6.7 Runtime Requested Fields
+
+REQUEST\_REVISION vẫn được hỗ trợ. Runtime Requested Field chỉ sống trong RevisionRequest/Ticket revision hiện tại, không sửa FormDefinition/FormVersion và không tự trở thành input contract mặc định cho Ticket khác. Nếu field trở thành nhu cầu lặp lại, Admin thêm vào Form Draft và publish FormVersion mới.
+
+|  |  |
+| --- | --- |
+| **P1 Type** | **Ghi chú** |
+| TEXT/TEXTAREA | Thông tin bổ sung |
+| NUMBER | Số liệu |
+| DATE/DATETIME | Thời gian |
+| SELECT/BOOLEAN | Lựa chọn |
+| FILE/FILE\_LIST | Tài liệu |
+
+## 6.8 Ownership và permission
+
+* Admin/Form Designer tạo, sửa Draft, validate và publish Form.
+* Workflow Owner tạo WorkflowInputContract và chọn FormVersion cho Human Task nếu cần.
+* Ticket Category Admin chịu trách nhiệm binding FormVersion <-> WorkflowVersion và mapping. End user chỉ tương tác với Business Intent/label; categoryKey là contract kỹ thuật ổn định.
+* End user chỉ điền/submit Form theo Category; không được chỉnh Form schema hoặc mapping.
+
+# 7. EventContext, Workflow Inputs, Mapping và Expression
+
+## 7.1 Context namespaces v2.4.1
+
+EventContext {
+ ticket,
+ category,
+ formSubmission,
+ inputs,
+ creator, organization, event,
+ variables, nodes,
+ item?, task?, actor?
+}
 
 |  |  |
 | --- | --- |
 | **Namespace** | **Ý nghĩa** |
-| ticket.data | Business input của Ticket / TicketRevision. |
-| variables | Runtime workflow variables được khai báo. |
-| nodes.<key>.latest.output | Output occurrence mới nhất trong scope phù hợp. |
-| nodes.<key>.executions | Tất cả occurrences. |
-| nodes.<key>.items | Multi-instance item outputs. |
-| item | Current multi-instance item. |
-| task | Current task context. |
-| actor | Actor đang thực hiện command. |
+| ticket | Business case identity/state/subject/revision metadata. |
+| category | Pinned TicketCategoryVersion metadata. |
+| formSubmission | Original immutable/ versioned user-submitted data. |
+| inputs | Typed WorkflowInputSnapshot produced by published CategoryMapping; workflow-facing contract. |
+| variables | Declared mutable runtime variables. |
+| nodes.<key>.\* | NodeExecution outputs/history. |
+| item/task/actor | Current runtime scopes. |
 
-## 7.2 Canonical type system
+QUYẾT ĐỊNH CHỐT: Workflow logic nên ưu tiên inputs.\* thay vì đọc trực tiếp formSubmission.\*. Việc đọc raw formSubmission chỉ dành cho capability explicit đã validate, nhằm giữ Workflow reusable giữa nhiều Form/hệ thống.
 
-|  |
-| --- |
-| STRING, NUMBER, INTEGER, BOOLEAN  DATE, DATETIME, DURATION, MONEY  USER\_ID, USER, DEPARTMENT\_ID, GROUP\_ID  ENUM, OBJECT, ARRAY<T>  FILE\_REF, FILE\_LIST |
+## 7.2 Mapping Engine
 
-Form Builder, Expression Engine, Variable Engine, Connector mapping và Participant Resolver dùng cùng type system để validation xuyên suốt.
+Mapping Engine chạy khi submit Category và khi explicit remap/revision policy yêu cầu. Nó resolve target Workflow Inputs từ FormSubmission + trusted system context + constants/defaults/safe expressions, type-check từng target và tạo immutable WorkflowInputSnapshot cho Event/input revision.
 
-## 7.3 Expression safety
+FORM SUBMISSION
+ totalAmount = 150000000
+ supplier = SUP-10
+ ↓
+CATEGORY MAPPING
+ ↓
+WORKFLOW INPUT SNAPSHOT
+ amount = 150000000
+ vendorId = SUP-10
+ currency = VND
+ requesterId = U01
 
-* Không arbitrary JavaScript/SQL.
-* Operators allowlisted: EQ, NE, GT, GTE, LT, LTE, IN, CONTAINS, IS\_NULL, AND, OR, NOT...
-* Reference path phải tồn tại trong schema tại design-time nếu là static contract.
-* Ticket Form condition chỉ dùng form.\*, actor.\*, organization.\*, requestType.\* vì Event chưa chạy.
-* Task/runtime expression có thể dùng ticket.\*, variables.\*, nodes.\*, item.\*, task.\*, actor.\* theo scope.
+## 7.3 Canonical type system
 
-## 7.4 Repeated node output addressing
+Form Engine, WorkflowInput, Variables, Connector Mapping, Participant Resolver và Category Mapping dùng cùng canonical type system: STRING, NUMBER, INTEGER, BOOLEAN, DATE, DATETIME, DURATION, MONEY, USER\_ID/USER, DEPARTMENT\_ID, GROUP\_ID, ENUM, OBJECT, ARRAY<T>, FILE\_REF, FILE\_LIST.
 
-|  |
-| --- |
-| **QUYẾT ĐỊNH CHỐT:** Reference ${nodes.managerReview.output} bị coi là ambiguous nếu node có thể repeat/multi-instance. Dùng latest/executions/items/cycle-aware reference. |
+## 7.4 Expression safety và scopes
+
+* Không arbitrary JavaScript/Groovy/SpEL/SQL.
+* Form expression scope: form.\*, actor.\*, organization.\*, category.\*.
+* Category mapping expression scope: form.\*, actor.\*, organization.\*, category.\*; output target là declared WorkflowInput.
+* Workflow runtime expression scope: inputs.\*, ticket.\*, variables.\*, nodes.\*, item.\*, task.\*, actor.\*, organization.\*.
+* Reference path/type được compile/type-check trước Publish.
+
+## 7.5 Revision và input history
+
+Nếu Ticket revision thay đổi business data và Category policy cho phép remap, system tạo FormSubmission/TicketRevision mới và WorkflowInputRevision mới; execution cũ vẫn giữ inputSnapshot đã resolve. Không mutate ngược lịch sử execution.
 
 # 8. Organization & Personnel Hierarchy
 
@@ -552,7 +672,7 @@ Closure table cho phép query department ancestors, N-level manager, all subordi
 | FIXED\_USER | User cố định. |
 | ROLE\_MEMBERS | Resolve role + scope. |
 | GROUP\_MEMBERS | Resolve group. |
-| REQUEST\_FIELD | USER/USER\_LIST field trong Ticket contract. |
+| WORKFLOW\_INPUT | USER/USER\_LIST field trong Ticket contract. |
 | MANAGER\_OF | Subject=TICKET\_CREATOR/CURRENT\_ITEM/REQUEST\_FIELD/PREVIOUS\_PARTICIPANT; level=N. |
 | HEAD\_OF\_UNIT | Subject + unitType=TEAM/DEPARTMENT/DIVISION. |
 | PREVIOUS\_PARTICIPANT | Actor/assignee bước trước. |
@@ -641,7 +761,7 @@ Dùng khi collection chỉ biết tại runtime: đánh giá N nhân viên, duy�
 
 |  |
 | --- |
-| MultiInstanceConfig {  collection: ${ticket.data.evaluationTargets}  itemVariable: employee  executionMode: PARALLEL | SEQUENTIAL  subject: ${employee}  completionPolicy: ALL | ANY | N\_OF\_M | PERCENTAGE  remainingItemPolicy: CANCEL\_REMAINING | KEEP\_RUNNING  } |
+| MultiInstanceConfig {  collection: ${inputs.evaluationTargets}  itemVariable: employee  executionMode: PARALLEL | SEQUENTIAL  subject: ${employee}  completionPolicy: ALL | ANY | N\_OF\_M | PERCENTAGE  remainingItemPolicy: CANCEL\_REMAINING | KEEP\_RUNNING  } |
 
 ## 11.2 Runtime correlation
 
@@ -928,6 +1048,8 @@ Ticket data / task output chỉ lưu fileId/ref. Bytes ở object storage.
 
 ## 19.1 Ticket states
 
+v2.4/v2.4.1 giữ user-facing WorkflowStateDefinition. Ticket lifecycle status vẫn DRAFT/SUBMITTED/IN\_PROGRESS/COMPLETED/REJECTED/CANCELLED; tickets.current\_business\_state\_key dùng cho trạng thái nghiệp vụ hiển thị như WAITING\_MANAGER\_APPROVAL. Technical state và business display state không đồng nhất.
+
 |  |
 | --- |
 | DRAFT → SUBMITTED → IN\_PROGRESS → COMPLETED / REJECTED / CANCELLED |
@@ -1022,6 +1144,8 @@ Durable jobs có state + leaseOwner + leaseUntil + attempts. Worker crash → le
 Validate không chạy workflow thật. Mục tiêu chứng minh definition đủ cấu hình, type-safe, graph/routing deterministic và executable theo semantics platform. Business order đúng ý tổ chức vẫn cần human review/simulation/governance.
 
 ## 22.2 Validation pipeline
+
+v2.4.1 validation có ba compiler boundary: Form Validation (schema/rules), Workflow Validation (inputs/states/graph/runtime semantics), Category Binding Validation (FormVersion + WorkflowVersion + mapping type/completeness/default/permission). Publish Category luôn validate lại cả binding theo pinned checksums.
 
 1. Definition/JSON schema validation.
 
@@ -1169,27 +1293,29 @@ Architecture có thể mở publishGovernance=DIRECT|REQUIRE\_APPROVAL. Không b
 
 Failed permanently jobs/executions phải xuất hiện trong operational queue; Operator có thể Retry, Resolve manually, Create manual task, Goto fallback hoặc Terminate theo quyền. Override luôn yêu cầu reason + audit.
 
-# 25. Mô hình dữ liệu vật lý & Database Design chốt
+# 25. Mô hình dữ liệu vật lý & Database Design chốt (v2.4 override)
 
 ## 25.1 Definition tables
 
 |  |  |
 | --- | --- |
 | **Table** | **Key columns** |
-| workflow\_definitions | id, key, name, lifecycle, current\_published\_version\_id, active\_draft\_version\_id, lock\_version |
-| workflow\_versions | id, definition\_id, version\_no, status, revision, checksum, published\_at, based\_on\_version\_id |
-| workflow\_nodes | version\_id, node\_id, node\_key, node\_type, config\_schema\_version, config\_json, input\_schema\_json, output\_schema\_json, position\_json |
-| workflow\_edges | version\_id, edge\_id, source\_node\_id, source\_port, target\_node\_id, condition\_json, priority, is\_default, transition\_type, config\_json |
-| workflow\_forms | version\_id, form\_key, form\_type, schema\_json |
-| workflow\_variables | version\_id, key, type, default\_json, mutable, sensitive |
-| request\_types | id, key, name, category, active, workflow\_definition\_id, creation\_policy\_json |
+| forms / form\_versions / form\_fields | Independent reusable Form catalog; Published FormVersion immutable. |
+| workflow\_definitions / workflow\_versions | Workflow identity/version; WorkflowVersion immutable executable processing contract. |
+| workflow\_inputs | Typed inputs consumed via inputs.\*; key/type/required/default/schema/sensitive. |
+| workflow\_states | User-facing business states separate from technical runtime states. |
+| workflow\_nodes | Versioned node definitions/config schemas. |
+| workflow\_edges | Routing source of truth: source port → target, condition, priority, transition type. |
+| workflow\_variables | Typed runtime variables. |
+| ticket\_categories / ticket\_category\_versions | Business catalog; CategoryVersion pins exact FormVersion + WorkflowVersion. |
+| ticket\_category\_mappings | Explicit typed mapping Form/System/Constant/Expression/Default → WorkflowInput. |
 
 ## 25.2 Runtime tables
 
 |  |  |
 | --- | --- |
 | **Table** | **Key columns** |
-| tickets | id, request\_type\_id, creator\_id, status, data\_json, data\_revision, created\_at, lock\_version |
+| tickets | id, ticket\_category\_version\_id, creator\_id, status, data\_json, data\_revision, created\_at, lock\_version |
 | ticket\_revisions | id, ticket\_id, revision\_no, data\_snapshot\_json, submitted\_by, submitted\_at |
 | events | id, ticket\_id, workflow\_version\_id, status, outcome, root\_event\_id, parent\_event\_id, previous\_event\_id, lock\_version |
 | node\_executions | id, event\_id, node\_definition\_id, cycle\_id, iteration, path\_token, item\_token, status, outcome\_port, input\_json, output\_json, lock\_version |
@@ -1247,20 +1373,35 @@ Phần 25.1–25.4 phía trên là danh mục baseline. Từ mục 25.5 trở đ
 
 ## 25.6 ERD tổng thể và boundary lưu trữ
 
-REQUEST / DEFINITION
+FORM CATALOG
 
-RequestType ─────→ WorkflowDefinition ─────→ WorkflowVersion
+FormDefinition ──→ FormVersion ──→ FormFieldDefinition
+ └─→ FormSubmission
+
+WORKFLOW DEFINITION
+
+WorkflowDefinition ──→ WorkflowVersion
+ ├─ WorkflowInputDefinition
+ ├─ WorkflowStateDefinition
  ├─ WorkflowNode
  ├─ WorkflowEdge
- ├─ WorkflowForm
  ├─ WorkflowVariable
  └─ ValidationRun / Issue
 
+BUSINESS CATALOG / BINDING
+
+TicketCategory ──→ TicketCategoryVersion
+ ├─ exact FormVersion
+ ├─ exact WorkflowVersion
+ └─ CategoryMapping[]
+
 RUNTIME
 
-Ticket ──┬─ TicketRevision
+Ticket ──┬─ FormSubmission / TicketRevision
  ├─ TicketSubject
- └─ Event ──┬─ NodeExecution ──┬─ ItemExecution
+ ├─ TicketStateHistory
+ └─ Event ──┬─ WorkflowInputSnapshot
+ ├─ NodeExecution ──┬─ ItemExecution
  │ ├─ TaskExecution
  │ ├─ ParticipantSnapshot
  │ └─ IntegrationExecution
@@ -1272,25 +1413,28 @@ Ticket ──┬─ TicketRevision
 
 ORGANIZATION
 
-OrganizationUnit ↔ OrganizationUnitClosure
-Position ↔ PositionClosure
+OrganizationUnit <-> OrganizationUnitClosure
+Position <-> PositionClosure
 Position ──→ PositionAssignment ──→ Employee
 Optional ReportingRelation
 
 EventContext không được persist như một giant mutable JSON blob. Runtime context được dựng từ Ticket/TicketRevision, Event variables, NodeExecution snapshots, participant/organization resolution và current runtime scope. Điều này giữ audit/replay rõ ràng và giảm hidden mutation.
 
-## 25.7 Request Catalog và Definition schema
+## 25.7 Form Catalog, Ticket Category và Workflow Definition schema
 
 |  |  |  |  |
 | --- | --- | --- | --- |
 | **Table** | **Mục đích** | **Các cột chốt** | **Constraint / Index chính** |
-| request\_types | Business catalog để end user chọn loại yêu cầu. | id, key, name, description, category, workflow\_definition\_id, active, creation\_policy\_json, created\_at, updated\_at, lock\_version | UNIQUE(key); index(active, category). P0: 1 RequestType → 1 active WorkflowDefinition. |
+| ticket\_categories / ticket\_category\_versions | Business catalog + versioned binding artifact. | category: id,key,name,description,lifecycle,pointers,lock\_version; version: form\_version\_id,workflow\_version\_id,creation\_policy\_json,revision,checksum,mapping\_checksum,published metadata | UNIQUE(category.key), UNIQUE(category\_id,version\_no); Published CategoryVersion immutable and pins exact Published FormVersion + WorkflowVersion. |
 | workflow\_definitions | Identity workflow qua nhiều version. | id, key, name, description, lifecycle, owner\_id, current\_published\_version\_id, active\_draft\_version\_id, created\_by, timestamps, lock\_version | UNIQUE(key). Pointer version nullable và phải trỏ đúng definition. |
 | workflow\_versions | Versioned immutable executable configuration. | id, definition\_id, version\_no, status, revision, checksum, execution\_package\_json, based\_on\_version\_id, rollback\_of\_version\_id, created/published metadata, lock\_version | UNIQUE(definition\_id, version\_no); one active DRAFT và one current PUBLISHED theo policy. |
 | workflow\_nodes | NodeDefinition normalized cho Builder/validation. | id, workflow\_version\_id, node\_key, node\_type, name, description, config\_schema\_version, config\_json, input\_schema\_json, output\_schema\_json, position\_json | UNIQUE(version\_id,node\_key); composite identity hỗ trợ FK Edge cùng version. |
 | workflow\_edges | Source of truth duy nhất cho destination/routing. | id, workflow\_version\_id, source\_node\_id, source\_port, target\_node\_id, condition\_json, priority, is\_default, transition\_type, label, config\_json | Index(version,source\_node,source\_port,priority); FK source/target phải thuộc cùng version. |
-| workflow\_forms | TicketForm/TaskForm schema versioned. | id, workflow\_version\_id, form\_key, form\_type, schema\_json, schema\_checksum | UNIQUE(version\_id,form\_key). Published form immutable. |
+| forms / form\_versions / form\_fields | Independent reusable Form catalog. | forms identity/lifecycle/pointers; form\_versions version/status/revision/checksum/schema; form\_fields field\_key,type,rules,semantic\_tag,metadata | UNIQUE(form.key), UNIQUE(form\_id,version\_no), UNIQUE(form\_version\_id,field\_key); Published FormVersion immutable. |
 | workflow\_variables | VariableDefinition typed. | id, workflow\_version\_id, key, type, scope, default\_json, mutable, sensitive | UNIQUE(version\_id,key). |
+| workflow\_inputs | Typed Workflow input contract. | id,workflow\_version\_id,input\_key,semantic\_tag,type,required,default\_json,schema\_json,sensitive,ordinal | UNIQUE(workflow\_version\_id,input\_key). |
+| workflow\_states | User-facing business states. | id,workflow\_version\_id,state\_key,name,state\_group,terminal,display\_order,metadata\_json | UNIQUE(workflow\_version\_id,state\_key). |
+| ticket\_category\_mappings | Cross-artifact executable mapping. | id,category\_version\_id,target\_workflow\_input\_id,source\_type,source\_form\_field\_id,expression/constant/default/transform JSON,on\_missing,ordinal | Target required input must resolve type-safely; Published mapping immutable. |
 
 WorkflowVersion nên giữ cả normalized rows và execution\_package\_json. Normalized tables phục vụ Draft editing, validation, semantic diff và dependency analysis; execution\_package\_json là compiled canonical snapshot được checksum tại Publish và là artifact runtime có thể đọc ổn định trong nhiều năm.
 
@@ -1314,8 +1458,8 @@ Do workflow\_definitions.current\_published\_version\_id và workflow\_versions.
 |  |  |  |
 | --- | --- | --- |
 | **Table** | **Các cột chốt** | **Constraint / Semantics** |
-| tickets | id, request\_type\_id, creator\_id, status, data\_json, data\_revision, current\_revision\_id, created\_at, updated\_at, submitted\_at, completed\_at, lock\_version | data\_json chỉ chứa schema-controlled Workflow Fields; không có Ticket Custom Field. |
-| ticket\_revisions | id, ticket\_id, revision\_no, data\_snapshot\_json, source\_schema\_version, schema\_checksum, submitted\_by, submitted\_at, change\_reason | UNIQUE(ticket\_id,revision\_no). Revision immutable. |
+| tickets | id,ticket\_category\_version\_id,creator\_id,status,current\_business\_state\_key,current\_state\_updated\_at,current\_form\_submission\_id,data\_json,data\_revision,current\_revision\_id,timestamps,lock\_version | CategoryVersion pinned at create. data\_json may hold canonical business snapshot; original submitted payload lives in form\_submissions. |
+| ticket\_revisions | id,ticket\_id,revision\_no,data\_snapshot\_json,form\_submission\_id,workflow\_input\_revision/schema checksum,submitted\_by,submitted\_at,change\_reason | UNIQUE(ticket\_id,revision\_no). Revision immutable; remap only under explicit revision policy. |
 | ticket\_subjects | id, ticket\_id, subject\_type, subject\_ref\_id, role\_key, source\_field, created\_at | Normalize Business Subject để permission/search/report/manager-of-subject không phải parse arbitrary JSON. |
 
 Khi REQUEST\_REVISION làm thay đổi business data thật, hệ thống tạo TicketRevision mới. Không mutate vô hình dữ liệu đã submit. Event giữ started\_ticket\_revision\_id và execution cycle có thể tham chiếu revision mới theo rework policy.
@@ -1482,7 +1626,7 @@ Không blanket GIN index mọi JSONB. GIN tăng write/storage cost; chỉ index 
 |  |  |
 | --- | --- |
 | **Nhóm** | **Indexes chốt** |
-| Ticket | tickets(status,creator\_id); tickets(request\_type\_id,status) |
+| Ticket | tickets(status,creator\_id); tickets(ticket\_category\_version\_id,status) |
 | Event | events(ticket\_id); events(status,started\_at); events(workflow\_version\_id); partial unique active root/Ticket |
 | Node | node\_executions(event\_id,status); node\_executions(event\_id,node\_definition\_id); UNIQUE(activation\_key) |
 | Task | task\_executions(assignee\_id,status,due\_at); task\_executions(node\_execution\_id) |
@@ -1519,7 +1663,7 @@ Không blanket GIN index mọi JSONB. GIN tăng write/storage cost; chỉ index 
 |  |  |
 | --- | --- |
 | **Phase** | **Tables ưu tiên** |
-| P0 – Foundation | request\_types, workflow\_definitions, workflow\_versions, workflow\_nodes, workflow\_edges, workflow\_forms, workflow\_variables, workflow\_validation\_runs/issues, tickets, ticket\_revisions, ticket\_subjects, events, node\_executions, participant\_snapshots, task\_executions, task\_candidates, task\_assignment\_history, task\_decisions, command\_executions, audit\_events |
+| P0 – Foundation | forms, form\_versions, form\_fields, form\_submissions, ticket\_categories, ticket\_category\_versions, ticket\_category\_mappings, workflow\_definitions, workflow\_versions, workflow\_inputs, workflow\_states, workflow\_nodes, workflow\_edges, workflow\_variables, workflow\_validation\_runs/issues, tickets, ticket\_revisions, ticket\_state\_history, ticket\_subjects, events, node\_executions, participant\_snapshots, task\_executions, task\_candidates, task\_assignment\_history, task\_decisions, command\_executions, audit\_events |
 | P1 – Runtime Dynamics | node\_item\_executions, multi\_instance\_states, routing\_decisions, activation\_tokens, join\_states, join\_arrivals, revision\_requests, revision\_requested\_fields, revision\_requested\_values, business\_calendars/hours/holidays, sla\_executions, organization\_units/closure, positions/closure, position\_assignments, optional reporting\_relations |
 | P2 – Integration & Reliability | connector\_definitions, connector\_actions, connector\_action\_versions, integration\_executions, integration\_attempts, integration\_callbacks, notification\_dispatches, files, file\_links, workflow\_jobs, outbox\_events |
 | P3+ – Scale/Governance | ticket\_search\_values/projections, advanced DLQ/incident tables, delegation, compensation orchestration, retention/anonymization support tables khi requirement phát sinh |
@@ -1548,94 +1692,148 @@ KẾT LUẬN CHỐT: Physical database design này là baseline chính thức ch
 
 # 26. API Contract khuyến nghị
 
-## 26.1 Request Catalog/Ticket
+## 26.1 Form Catalog
 
-|  |
-| --- |
-| GET /api/v1/request-types  GET /api/v1/request-types/{key}/create-schema  POST /api/v1/tickets/drafts  PUT /api/v1/tickets/{id}/draft (expectedRevision)  POST /api/v1/tickets/{id}/submit (commandId, sourceSchemaVersion)  GET /api/v1/tickets/{id}  POST /api/v1/tickets/{id}/cancel |
+POST /api/v1/forms
+POST /api/v1/forms/{id}/draft
+PUT /api/v1/forms/{id}/versions/{versionId}
+POST /api/v1/forms/{id}/versions/{versionId}/validate
+POST /api/v1/forms/{id}/versions/{versionId}/publish
+GET /api/v1/forms/{id}/versions
+GET /api/v1/form-versions/{id}
 
 ## 26.2 Workflow Definition
 
-|  |
-| --- |
-| POST /api/v1/workflows  POST /api/v1/workflows/{id}/draft  PUT /api/v1/workflows/{id}/versions/{versionId}/graph  POST /api/v1/workflows/{id}/versions/{versionId}/validate  POST /api/v1/workflows/{id}/versions/{versionId}/simulate  POST /api/v1/workflows/{id}/versions/{versionId}/publish  GET /api/v1/workflows/{id}/versions/{a}/diff/{b} |
+POST /api/v1/workflows
+POST /api/v1/workflows/{id}/draft
+PUT /api/v1/workflows/{id}/versions/{versionId}/graph
+PUT /api/v1/workflows/{id}/versions/{versionId}/inputs
+PUT /api/v1/workflows/{id}/versions/{versionId}/states
+POST /api/v1/workflows/{id}/versions/{versionId}/validate
+POST /api/v1/workflows/{id}/versions/{versionId}/simulate
+POST /api/v1/workflows/{id}/versions/{versionId}/publish
 
-## 26.3 Task commands
+## 26.3 Ticket Category / Binding
 
-|  |
-| --- |
-| POST /tasks/{id}/claim  POST /tasks/{id}/complete  POST /tasks/{id}/approve  POST /tasks/{id}/reject  POST /tasks/{id}/request-revision  POST /tasks/{id}/reassign |
+POST /api/v1/ticket-categories
+POST /api/v1/ticket-categories/{id}/draft
+PUT /api/v1/ticket-categories/{id}/versions/{versionId}/binding
+PUT /api/v1/ticket-categories/{id}/versions/{versionId}/mappings
+POST /api/v1/ticket-categories/{id}/versions/{versionId}/validate
+POST /api/v1/ticket-categories/{id}/versions/{versionId}/publish
+GET /api/v1/ticket-categories?active=true
 
-## 26.4 Operational
+Category validation phải kiểm tra pinned FormVersion/WorkflowVersion đã Published, mapping target/source tồn tại, type compatible và mọi required WorkflowInput resolve được.
 
-|  |
-| --- |
-| POST /events/{id}/terminate  POST /node-executions/{id}/retry  POST /integrations/callback/{connectorKey}  GET /operations/failures  POST /operations/jobs/{id}/retry |
+## 26.4 User Ticket APIs
 
-## 26.5 API rules
+GET /api/v1/ticket-categories/{categoryKey}/create-contract
+POST /api/v1/ticket-categories/{categoryKey}/tickets
+GET /api/v1/tickets
+GET /api/v1/tickets/{id}
+GET /api/v1/tickets/{id}/state-history
+POST /api/v1/tickets/{id}/cancel
 
-* Actor identity từ session/token, không nhận actorId tùy ý.
-* State-changing commands nhận commandId và expected version khi phù hợp.
-* 409 cho stale concurrent write/invalid state conflict.
-* Validation API trả stable rule codes + resource/field locator.
-* Không endpoint generic setStatus.
+POST create Ticket nhận categoryKey + formData + commandId/source form checksum. Backend resolve current Published TicketCategoryVersion bằng categoryKey, validate pinned FormVersion, persist FormSubmission, execute published Mapping, build WorkflowInputSnapshot, create Ticket/Event và bind exact WorkflowVersion atomically theo command/idempotency rules. Backend không resolve Workflow từ formId.
+
+## 26.5 Task / Operational APIs
+
+POST /api/v1/tasks/{id}/claim
+POST /api/v1/tasks/{id}/complete
+POST /api/v1/tasks/{id}/approve
+POST /api/v1/tasks/{id}/reject
+POST /api/v1/tasks/{id}/request-revision
+POST /api/v1/tasks/{id}/reassign
+POST /api/v1/events/{id}/terminate
+POST /api/v1/node-executions/{id}/retry
+GET /api/v1/operations/failures
+POST /api/v1/operations/jobs/{id}/retry
+
+## 26.6 API rules
+
+* Không expose business endpoint POST /forms/{id}/submit để tự suy ra Category/Workflow. Form submit luôn nằm trong create-ticket contract đã có categoryKey, trừ standalone FormSubmission thuần lưu dữ liệu.
+* Standalone FormSubmission API nếu có chỉ validate/persist submission; không trigger Workflow nếu không có explicit trigger/binding capability.
+* Actor lấy từ session/token; không nhận actorId tùy ý.
+* State-changing command dùng commandId và expectedVersion/revision khi phù hợp.
+* 409 cho stale write/invalid state conflict; không generic PATCH status.
 
 # 27. Backend module/component architecture
 
 |  |  |
 | --- | --- |
-| **Module** | **Components** |
-| workflow-definition | DefinitionService, VersionService, ExecutionPackageBuilder, ValidationService, DiffService |
+| **Module** | **Components / trách nhiệm** |
+| form | FormDefinitionService, FormVersionService, FormValidationService, FormSubmissionService |
+| ticket-category | TicketCategoryService, CategoryVersionService, CategoryMappingService, CategoryValidationService |
+| workflow-definition | DefinitionService, VersionService, WorkflowInputService, WorkflowStateService, ExecutionPackageBuilder, ValidationService, DiffService |
 | workflow-runtime | EventRuntimeEngine, NodeActivationService, RoutingService, JoinService, MultiInstanceService, RuntimeCommandService |
 | node-types | NodeTypeRegistry, NodeTypeProviders/Handlers/Validators |
 | task | TaskService, TaskAuthorizationService, TaskCompletionAggregator, AssignmentHistoryService |
-| form | FormSchemaService, TicketFormValidationService, RevisionRequestService |
-| organization | OrganizationResolver, hierarchy maintenance, closure rebuild/validation |
-| resolver | ParticipantResolverRegistry, ExpressionEngine, VariableResolver |
+| resolver | ParticipantResolverRegistry, ExpressionEngine, VariableResolver, OrganizationResolver |
 | integration | ConnectorRegistry, IntegrationService, RetryWorker, CallbackCorrelationService |
 | subworkflow | SubWorkflowService |
 | sla-notification | SLAService, BusinessCalendarService, NotificationService |
 | operations | JobWorker, OutboxPublisher, RecoveryService, Audit/Monitoring |
 
-## 27.1 Runtime execution result contract
+## 27.1 Binding boundary
 
-|  |
-| --- |
-| NodeExecutionResult =  COMPLETE(output, outcomePort)  WAIT(waitDescriptor)  FAIL(error)  Handler never activates target node directly. |
+TicketCategoryService.resolvePublished(categoryKey)
+ → exact TicketCategoryVersion
+ → FormSubmissionService.validate/persist(exact FormVersion)
+ → CategoryMappingService.resolveInputs
+ → TicketService.create
+ → EventRuntimeEngine.start(exact WorkflowVersion, WorkflowInputSnapshot)
+
+Workflow runtime không phụ thuộc Form repository để hiểu business input. Sau Event creation, runtime sử dụng pinned WorkflowVersion + WorkflowInputSnapshot; FormSubmission được giữ cho audit/UI/revision.
 
 ## 27.2 Transaction boundaries
 
-* Critical state transition = short transaction.
-* No transaction waits human/external.
-* External call outside long transaction.
-* Node completion + activation job/outbox atomic or idempotently recoverable.
-* Routing/Join completion protected by lock/idempotency.
+* Create Ticket command: validate categoryKey/CategoryVersion/Form/Mapping → persist FormSubmission/Ticket/InputSnapshot/Event + initial activation job trong transaction phù hợp; nếu split transaction thì phải có explicit start state/outbox.
+* Không external call trong DB transaction.
+* Completion/routing/join vẫn tuân optimistic locking + short row lock/idempotency như baseline.
 
-# 28. Frontend Workflow Builder & Runtime UI
+# 28. Frontend Admin Builder & User Runtime UI
 
-## 28.1 Builder layout
+## 28.1 Admin Form Builder
 
-* Left palette: Node Catalog.
-* Center: React Flow canvas.
-* Right: Properties Panel generated from NodeTypeManifest/config schema/UI descriptor.
-* Toolbar: Save Draft, Validate, Simulate, Diff/History, Publish.
-* Validation panel: errors/warnings clickable to focus node/field.
+* Create Form, edit Draft, add/remove/reorder fields, configure rules/options/metadata.
+* Validate + Publish FormVersion.
+* Show usages: CategoryVersions và Human Task Nodes đang pin FormVersion; published consumers không bị auto-upgrade.
 
-## 28.2 Node Properties Panel
+## 28.2 Admin Workflow Builder
 
-Approval panel có General, Input, Assignee, Task Generation, Form, Decision Policy, SLA, Output, Failure. System Action có Connector/Action Version, Mapping, Retry, Failure. Join có Join policy/scope/remaining branch policy.
+* Tab Workflow Inputs: key/type/required/default/business concept metadata.
+* Tab Workflow States: business display states độc lập technical Node/Event state.
+* Canvas Nodes/Edges, Node Properties, participant/task/SLA/integration config.
+* Human Task node có thể chọn exact Published FormVersion làm task form.
+* Validate/Simulate/Publish; không chứa Ticket create Form schema ownership.
 
-## 28.3 Form Builder
+## 28.3 Admin Ticket Category Builder
 
-Workflow Owner/Editor add/delete/change Workflow Fields trong Draft; Ticket Creator chỉ nhập value. Builder hiển thị field dependencies trước breaking change. Runtime Requested Fields được tạo qua Request Revision UI, không qua Ticket Creator arbitrary add-field.
+Category: Purchase Request
+Form: Purchase Form V3
+Workflow: Purchase Approval V7
 
-## 28.4 Organization/participant UX
+MAPPING
+Total Amount → inputs.amount
+Supplier → inputs.vendorId
+Current User → inputs.requesterId
+Constant VND → inputs.currency
 
-Participant source hiển thị friendly options như Creator’s manager, manager N levels up, Department Head, Subject’s manager; backend config compile về generic MANAGER\_OF / HEAD\_OF\_UNIT primitives.
+* Auto-match chỉ là suggestion; Admin confirm để lưu explicit mapping.
+* Hiển thị unused Form fields là INFO.
+* Hiển thị required Workflow Inputs chưa resolve là ERROR.
+* Preview transformed WorkflowInputSnapshot trước Publish.
 
-## 28.5 Runtime UI
+## 28.4 User UI
 
-End user chủ yếu quản lý Ticket/Event: details, current task, timeline, assignee, due date, revision request, attachments, child process links. Full workflow graph chỉ hiển thị khi role/permission phù hợp.
+* User chỉ thấy Business Intent / loại yêu cầu bằng business-friendly label, ví dụ “Báo sự cố IT”, “Yêu cầu cấp quyền”. Mỗi lựa chọn mang một categoryKey ổn định. Không cần hiển thị thuật ngữ kỹ thuật TicketCategory.
+* Khi Business Intent/categoryKey đã biết, Create Ticket render exact pinned FormVersion của Published CategoryVersion. Nếu màn hình đã biết sẵn categoryKey thì không cần picker.
+* Ticket list hiển thị business label/category display name, current business state, created/updated time.
+* Ticket detail hiển thị original form data, business state/timeline và runtime progress theo quyền; không expose technical workflow version cho user thường.
+
+## 28.5 Runtime state display
+
+Technical Event/Node state tách khỏi WorkflowStateDefinition. Ticket cache current\_business\_state\_key để list nhanh và lưu ticket\_state\_history. Với parallel branches, có thể dùng aggregate display state như UNDER\_REVIEW trong khi detail hiển thị nhiều active steps.
 
 # 29. Security, Privacy, Retention và Data Handling
 
@@ -1652,7 +1850,7 @@ End user chủ yếu quản lý Ticket/Event: details, current task, timeline, a
 
 Không hard-code một retention cho mọi artifact. RetentionPolicy có thể khác cho Audit, Event, Task Submission, Integration payload, Attachment, Notification. Artifact có runtime/audit reference không hard-delete trước policy; có thể anonymize/mask payload theo compliance.
 
-## 29.3 Search/reporting dynamic fields
+## 29.3 Search/reporting dynamic Form/Ticket/Input fields
 
 Workflow Field có metadata filterable/reportable/searchable. P0 dùng JSONB; field quan trọng có thể có JSON expression index hoặc projection table. Không tạo DB column/migration mỗi khi Owner thêm form field.
 
@@ -1688,13 +1886,16 @@ Workflow Field có metadata filterable/reportable/searchable. P0 dùng JSONB; fi
 * REQUEST\_REVISION tạo cycle mới + optional runtime requested fields.
 * Multi-instance collection size thay đổi runtime mà không sửa graph.
 * Connector action đổi contract v2 không làm old Published workflow chạy theo v3.
+* Một FormVersion được ba Category reuse; Business Intent/categoryKey=SECURITY\_INCIDENT phải load cùng Form nhưng chỉ start Security Workflow.
+* Request chỉ có formId nhưng Form được nhiều Category reuse phải bị reject là ambiguous; không tự chọn Category và không fan-out.
+* Create-ticket API theo categoryKey phải idempotent: retry cùng commandId không tạo duplicate Ticket/Event/FormSubmission.
 
 # 31. Roadmap triển khai
 
 |  |  |  |
 | --- | --- | --- |
 | **Phase** | **Scope chốt** | **Exit criteria** |
-| P0 – Foundation | Domain/versioning, RequestType/TicketForm, Draft/Publish, basic graph, Node config contract/registry, Human Task, EventContext/type system, condition, basic participant + Organization core, commands, optimistic locking, audit. | Có thể build/publish/run sequential approval workflows an toàn. |
+| P0 – Foundation | Form Catalog/versioning, WorkflowInput/WorkflowState, TicketCategory binding/mapping, Draft/Publish, basic graph, Node config/registry, Human Task, typed EventContext, participant snapshot, command/audit. | Admin có thể publish Form + Workflow + Category binding và user tạo Ticket chạy đúng một Primary Workflow; sequential approval chạy an toàn. |
 | P1 – Runtime Dynamics | Multi-instance, parallel/join, controlled rework + Runtime Requested Fields, basic BusinessCalendar/SLA, advanced completion/decision policies, organization closure queries, monitoring detail. | Các quy trình nội bộ nhiều người/branch/revision chạy ổn. |
 | P2 – Integration & Durability | Connector Registry + action version, retry/idempotency, async callback, Sub-workflow, durable jobs/outbox + lease recovery, attachment model integration. | External/system workflows có recovery production-safe. |
 | P3 – Operational/Governance | DLQ/recovery console, semantic diff, maker-checker optional, delegation, advanced observability, retention tooling, reporting projections, advanced calendar/performance. | Operational support/enterprise governance hoàn chỉnh. |
@@ -1721,6 +1922,8 @@ Workflow Field có metadata filterable/reportable/searchable. P0 dùng JSONB; fi
 * Không treat Cancel như distributed rollback.
 * Không ignore unknown config field.
 * Không dùng local datetime mơ hồ để persist runtime time.
+* Không resolve Category/Workflow bằng formId khi một Form có thể được reuse.
+* Không thêm TicketEntryPoint subsystem vào baseline; Business Intent + categoryKey là đủ cho create-ticket selection.
 
 # 33. Checklist & Definition of Done
 
@@ -1780,19 +1983,192 @@ Workflow Field có metadata filterable/reportable/searchable. P0 dùng JSONB; fi
 | --- |
 | **QUY TẮC ƯU TIÊN:** Khi requirement mới xuất hiện: (1) thử biểu diễn bằng primitive/config hiện có; (2) nếu không đủ, thêm generic Policy/Resolver/Connector/NodeType; (3) chỉ tạo business-specific special case khi có ADR chứng minh không thể generalize an toàn. |
 
+# 34. v2.4.1 BUSINESS INTENT–FORM–WORKFLOW–TICKET CATEGORY BINDING BASELINE (NORMATIVE OVERRIDE)
+
+MỨC ƯU TIÊN: Chương này là normative override cho mọi nội dung cũ nói TicketFormSchema thuộc WorkflowVersion, RequestType map trực tiếp WorkflowDefinition, workflow\_forms là form create-ticket, Form submission tự suy ra Workflow, hoặc formId được dùng như selector khi Form có nhiều bindings. Các phần không xung đột của v2.3/v2.2 vẫn giữ nguyên.
+
+## 34.1 Boundary chốt
+
+|  |  |  |
+| --- | --- | --- |
+| **Resource** | **Trách nhiệm** | **Không làm** |
+| Form | Reusable/versioned data collection contract | Không biết workflow nào dùng nó; không tự trigger workflow. |
+| Workflow | Reusable/versioned processing contract + inputs/states/graph | Không phụ thuộc create-ticket Form fieldKey. |
+| Ticket Category | Business catalog + versioned binding Form<->Workflow + mapping | Không chứa graph execution semantics thay Workflow. |
+
+## 34.2 Core aggregate model
+
+FormDefinition
+ └─ FormVersion
+ └─ FormFieldDefinition[]
+
+WorkflowDefinition
+ └─ WorkflowVersion
+ ├─ WorkflowInputDefinition[]
+ ├─ WorkflowStateDefinition[]
+ ├─ NodeDefinition[]
+ ├─ EdgeDefinition[]
+ └─ VariableDefinition[]
+
+TicketCategory
+ └─ TicketCategoryVersion
+ ├─ formVersionId
+ ├─ workflowVersionId
+ └─ CategoryMapping[]
+
+Business Intent / categoryKey selection contract:
+Business Intent (UX label/action; not a new entity)
+ ↓ categoryKey
+TicketCategory
+ ↓ current Published TicketCategoryVersion
+ ├─ exact FormVersion
+ ├─ exact WorkflowVersion
+ └─ CategoryMapping[]
+ ↓ render Form → submit → WorkflowInputSnapshot → Ticket + Event
+
+Không có TicketEntryPoint entity/service riêng trong baseline v2.4.1. Nếu UI/context đã biết categoryKey thì dùng trực tiếp; nếu user chọn từ catalog thì mỗi business-friendly option mang categoryKey tương ứng.
+
+## 34.3 Runtime aggregate additions
+
+Ticket
+ ├─ ticketCategoryVersionId
+ ├─ currentBusinessStateKey
+ ├─ FormSubmission[] / TicketRevision[]
+ └─ Event
+ ├─ workflowVersionId
+ ├─ workflowInputSnapshot / inputRevision
+ ├─ NodeExecution[]
+ └─ ...
+
+## 34.4 Physical database baseline v2.4 (không đổi trong v2.4.1)
+
+|  |  |
+| --- | --- |
+| **Table** | **Key columns / semantics** |
+| forms | id,key,name,description,lifecycle,current\_published\_version\_id,active\_draft\_version\_id,lock\_version |
+| form\_versions | id,form\_id,version\_no,status,revision,checksum,schema\_json,compiled\_schema\_json,published\_at,lock\_version |
+| form\_fields | id,form\_version\_id,field\_key,semantic\_tag,type,ordinal,requirement/visibility/editability/default/validation/options JSON,sensitive,metadata\_json |
+| form\_submissions | id,form\_version\_id,context\_type,context\_id,data\_json,schema\_checksum,submitted\_by,submitted\_at |
+| workflow\_inputs | id,workflow\_version\_id,input\_key,semantic\_tag,type,required,default\_json,schema\_json,sensitive,ordinal |
+| workflow\_states | id,workflow\_version\_id,state\_key,name,description,state\_group,terminal,display\_order,metadata\_json |
+| ticket\_categories | id,key,name,description,lifecycle,current\_published\_version\_id,active\_draft\_version\_id,lock\_version |
+| ticket\_category\_versions | id,ticket\_category\_id,version\_no,status,form\_version\_id,workflow\_version\_id,creation\_policy\_json,revision,checksum,mapping\_checksum,published\_at |
+| ticket\_category\_mappings | id,category\_version\_id,target\_workflow\_input\_id,source\_type,source\_form\_field\_id,expression\_json,constant\_json,default\_json,on\_missing,transform\_json,ordinal |
+| tickets | ... + ticket\_category\_version\_id,current\_business\_state\_key,current\_state\_updated\_at,current\_form\_submission\_id |
+| ticket\_state\_history | id,ticket\_id,event\_id,state\_key,source\_node\_execution\_id,entered\_at,exited\_at,metadata\_json |
+| events | ... + workflow\_input\_snapshot\_json,input\_revision / started\_ticket\_revision\_id |
+
+## 34.5 Constraints bắt buộc
+
+* UNIQUE(forms.key), UNIQUE(form\_id,version\_no), UNIQUE(form\_version\_id,field\_key).
+* UNIQUE(workflow\_version\_id,input\_key) và UNIQUE(workflow\_version\_id,state\_key).
+* UNIQUE(ticket\_categories.key), UNIQUE(ticket\_category\_id,version\_no).
+* Một Published TicketCategoryVersion pin exact Published FormVersion + exact Published WorkflowVersion.
+* Một target WorkflowInput có tối đa một effective mapping trong CategoryVersion trừ khi mapping policy explicit hỗ trợ composition.
+* Required WorkflowInput không có source/default type-valid → CategoryVersion không publish.
+* Published FormVersion/WorkflowVersion/CategoryVersion và mapping rows immutable.
+* Không tạo direct FK Form→Workflow hoặc Workflow→create-ticket Form để tránh coupling.
+
+## 34.6 Mapping default semantics
+
+resolve target input:
+1) explicit CategoryMapping source
+2) explicit Category default
+3) WorkflowInput default
+4) if required and unresolved → ERROR
+5) optional unresolved → NULL only if contract allows
+
+Không có “không match thì lấy default bất kỳ”. Default phải explicit, versioned, type-compatible và visible trong Category Builder/validation report.
+
+## 34.7 Reuse rule chốt
+
+* Platform hỗ trợ cả 1 Form→N Workflow và N Form→1 Workflow thông qua nhiều TicketCategoryVersion. Trong trường hợp 1 Form→N Workflow, categoryKey chứ không phải formId là discriminator.
+* Design priority là N Form→1 Workflow để business processing contract độc lập UI/system-specific form.
+* Runtime một Published CategoryVersion chỉ start một Primary WorkflowVersion. Create-ticket flow chuẩn phải biết categoryKey trước khi render Form; chỉ có formId mà có nhiều binding thì reject AMBIGUOUS.
+* Multi-process business orchestration dùng SubWorkflow/Parallel trong Primary Workflow. Multi-workflow direct launch từ Category chỉ mở extension khi có lifecycle/aggregation semantics riêng.
+
+## 34.8 Business state model
+
+Admin định nghĩa WorkflowStateDefinition độc lập NodeDefinition. Node/config/routing có thể cập nhật user-facing business state; technical state vẫn là Event/NodeExecution lifecycle. Ticket giữ current\_business\_state\_key để list nhanh, history append-only để audit.
+
+Technical: Event.RUNNING / Node.WAITING
+Business display: WAITING\_MANAGER\_APPROVAL → "Chờ Trưởng phòng duyệt"
+
+## 34.9 Migration from v2.3 data model
+
+1. Inventory workflow\_forms/TicketFormSchema usages và request\_types bindings hiện có.
+2. Create FormDefinition/FormVersion từ mỗi distinct create-ticket schema. Task forms cũng migrate thành reusable FormVersion nếu phù hợp.
+3. Create WorkflowInputDefinition từ fields mà workflow logic thực sự sử dụng; rewrite static references từ ticket.data.<x> sang inputs.<inputKey> khi đó là mapped process input.
+4. Create TicketCategory từ RequestType; create CategoryVersion pin migrated FormVersion + current WorkflowVersion.
+5. Generate explicit CategoryMapping từ old field identity/path. Không auto default required input nếu mapping không xác định.
+6. Backfill existing Ticket/Event references đủ để historical runtime tiếp tục đọc old snapshot. Không hot-migrate running Event.
+7. Sau compatibility window, deprecate old request\_types/workflow\_forms create-ticket ownership paths.
+
+## 34.10 Validation matrix
+
+|  |  |
+| --- | --- |
+| **Validator** | **Blocking examples** |
+| Form | duplicate fieldKey, invalid type/rule, invalid options/data source, unsafe expression |
+| Workflow | invalid input contract/state/graph/node/edge/routing/participant/join/rework/integration |
+| Category Binding | source/target missing, incompatible type, duplicate target mapping, required input unresolved, referenced versions not Published |
+| Runtime Submit | stale Category/Form checksum; invalid formData/permission; runtime mapping type mismatch; duplicate or stale command |
+
+## 34.11 Acceptance scenarios bắt buộc
+
+1. Một Generic Form được 3 Category reuse cho IT/Facilities/Security; user chọn Business Intent “Security” (categoryKey=SECURITY\_INCIDENT), system render cùng Generic Form nhưng submit chỉ start Security Workflow.
+
+Chỉ cung cấp formId của Generic Form đang được 3 Category reuse → create-ticket phải FAIL/AMBIGUOUS; không chọn ngẫu nhiên, không chạy cả ba Workflow.
+
+1. Ba Form khác fieldKey nhưng mapping khác nhau cùng feed Purchase Approval Workflow và tạo cùng typed inputs.
+2. Admin publish Form V4; Category V2 đang pin Form V3 không tự đổi.
+3. Admin publish Workflow V8; Category V5 pin V7 không tự đổi.
+4. Required input thiếu mapping/default làm Category publish FAIL.
+5. Unused Form field chỉ INFO và vẫn lưu trong FormSubmission.
+6. semanticTag khác nhau không ảnh hưởng runtime nếu explicit mapping hợp lệ.
+7. Một business request cần HR+IT+Asset chạy Primary Onboarding Workflow có 3 SubWorkflow child events, không Form fan-out.
+8. Ticket list đọc current business state nhanh; detail show state history và active parallel steps.
+9. Historical Event có thể tái dựng exact Category/Form/Workflow/Mapping version đã dùng.
+
+## 34.12 Invariants v2.4.1 – CHỐT
+
+* Form is passive.
+* TicketCategoryVersion is the business-use-case binding contract identified by categoryKey.
+* Workflow is executable and consumes typed inputs.\*.
+* Explicit CategoryMapping is runtime source of truth; semanticTag is optional design-time metadata.
+* Published CategoryVersion pins exact FormVersion + WorkflowVersion + mapping snapshot.
+* One resolved categoryKey / Published CategoryVersion → start exactly one Primary Workflow by default.
+
+FormVersion is never the Workflow selector.
+
+Business Intent/categoryKey must disambiguate 1 Form reused by N Categories/Workflows.
+
+No TicketEntryPoint subsystem is required in the baseline.
+
+* No silent implicit default for unresolved required inputs.
+* Original FormSubmission and mapped WorkflowInputSnapshot are both retained.
+* Technical runtime state and user-facing WorkflowState are separate.
+* Existing routing/idempotency/participant/version/rework/integration invariants remain unchanged unless explicitly overridden here.
+
+## 34.13 Decision record v2.4.1
+
+ADR-v2.4.1-BUSINESS-INTENT-CATEGORY-KEY: Giữ reusable FormVersion + typed WorkflowInputContract + versioned TicketCategory binding/mapping của v2.4, đồng thời chốt selection semantics: Business Intent/categoryKey được xác định trước Form render; TicketCategoryVersion là binding source of truth; FormVersion không dùng để suy ra Workflow. Không triển khai TicketEntryPoint subsystem trong baseline. Đây là clarification foundational và phải được cập nhật đồng bộ workflow\_spec.md, DB/API/service create-ticket flow, frontend UX, validation, tests và documentation.
+
+Ghi chú v2.4.1: các ví dụ normative ở Phụ lục A sử dụng WorkflowInput qua inputs.\*; Form field chỉ đi vào runtime qua Published TicketCategoryMapping. Với 1 Form→N Workflow, categoryKey chọn binding trước khi Form được render.
+
 # PHỤ LỤC A – JSON cấu hình mẫu khái niệm
 
 ## A.1 Approval Node
 
 |  |
 | --- |
-| {  "key": "managerApproval",  "type": "APPROVAL",  "configSchemaVersion": 1,  "input": {  "bindings": [{  "target": "request",  "expression": "${ticket.data}",  "expectedType": "OBJECT",  "required": true,  "onMissing": "ERROR"  }]  },  "participant": {  "resolver": {  "sourceType": "MANAGER\_OF",  "subject": {"type": "TICKET\_CREATOR"},  "level": 1,  "relationType": "PRIMARY"  },  "fallback": [  {"sourceType": "HEAD\_OF\_UNIT", "subject": {"type":"TICKET\_CREATOR"}, "unitType":"DEPARTMENT"}  ]  },  "task": {  "generationStrategy": "DIRECT\_SINGLE",  "allowedActions": ["APPROVE","REJECT","REQUEST\_REVISION"],  "decisionAggregationPolicy": "ALL\_APPROVE",  "rejectBehavior": "FAIL\_FAST"  },  "output": {"schema": {"decision":"STRING","comment":"STRING"}}  }  Edges:  managerApproval.APPROVED -> financeReview  managerApproval.REJECTED -> endRejected  managerApproval.REVISION\_REQUESTED -> requesterRevision [transitionType=REWORK] |
+| {  "key": "managerApproval",  "type": "APPROVAL",  "configSchemaVersion": 1,  "input": {  "bindings": [{  "target": "request",  "expression": "${inputs.request}",  "expectedType": "OBJECT",  "required": true,  "onMissing": "ERROR"  }]  },  "participant": {  "resolver": {  "sourceType": "MANAGER\_OF",  "subject": {"type": "TICKET\_CREATOR"},  "level": 1,  "relationType": "PRIMARY"  },  "fallback": [  {"sourceType": "HEAD\_OF\_UNIT", "subject": {"type":"TICKET\_CREATOR"}, "unitType":"DEPARTMENT"}  ]  },  "task": {  "generationStrategy": "DIRECT\_SINGLE",  "allowedActions": ["APPROVE","REJECT","REQUEST\_REVISION"],  "decisionAggregationPolicy": "ALL\_APPROVE",  "rejectBehavior": "FAIL\_FAST"  },  "output": {"schema": {"decision":"STRING","comment":"STRING"}} }  Edges:  managerApproval.APPROVED -> financeReview  managerApproval.REJECTED -> endRejected  managerApproval.REVISION\_REQUESTED -> requesterRevision [transitionType=REWORK] |
 
 ## A.2 Multi-instance Evaluation
 
 |  |
 | --- |
-| {  "key": "employeeSelfEvaluation",  "type": "REVIEW",  "execution": {"mode":"MULTI\_INSTANCE"},  "multiInstance": {  "collection": "${ticket.data.evaluationTargets}",  "itemVariable": "employee",  "executionMode": "PARALLEL",  "subject": "${employee}",  "completionPolicy": {"type":"ALL"},  "remainingItemPolicy": "CANCEL\_REMAINING"  },  "participant": {  "resolver": {"sourceType":"EXPRESSION","expression":"${item.employee}"}  },  "task": {"generationStrategy":"DIRECT\_SINGLE"}  } |
+| {  "key": "employeeSelfEvaluation",  "type": "REVIEW",  "execution": {"mode":"MULTI\_INSTANCE"},  "multiInstance": {  "collection": "${inputs.evaluationTargets}",  "itemVariable": "employee",  "executionMode": "PARALLEL",  "subject": "${employee}",  "completionPolicy": {"type":"ALL"},  "remainingItemPolicy": "CANCEL\_REMAINING"  },  "participant": {  "resolver": {"sourceType":"EXPRESSION","expression":"${item.employee}"}  },  "task": {"generationStrategy":"DIRECT\_SINGLE"}  } |
 
 ## A.3 System Action
 
@@ -1816,17 +2192,17 @@ Workflow Field có metadata filterable/reportable/searchable. P0 dùng JSONB; fi
 | --- |
 | completeNode(execution, result):  lock + state guard  persist output + outcomePort  apply explicit variable mappings  create routing decision / activation jobs idempotently  audit  commit  route(sourceExecution):  assert source COMPLETED and Event non-terminal  edges = outgoing(sourceNode, sourceExecution.outcomePort)  matches = evaluate(edges, current EventContext)  selected = routingMode.select(matches, priority, default)  create ActivationToken(s) with path/cycle/item correlation  activate(token):  idempotency guard by activationKey  create new NodeExecution occurrence  resolve typed input snapshot  resolve participant snapshot if needed  dispatch NodeHandler  persist WAIT / COMPLETE / FAIL |
 
-# PHỤ LỤC D – Decision Log v2.1
+# PHỤ LỤC D – Decision Log v2.4.1 (bao gồm các quyết định nền trước đó)
 
 |  |  |
 | --- | --- |
-| **Nhóm** | **Quyết định chốt v2.1** |
+| **Nhóm** | Quyết định nền được kế thừa / chốt đến v2.4.1 |
 | Node Configuration | Typed strict contract, NodeTypeManifest, configSchemaVersion, stable node.key. |
 | Routing | Port + Edge là source of truth; Runtime token-driven, không DFS execution. |
 | Forms | No Ticket Custom Fields; Workflow Owner controls schema; Runtime Requested Fields cho revision. |
 | Validation | Multi-phase compiler/static analysis; Publish revalidates revision/checksum. |
 | Rework | Controlled cycle với explicit REWORK edge, maxIterations, exhaustion behavior, new occurrences. |
-| Ticket Creation | User chọn Request Type; Event bind current Published version tại submit/start. |
+| Ticket Creation | Business Intent/categoryKey xác định TicketCategoryVersion; Event bind exact WorkflowVersion tại create/start. |
 | Organization | Tách Organization tree và Position reporting tree; closure tables + OrganizationResolver. |
 | Participants | Generic MANAGER\_OF/HEAD\_OF\_UNIT; resolve at activation + snapshot. |
 | Integration | Pin connector action version; secrets runtime refs; callback correlation/replay protection. |
@@ -1836,17 +2212,23 @@ Workflow Field có metadata filterable/reportable/searchable. P0 dùng JSONB; fi
 
 # KẾT LUẬN KIẾN TRÚC
 
-Specification v2.1 là baseline đủ để triển khai physical ERD/Flyway, Java aggregates/services/handlers, Routing/Activation engine, OrganizationResolver, REST contracts, React Flow node configuration schema, validation compiler và test suite. Các thay đổi sau bản này nên được đánh giá như một Architecture Decision mới thay vì thay đổi ngầm semantics đã publish.
+Specification v2.4.1 là baseline kiến trúc hiện hành để triển khai physical ERD/Flyway, Form Catalog, Ticket Category binding/mapping, WorkflowInput/WorkflowState, Java aggregates/services/handlers, Routing/Activation engine, OrganizationResolver, REST contracts, Admin/User UI, validation compiler và test suite. Mọi thay đổi foundational sau v2.4.1 phải được ghi thành ADR/decision record thay vì thay đổi ngầm semantics đã publish.
 
 |  |
 | --- |
-| **BASELINE STATUS:** Core đã đóng: Definition/Version, RequestType/Ticket/Event, Node Configuration, Dynamic Form, Organization/Participant, Human Task, Multi-instance, Routing/Join, Rework, Sub-workflow, Integration, Validation, Lifecycle, Concurrency và Operational baseline. |
+| **BASELINE STATUS:** Core đã đóng: Definition/Version, TicketCategory/Ticket/Event, Node Configuration, Dynamic Form, Organization/Participant, Human Task, Multi-instance, Routing/Join, Rework, Sub-workflow, Integration, Validation, Lifecycle, Concurrency và Operational baseline. |
 
 ## D.13 Physical Database Design baseline – chốt v2.3
 
 PostgreSQL Hybrid Relational + JSONB; normalized Definition rows + immutable execution\_package\_json; runtime token/activation persistence; multi-instance ItemExecution; JoinState; command idempotency; Connector Action Versioning; Organization closure tables; durable job/outbox. Các invariant tại mục 25.25 là normative.
 
+## D.14 Business Intent / Form / Workflow / Ticket Category binding – chốt v2.4.1
+
+Bỏ ownership create-ticket TicketFormSchema khỏi WorkflowVersion. Form trở thành reusable versioned resource; Workflow khai báo typed WorkflowInputContract; TicketCategoryVersion pin exact FormVersion + exact WorkflowVersion + explicit mapping. Business Intent/categoryKey chọn CategoryVersion trước Form render; Form is passive và không phải Workflow selector. Submit một resolved Category mặc định start đúng một Primary Workflow. Không có TicketEntryPoint subsystem trong baseline. semanticTag chỉ là metadata design-time; explicit mapping là runtime source of truth. Technical state tách business display state qua WorkflowStateDefinition/ticket\_state\_history.
+
 # PHỤ LỤC E – CHI TIẾT KỸ THUẬT BẢO LƯU ĐẦY ĐỦ TỪ BASELINE v2.0
+
+LEGACY NOTICE v2.4.1: Phụ lục E bảo lưu lịch sử v2.0 nên còn thuật ngữ RequestType, TicketFormSchema, ticket.data.\* và workflow\_forms. Các nội dung đó chỉ có giá trị lịch sử/không xung đột; đối với create-ticket Form/Workflow binding phải áp dụng Chapter 34 v2.4.1.
 
 Phụ lục này được đưa vào bản FULL EXPANDED để bảo đảm không mất bất kỳ mức chi tiết nào của bản v2.0. Nội dung bên dưới được bảo lưu gần như nguyên vẹn từ phần kiến trúc chi tiết của v2.0. Khi một thuật ngữ hoặc semantics đã được chốt lại ở phần chính v2.2/v2.1 (ví dụ Node Configuration, routing theo output port/EdgeDefinition, Request Type/Ticket Form, controlled rework, Organization/Reporting Tree), phần chính có hiệu lực ưu tiên; các ví dụ và chi tiết triển khai không xung đột vẫn là normative guidance.
 
