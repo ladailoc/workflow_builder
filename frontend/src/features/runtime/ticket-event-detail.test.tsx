@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { TicketDetailView } from "./components/ticket-detail-view";
 import { EventDetailView } from "./components/event-detail-view";
 import { AuthSessionProvider } from "@/features/auth";
 import { PRESET_ACTORS } from "@/features/auth/types";
 import type { EventMonitoringView, TicketAggregate } from "./types";
+import { getTicketDisplayName } from "./ticket-display";
 
 const MOCK_TICKET_AGGREGATE: TicketAggregate = {
   ticket: {
@@ -128,32 +129,27 @@ const MOCK_EVENT_VIEW: EventMonitoringView = {
 };
 
 describe("TicketDetailView Component", () => {
-  it("renders ticket business data, status, and event link", () => {
+  it("renders only user-facing ticket data, status, and event link", () => {
     render(<TicketDetailView aggregate={MOCK_TICKET_AGGREGATE} />);
 
     expect(screen.getByTestId("ticket-status-badge")).toHaveTextContent(
       "IN_PROGRESS",
     );
+    expect(getTicketDisplayName(MOCK_TICKET_AGGREGATE.ticket)).toBe(
+      "Yêu cầu cấp thiết bị",
+    );
     expect(screen.getByText("MacBook Pro 16")).toBeInTheDocument();
     expect(screen.getByText("3500")).toBeInTheDocument();
 
-    // Verify link to Event is present
+    expect(screen.getByText("Tệp đính kèm")).toBeInTheDocument();
+
+    // Technical revision and subject data are not shown to requesters.
+    expect(screen.queryByTestId("tab-history")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("tab-subjects")).not.toBeInTheDocument();
+
+    // Verify link to the user-facing progress view is present
     const eventLink = screen.getByTestId("link-to-event");
     expect(eventLink).toHaveAttribute("href", "/events/event-87654321");
-  });
-
-  it("navigates tabs to view revision history timeline", () => {
-    render(<TicketDetailView aggregate={MOCK_TICKET_AGGREGATE} />);
-
-    // Click History tab
-    const historyTab = screen.getByTestId("tab-history");
-    fireEvent.click(historyTab);
-
-    expect(screen.getByTestId("revision-entry-1")).toBeInTheDocument();
-    expect(screen.getByTestId("revision-entry-2")).toBeInTheDocument();
-    expect(
-      screen.getByText(/"Upgraded spec for software engineering"/i),
-    ).toBeInTheDocument();
   });
 });
 
@@ -184,6 +180,74 @@ describe("EventDetailView Component", () => {
     expect(
       screen.queryByTestId("privileged-graph-section"),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows business-friendly timeline labels instead of engine event codes", () => {
+    const eventWithInternalTimelineCodes: EventMonitoringView = {
+      ...MOCK_EVENT_VIEW,
+      timeline: [
+        {
+          at: new Date("2026-01-01T10:00:00Z").toISOString(),
+          type: "NODE",
+          id: "node-1",
+          state: "COMPLETED",
+        },
+        {
+          at: new Date("2026-01-01T10:01:00Z").toISOString(),
+          type: "ROUTING",
+          id: "route-1",
+          state: "SINGLE_BY_PORT",
+        },
+        {
+          at: new Date("2026-01-01T10:02:00Z").toISOString(),
+          type: "PARTICIPANT",
+          id: "participant-1",
+          state: "RESOLVED",
+        },
+        {
+          at: new Date("2026-01-01T10:03:00Z").toISOString(),
+          type: "NODE",
+          id: "node-3",
+          state: "WAITING",
+        },
+        {
+          at: new Date("2026-01-01T10:04:00Z").toISOString(),
+          type: "TASK",
+          id: "task-1",
+          state: "READY",
+        },
+      ],
+    };
+
+    render(
+      <AuthSessionProvider
+        initialSession={{ status: "authenticated", actor: PRESET_ACTORS[0] }}
+      >
+        <EventDetailView event={eventWithInternalTimelineCodes} />
+      </AuthSessionProvider>,
+    );
+
+    expect(screen.getByTestId("timeline-entry-0")).toHaveTextContent(
+      "Hoàn tất bước xử lý",
+    );
+    expect(screen.getByTestId("timeline-entry-1")).toHaveTextContent(
+      "Chuyển sang nhánh xử lý",
+    );
+    expect(screen.getByTestId("timeline-entry-2")).toHaveTextContent(
+      "Đã xác định người xử lý",
+    );
+    expect(screen.getByTestId("timeline-entry-3")).toHaveTextContent(
+      "Bước đang chờ xử lý",
+    );
+    expect(screen.getByTestId("timeline-entry-4")).toHaveTextContent(
+      "Công việc sẵn sàng",
+    );
+    expect(screen.getByTestId("timeline-section")).not.toHaveTextContent(
+      "NODECOMPLETED",
+    );
+    expect(screen.getByTestId("timeline-section")).not.toHaveTextContent(
+      "Mã tham chiếu",
+    );
   });
 
   it("shows privileged execution context to operator / admin users", () => {

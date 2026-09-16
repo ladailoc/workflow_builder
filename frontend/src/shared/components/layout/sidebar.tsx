@@ -71,6 +71,15 @@ const PRIMARY_NAV_ITEMS: readonly NavItem[] = [
     ),
   },
   {
+    label: "Notifications",
+    href: "/notifications",
+    icon: (props) => (
+      <svg className={props.className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0a3 3 0 01-6 0m6 0H9" />
+      </svg>
+    ),
+  },
+  {
     label: "Events & History",
     href: "/events",
     icon: (props) => (
@@ -107,31 +116,31 @@ export function Sidebar() {
   return (
     <aside
       data-testid="app-sidebar"
-      className="flex h-screen w-64 flex-col border-r border-slate-200 bg-white"
+      className="sticky top-0 hidden h-screen w-64 shrink-0 self-start flex-col border-r border-slate-200/80 bg-white lg:flex"
     >
       {/* Brand / Logo */}
-      <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-5">
-        <Link href="/catalog" className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 font-bold text-white shadow-xs">
+      <div className="flex h-[72px] shrink-0 items-center justify-between border-b border-slate-200/80 px-5">
+        <Link href="/" className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 font-bold text-white shadow-sm">
             W
           </div>
           <div>
             <span className="block text-sm leading-none font-semibold tracking-tight text-slate-900">
-              Workflow
+              Flowdesk
             </span>
-            <span className="text-[10px] font-medium tracking-wide text-blue-600 uppercase">
-              Platform v2
+            <span className="text-[10px] font-semibold tracking-[0.18em] text-blue-600 uppercase">
+              WORKFLOW PLATFORM
             </span>
           </div>
         </Link>
       </div>
 
       {/* Nav links */}
-      <div className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
+      <div className="flex-1 space-y-7 overflow-y-auto px-3 py-5">
         {/* Primary Runtime Navigation */}
         <div>
-          <p className="px-3 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
-            Runtime
+          <p className="px-3 text-[10px] font-bold tracking-[0.18em] text-slate-400 uppercase">
+            Workspace
           </p>
           <nav className="mt-2 space-y-1">
             {PRIMARY_NAV_ITEMS.map((item) => {
@@ -141,7 +150,7 @@ export function Sidebar() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
                     active
                       ? "bg-blue-50 text-blue-700"
                       : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
@@ -164,7 +173,7 @@ export function Sidebar() {
           canAccessOrganization ||
           canAccessOperations) && (
           <div data-testid="privileged-nav-section">
-            <p className="px-3 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
+            <p className="px-3 text-[10px] font-bold tracking-[0.18em] text-slate-400 uppercase">
               Administration
             </p>
             <nav className="mt-2 space-y-1">
@@ -172,7 +181,7 @@ export function Sidebar() {
                 <Link
                   data-testid="nav-workflows"
                   href="/workflows"
-                  className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
                     pathname.startsWith("/workflows")
                       ? "bg-blue-50 text-blue-700"
                       : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
@@ -203,13 +212,13 @@ export function Sidebar() {
                 <>
                   <Link
                     href="/forms"
-                    className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium ${pathname.startsWith("/forms") ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-100"}`}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium ${pathname.startsWith("/forms") ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-100"}`}
                   >
                     <span>Forms</span>
                   </Link>
                   <Link
                     href="/ticket-categories"
-                    className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium ${pathname.startsWith("/ticket-categories") ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-100"}`}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium ${pathname.startsWith("/ticket-categories") ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-100"}`}
                   >
                     <span>Business Intents</span>
                   </Link>
@@ -324,7 +333,7 @@ export function Sidebar() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <span className="truncate font-semibold text-slate-800">
-                  {actor ? actor.principalName : "Anonymous"}
+                  {actor ? actor.principalName : "Not signed in"}
                 </span>
                 {actor && (
                   <span className="py-0.2 rounded bg-blue-100 px-1.5 text-[10px] font-semibold text-blue-700">

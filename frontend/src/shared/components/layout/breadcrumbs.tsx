@@ -4,20 +4,21 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const ROUTE_LABELS: Record<string, string> = {
-  catalog: "Request Catalog",
-  tickets: "My Tickets",
-  tasks: "My Tasks",
-  events: "Events & History",
-  workflows: "Workflows",
-  "request-types": "Request Types",
-  forms: "Forms",
-  "ticket-categories": "Business Intents",
-  contract: "Inputs & States",
-  versions: "Versions",
-  builder: "Builder",
-  new: "New",
-  organization: "Organization & Admin",
-  operations: "Operations",
+  catalog: "Danh mục yêu cầu",
+  tickets: "Ticket của tôi",
+  tasks: "Công việc của tôi",
+  events: "Lịch sử xử lý",
+  workflows: "Quy trình",
+  "request-types": "Loại yêu cầu",
+  forms: "Biểu mẫu",
+  "ticket-categories": "Nhu cầu nghiệp vụ",
+  contract: "Dữ liệu đầu vào & trạng thái",
+  versions: "Phiên bản",
+  builder: "Trình xây dựng",
+  new: "Tạo mới",
+  organization: "Tổ chức & quản trị",
+  operations: "Vận hành",
+  dashboard: "Tổng quan",
 };
 
 export function Breadcrumbs() {
@@ -27,24 +28,24 @@ export function Breadcrumbs() {
   if (segments.length === 0) {
     return (
       <nav
-        aria-label="Breadcrumb"
+        aria-label="Điều hướng"
         className="flex items-center text-xs font-medium text-slate-500"
       >
-        <span className="font-semibold text-slate-900">Home</span>
+        <span className="font-semibold text-slate-900">Trang chủ</span>
       </nav>
     );
   }
 
   return (
     <nav
-      aria-label="Breadcrumb"
+      aria-label="Điều hướng"
       className="flex items-center space-x-1.5 text-xs font-medium text-slate-500"
     >
       <Link
-        href="/catalog"
+        href="/"
         className="text-slate-500 transition-colors hover:text-slate-900"
       >
-        Home
+        Trang chủ
       </Link>
       {segments.map((segment, index) => {
         const accumulatedPath = "/" + segments.slice(0, index + 1).join("/");

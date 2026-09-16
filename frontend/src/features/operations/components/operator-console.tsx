@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { EventMonitoringView } from "@/features/runtime/types";
+import { formatTimelineEntry } from "@/features/runtime/timeline-labels";
 import {
   executeOperationalCommand,
   fetchOperationalEvent,
@@ -26,7 +27,7 @@ export function OperatorConsole() {
       setMessage(null);
     } catch (error) {
       setMessage(
-        error instanceof Error ? error.message : "Unable to load failures",
+        error instanceof Error ? error.message : "Không thể tải danh sách lỗi",
       );
     } finally {
       setLoading(false);
@@ -45,7 +46,7 @@ export function OperatorConsole() {
       .catch((error: unknown) => {
         if (active) {
           setMessage(
-            error instanceof Error ? error.message : "Unable to load failures",
+            error instanceof Error ? error.message : "Không thể tải danh sách lỗi",
           );
         }
       })
@@ -64,7 +65,7 @@ export function OperatorConsole() {
       setSelected(await fetchOperationalEvent(failure.eventId));
     } catch (error) {
       setMessage(
-        error instanceof Error ? error.message : "Unable to load event",
+        error instanceof Error ? error.message : "Không thể tải thông tin sự kiện",
       );
     } finally {
       setWorking(null);
@@ -73,7 +74,7 @@ export function OperatorConsole() {
 
   const run = async (failure: OperationalFailure, action: Action) => {
     if (!reason.trim()) {
-      setMessage("A reason is required for every operator override.");
+      setMessage("Mỗi thao tác can thiệp vận hành đều cần có lý do.");
       return;
     }
     const target = endpoint(failure, action);
@@ -81,7 +82,7 @@ export function OperatorConsole() {
     const expectedVersion =
       action === "terminate" ? failure.eventVersion : failure.lockVersion;
     if (expectedVersion == null) {
-      setMessage("Reload the event before applying this recovery action.");
+      setMessage("Hãy tải lại sự kiện trước khi thực hiện thao tác khôi phục.");
       return;
     }
     setWorking(`${action}:${failure.id}`);
@@ -91,11 +92,11 @@ export function OperatorConsole() {
     };
     try {
       await executeOperationalCommand(target, expectedVersion, command);
-      setMessage(`Recovery action ${action} accepted.`);
+      setMessage(`Đã tiếp nhận thao tác khôi phục: ${action}.`);
       await load();
     } catch (error) {
       setMessage(
-        error instanceof Error ? error.message : "Recovery action failed",
+        error instanceof Error ? error.message : "Thao tác khôi phục thất bại",
       );
     } finally {
       setWorking(null);
@@ -109,13 +110,13 @@ export function OperatorConsole() {
           className="block text-sm font-semibold text-slate-800"
           htmlFor="override-reason"
         >
-          Override reason
+          Lý do can thiệp
         </label>
         <textarea
           id="override-reason"
           value={reason}
           onChange={(event) => setReason(event.target.value)}
-          placeholder="Incident or recovery justification"
+          placeholder="Mô tả sự cố hoặc lý do khôi phục"
           className="mt-2 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
         />
         {message ? (
@@ -128,15 +129,15 @@ export function OperatorConsole() {
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
         <div className="border-b border-slate-200 px-5 py-4">
           <h2 className="font-semibold text-slate-900">
-            Operational failure queue
+            Hàng đợi lỗi vận hành
           </h2>
         </div>
         {loading ? (
-          <p className="p-5 text-sm text-slate-500">Loading failures…</p>
+          <p className="p-5 text-sm text-slate-500">Đang tải danh sách lỗi…</p>
         ) : null}
         {!loading && failures.length === 0 ? (
           <p className="p-5 text-sm text-emerald-700">
-            No operational failures.
+            Không có lỗi vận hành.
           </p>
         ) : null}
         {failures.map((failure) => (
@@ -154,7 +155,7 @@ export function OperatorConsole() {
                   {failure.aggregateType}:{failure.aggregateId}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
-                  Attempts {failure.attempts ?? "—"}/
+                  Số lần thử {failure.attempts ?? "—"}/
                   {failure.maxAttempts ?? "—"}
                 </p>
               </div>
@@ -171,7 +172,7 @@ export function OperatorConsole() {
             <div className="mt-3 flex flex-wrap gap-2">
               {retryable(failure) ? (
                 <ActionButton
-                  label="Retry"
+                  label="Thử lại"
                   busy={working === `retry:${failure.id}`}
                   onClick={() => void run(failure, "retry")}
                 />
@@ -180,12 +181,12 @@ export function OperatorConsole() {
               failure.status === "MANUAL_RECONCILIATION" ? (
                 <>
                   <ActionButton
-                    label="Resolve manually"
+                    label="Xử lý thủ công"
                     busy={working === `resolve:${failure.id}`}
                     onClick={() => void run(failure, "resolve")}
                   />
                   <ActionButton
-                    label="Create manual task"
+                    label="Tạo công việc thủ công"
                     busy={working === `manual-task:${failure.id}`}
                     onClick={() => void run(failure, "manual-task")}
                   />
@@ -193,14 +194,14 @@ export function OperatorConsole() {
               ) : null}
               {failure.eventId ? (
                 <ActionButton
-                  label="Inspect timeline"
+                  label="Xem lịch sử xử lý"
                   busy={working === `inspect:${failure.id}`}
                   onClick={() => void inspect(failure)}
                 />
               ) : null}
               {failure.eventId && failure.eventVersion != null ? (
                 <ActionButton
-                  label="Terminate event"
+                  label="Dừng sự kiện"
                   danger
                   busy={working === `terminate:${failure.id}`}
                   onClick={() => void run(failure, "terminate")}
@@ -234,7 +235,7 @@ function EventTechnicalInspector({ event }: { event: EventMonitoringView }) {
       data-testid="event-technical-inspector"
     >
       <h2 className="font-semibold text-slate-900">
-        Exact execution graph · Version #{event.workflowVersion.versionNo}
+        Sơ đồ xử lý · Phiên bản #{event.workflowVersion.versionNo}
       </h2>
       <p className="mt-1 font-mono text-xs text-slate-500">
         {event.workflowVersion.id} · {event.workflowVersion.checksum}
@@ -256,7 +257,7 @@ function EventTechnicalInspector({ event }: { event: EventMonitoringView }) {
                 </span>
               </p>
               <p className="text-xs text-slate-500">
-                {counts.get(node.id) ?? 0} occurrence(s)
+                {counts.get(node.id) ?? 0} lần thực thi
               </p>
               {occurrences.map((item) => (
                 <p
@@ -273,17 +274,17 @@ function EventTechnicalInspector({ event }: { event: EventMonitoringView }) {
         })}
       </div>
       <p className="mt-4 text-xs text-slate-500">
-        {event.graph.edges.length} immutable edge definition(s)
+        {event.graph.edges.length} liên kết xử lý không thể thay đổi
       </p>
-      <h3 className="mt-5 font-semibold text-slate-800">Timeline</h3>
+      <h3 className="mt-5 font-semibold text-slate-800">Lịch sử xử lý</h3>
       <ol className="mt-2 space-y-1 text-sm text-slate-600">
         {event.timeline.map((entry) => (
           <li key={`${entry.type}:${entry.id}:${entry.at}`}>
-            {entry.at} · {entry.type} · {entry.state}
+            {entry.at} · {formatTimelineEntry(entry)}
           </li>
         ))}
       </ol>
-      <h3 className="mt-5 font-semibold text-slate-800">Safe context</h3>
+      <h3 className="mt-5 font-semibold text-slate-800">Thông tin an toàn</h3>
       <pre
         className="mt-2 max-h-72 overflow-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-100"
         data-testid="masked-context"
@@ -312,7 +313,7 @@ function ActionButton({
       onClick={onClick}
       className={`rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${danger ? "border-rose-300 text-rose-700" : "border-slate-300 text-slate-700"}`}
     >
-      {busy ? "Working…" : label}
+      {busy ? "Đang xử lý…" : label}
     </button>
   );
 }

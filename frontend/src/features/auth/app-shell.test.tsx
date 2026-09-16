@@ -103,7 +103,7 @@ describe("Application Shell & Permission Navigation", () => {
     );
 
     expect(screen.queryByTestId("secret-builder")).not.toBeInTheDocument();
-    expect(screen.getByText("403 — Access Denied")).toBeInTheDocument();
+    expect(screen.getByText("403 — Không có quyền truy cập")).toBeInTheDocument();
   });
 
   it("allows authorized access through AuthRouteGuard", () => {

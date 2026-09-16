@@ -31,7 +31,7 @@ export default function TicketDetailPage({ params }: TicketDetailPageProps) {
       })
       .catch((err: unknown) => {
         setError(
-          err instanceof Error ? err.message : "Failed to load ticket details",
+          err instanceof Error ? err.message : "Không thể tải thông tin ticket",
         );
       })
       .finally(() => {
@@ -51,7 +51,7 @@ export default function TicketDetailPage({ params }: TicketDetailPageProps) {
       .catch((err: unknown) => {
         if (!ignore) {
           setError(
-            err instanceof Error ? err.message : "Failed to load ticket details",
+            err instanceof Error ? err.message : "Không thể tải thông tin ticket",
           );
           setIsLoading(false);
         }
@@ -81,15 +81,15 @@ export default function TicketDetailPage({ params }: TicketDetailPageProps) {
               d="M10 19l-7-7m0 0l7-7m-7 7h18"
             />
           </svg>
-          <span>Back to Tickets</span>
+          <span>Quay lại ticket của tôi</span>
         </Link>
       </div>
 
       {isLoading ? (
-        <LoadingState title="Loading ticket details..." />
+        <LoadingState title="Đang tải thông tin ticket…" />
       ) : error ? (
         <ErrorState
-          title="Could not load ticket"
+          title="Không thể tải ticket"
           message={error}
           onRetry={loadTicket}
         />

@@ -31,7 +31,7 @@ export default function EventDetailPage({ params }: EventDetailPageProps) {
       })
       .catch((err: unknown) => {
         setError(
-          err instanceof Error ? err.message : "Failed to load event monitoring",
+          err instanceof Error ? err.message : "Không thể tải thông tin sự kiện",
         );
       })
       .finally(() => {
@@ -51,7 +51,7 @@ export default function EventDetailPage({ params }: EventDetailPageProps) {
       .catch((err: unknown) => {
         if (!ignore) {
           setError(
-            err instanceof Error ? err.message : "Failed to load event monitoring",
+            err instanceof Error ? err.message : "Không thể tải thông tin sự kiện",
           );
           setIsLoading(false);
         }
@@ -81,15 +81,15 @@ export default function EventDetailPage({ params }: EventDetailPageProps) {
               d="M10 19l-7-7m0 0l7-7m-7 7h18"
             />
           </svg>
-          <span>Back to Events</span>
+          <span>Quay lại lịch sử xử lý</span>
         </Link>
       </div>
 
       {isLoading ? (
-        <LoadingState title="Loading event trace..." />
+        <LoadingState title="Đang tải lịch sử sự kiện…" />
       ) : error ? (
         <ErrorState
-          title="Could not load event trace"
+          title="Không thể tải lịch sử sự kiện"
           message={error}
           onRetry={loadEvent}
         />

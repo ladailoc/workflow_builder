@@ -4,6 +4,7 @@ import { useId, useMemo, useState } from "react";
 import { executeTaskAction, fetchMyTasks } from "../api";
 import type { TaskActionCommand, TaskItem } from "../types";
 import { ApiRequestError } from "@/shared/api/client";
+import { StatusBadge } from "@/shared/components/ui/status-badge";
 
 interface TaskInboxProps {
   initialTasks: TaskItem[];
@@ -69,7 +70,7 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
       }
     } catch (err: unknown) {
       setActionError(
-        err instanceof Error ? err.message : "Failed to refresh task list",
+        err instanceof Error ? err.message : "Không thể làm mới danh sách công việc",
       );
     }
   };
@@ -146,7 +147,7 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
         }
       }
       setActionError(
-        err instanceof Error ? err.message : "Failed to perform task action",
+        err instanceof Error ? err.message : "Không thể thực hiện thao tác công việc",
       );
     } finally {
       setActionInProgress(null);
@@ -171,7 +172,7 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
                     : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
                 }`}
               >
-                {status === "ALL" ? "All Statuses" : status}
+                {status === "ALL" ? "Tất cả trạng thái" : status === "READY" ? "Sẵn sàng" : status === "CLAIMED" ? "Đã nhận xử lý" : "Đang xử lý"}
               </button>
             ),
           )}
@@ -180,7 +181,7 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
         <div className="flex items-center gap-2">
           <input
             type="text"
-            placeholder="Search tasks..."
+            placeholder="Tìm công việc…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-48 sm:w-64 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none"
@@ -190,7 +191,7 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
             data-testid="refresh-tasks-button"
             onClick={handleRefresh}
             className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50 transition-colors"
-            title="Refresh Tasks"
+            title="Làm mới danh sách công việc"
           >
             <svg
               className="h-4 w-4"
@@ -215,7 +216,7 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
           data-testid="no-tasks-message"
           className="rounded-xl border border-dashed border-slate-300 p-12 text-center text-xs text-slate-500"
         >
-          No tasks found matching your filter criteria.
+          Không tìm thấy công việc phù hợp với bộ lọc.
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4" data-testid="task-cards-list">
@@ -233,20 +234,12 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
                     <div className="flex items-center gap-2">
                       <span
                         data-testid={`task-status-${task.id}`}
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                          task.status === "READY"
-                            ? "bg-amber-50 text-amber-700 border border-amber-200"
-                            : task.status === "CLAIMED"
-                              ? "bg-blue-50 text-blue-700 border border-blue-200"
-                              : task.status === "IN_PROGRESS"
-                                ? "bg-indigo-50 text-indigo-700 border border-indigo-200"
-                                : "bg-slate-100 text-slate-700"
-                        }`}
+                        className="inline-flex"
                       >
-                        {task.status}
+                        <StatusBadge value={task.status} /><span className="sr-only">{task.status}</span>
                       </span>
                       <span className="text-[11px] text-slate-400 font-mono">
-                        #{task.id.slice(0, 8)} (v{task.lockVersion})
+                        Mã công việc: #{task.id.slice(0, 8)}
                       </span>
                     </div>
 
@@ -260,7 +253,7 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
                     )}
                     {task.dueAt && (
                       <p className="text-[11px] text-rose-600 font-medium">
-                        Due: {new Date(task.dueAt).toLocaleDateString()}
+                        Hạn xử lý: {new Date(task.dueAt).toLocaleDateString("vi-VN")}
                       </p>
                     )}
                   </div>
@@ -275,7 +268,7 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
                         onClick={() => handleExecuteCommand(task, "claim")}
                         className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-blue-700 disabled:opacity-50"
                       >
-                        Claim
+                        Nhận xử lý
                       </button>
                     )}
 
@@ -289,7 +282,7 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
                           onClick={() => openActionDialog(task, "approve")}
                           className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-emerald-700 disabled:opacity-50"
                         >
-                          Approve
+                          Phê duyệt
                         </button>
                         <button
                           type="button"
@@ -298,7 +291,7 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
                           onClick={() => openActionDialog(task, "reject")}
                           className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-rose-700 disabled:opacity-50"
                         >
-                          Reject
+                          Từ chối
                         </button>
                         <button
                           type="button"
@@ -309,7 +302,7 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
                           }
                           className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
                         >
-                          Request Revision
+                          Yêu cầu bổ sung
                         </button>
                         <button
                           type="button"
@@ -318,7 +311,7 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
                           onClick={() => handleExecuteCommand(task, "complete")}
                           className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
                         >
-                          Complete
+                          Hoàn tất
                         </button>
                       </>
                     )}
@@ -330,7 +323,7 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
                       onClick={() => openActionDialog(task, "reassign")}
                       className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
                     >
-                      Reassign
+                      Chuyển người xử lý
                     </button>
                   </div>
                 </div>
@@ -349,10 +342,18 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl space-y-4">
             <div>
               <h3 className="text-base font-semibold text-slate-900 uppercase">
-                {activeDialog.action.replace("-", " ")} Task
+                {activeDialog.action === "approve"
+                  ? "Phê duyệt công việc"
+                  : activeDialog.action === "reject"
+                    ? "Từ chối công việc"
+                    : activeDialog.action === "request-revision"
+                      ? "Yêu cầu bổ sung"
+                      : activeDialog.action === "reassign"
+                        ? "Chuyển người xử lý"
+                        : "Nhận xử lý công việc"}
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Task: #{activeDialog.task.id.slice(0, 8)} • Expected Lock Version: {activeDialog.task.lockVersion}
+                Mã công việc: #{activeDialog.task.id.slice(0, 8)}
               </p>
             </div>
 
@@ -369,7 +370,7 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
                   onClick={handleRefresh}
                   className="rounded-md bg-rose-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-rose-700"
                 >
-                  Refresh Task State
+                  Làm mới trạng thái công việc
                 </button>
               </div>
             )}
@@ -388,14 +389,14 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
               {activeDialog.action === "reassign" && (
                 <div>
                   <label htmlFor={targetUserHtmlId} className="block text-xs font-semibold text-slate-700 mb-1">
-                    New Assignee User ID
+                    Mã người xử lý mới
                   </label>
                   <input
                     id={targetUserHtmlId}
                     type="text"
                     data-testid="reassign-target-user-input"
                     value={targetUserInput}
-                    placeholder="Enter user UUID"
+                    placeholder="Nhập UUID của người dùng"
                     onChange={(e) => setTargetUserInput(e.target.value)}
                     className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
                   />
@@ -405,14 +406,14 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
               {activeDialog.action === "request-revision" && (
                 <div>
                   <label htmlFor={revisionFieldHtmlId} className="block text-xs font-semibold text-slate-700 mb-1">
-                    Requested Field
+                    Thông tin cần bổ sung
                   </label>
                   <input
                     id={revisionFieldHtmlId}
                     type="text"
                     data-testid="revision-field-input"
                     value={revisionFieldInput}
-                    placeholder="e.g. Budget justification document"
+                    placeholder="Ví dụ: Tài liệu giải trình ngân sách"
                     onChange={(e) => setRevisionFieldInput(e.target.value)}
                     className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
                   />
@@ -421,14 +422,14 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
 
               <div>
                 <label htmlFor={commentHtmlId} className="block text-xs font-semibold text-slate-700 mb-1">
-                  Reason / Comment
+                  Lý do / Ghi chú
                 </label>
                 <textarea
                   id={commentHtmlId}
                   data-testid="action-comment-input"
                   rows={3}
                   value={commentInput}
-                  placeholder="Provide decision comments..."
+                  placeholder="Nhập ghi chú hoặc lý do xử lý…"
                   onChange={(e) => setCommentInput(e.target.value)}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
                 />
@@ -441,7 +442,7 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
                 onClick={closeActionDialog}
                 className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
               >
-                Cancel
+                Hủy
               </button>
               <button
                 type="button"
@@ -453,8 +454,8 @@ export function TaskInbox({ initialTasks }: TaskInboxProps) {
                 className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
               >
                 {actionInProgress === activeDialog.task.id
-                  ? "Processing..."
-                  : "Confirm"}
+                  ? "Đang xử lý…"
+                  : "Xác nhận"}
               </button>
             </div>
           </div>

@@ -87,14 +87,16 @@ describe("OperatorConsole", () => {
     expect(await screen.findByText("ERP/CREATE_PO")).toBeInTheDocument();
     expect(screen.getByTestId("sanitized-error")).toHaveTextContent("***");
 
-    fireEvent.click(screen.getByRole("button", { name: "Resolve manually" }));
-    expect(screen.getByRole("status")).toHaveTextContent("reason is required");
+    fireEvent.click(screen.getByRole("button", { name: "Xử lý thủ công" }));
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Mỗi thao tác can thiệp vận hành đều cần có lý do.",
+    );
     expect(api.executeOperationalCommand).not.toHaveBeenCalled();
 
-    fireEvent.change(screen.getByLabelText("Override reason"), {
+    fireEvent.change(screen.getByLabelText("Lý do can thiệp"), {
       target: { value: "ERP confirmed PO creation" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Resolve manually" }));
+    fireEvent.click(screen.getByRole("button", { name: "Xử lý thủ công" }));
     await waitFor(() =>
       expect(api.executeOperationalCommand).toHaveBeenCalledWith(
         "/api/v1/integrations/integration-1/resolve",
@@ -110,11 +112,11 @@ describe("OperatorConsole", () => {
   it("renders the exact version, scoped occurrence, timeline, and masked context", async () => {
     render(<OperatorConsole />);
     await screen.findByText("ERP/CREATE_PO");
-    fireEvent.click(screen.getByRole("button", { name: "Inspect timeline" }));
+    fireEvent.click(screen.getByRole("button", { name: "Xem lịch sử xử lý" }));
 
     expect(
       await screen.findByTestId("event-technical-inspector"),
-    ).toHaveTextContent("Version #7");
+    ).toHaveTextContent("Phiên bản #7");
     expect(screen.getByTestId("node-occurrence")).toHaveTextContent(
       "cycle cycle-1",
     );

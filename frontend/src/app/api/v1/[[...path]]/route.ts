@@ -58,9 +58,9 @@ async function proxyRequest(
     return NextResponse.json(
       {
         type: "urn:workflow-platform:problem:gateway-error",
-        title: "Bad Gateway",
+        title: "Không thể kết nối máy chủ",
         status: 502,
-        detail: `Failed to connect to backend at ${targetUrl}: ${error instanceof Error ? error.message : String(error)}`,
+        detail: `Không thể kết nối đến máy chủ API tại ${targetUrl}: ${error instanceof Error ? error.message : String(error)}`,
       },
       { status: 502 },
     );

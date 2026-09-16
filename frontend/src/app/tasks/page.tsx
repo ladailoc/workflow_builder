@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { fetchMyTasks, TaskInbox, type TaskItem } from "@/features/runtime";
 import { LoadingState } from "@/shared/components/ui/loading-state";
 import { ErrorState } from "@/shared/components/ui/error-state";
+import { PageHeader } from "@/shared/components/ui/page-header";
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -19,7 +20,7 @@ export default function TasksPage() {
       })
       .catch((err: unknown) => {
         setError(
-          err instanceof Error ? err.message : "Failed to load assigned tasks",
+          err instanceof Error ? err.message : "Không thể tải công việc được giao",
         );
       })
       .finally(() => {
@@ -39,7 +40,7 @@ export default function TasksPage() {
       .catch((err: unknown) => {
         if (!ignore) {
           setError(
-            err instanceof Error ? err.message : "Failed to load assigned tasks",
+            err instanceof Error ? err.message : "Không thể tải công việc được giao",
           );
           setIsLoading(false);
         }
@@ -50,21 +51,18 @@ export default function TasksPage() {
   }, []);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-          My Tasks
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Review, approve, reject, claim, and complete workflow tasks assigned to you.
-        </p>
-      </div>
+    <div className="space-y-7" data-testid="tasks-page">
+      <PageHeader
+        eyebrow="Danh sách của bạn"
+        title="Công việc của tôi"
+        description="Xem, phê duyệt, yêu cầu bổ sung hoặc hoàn tất công việc được giao."
+      />
 
       {isLoading ? (
-        <LoadingState title="Loading task inbox..." />
+        <LoadingState title="Đang tải công việc…" />
       ) : error ? (
         <ErrorState
-          title="Could not load tasks"
+          title="Không thể tải công việc"
           message={error}
           onRetry={loadTasks}
         />

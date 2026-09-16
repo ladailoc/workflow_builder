@@ -61,11 +61,8 @@ export function AuthRouteGuard({
             </svg>
           </div>
           <h2 className="mt-4 text-lg font-semibold text-slate-900">
-            Authentication Required
+            Yêu cầu đăng nhập
           </h2>
-          <p className="mt-2 text-sm text-slate-600">
-            Please select an active identity to access this section.
-          </p>
         </div>
       )
     );
@@ -100,27 +97,14 @@ export function AuthRouteGuard({
             </svg>
           </div>
           <h2 className="mt-4 text-xl font-semibold text-slate-900">
-            403 — Access Denied
+            403 — Không có quyền truy cập
           </h2>
-          <p className="mt-2 text-sm text-slate-600">
-            You do not have the required permissions to view this page.
-            Privileged features like Workflow Builder require{" "}
-            <span className="font-semibold text-slate-800">
-              WORKFLOW_OWNER
-            </span>{" "}
-            or <span className="font-semibold text-slate-800">ADMIN</span>{" "}
-            roles.
-          </p>
-          <p className="mt-2 text-xs text-slate-500">
-            Switch your simulated actor in the bottom-left of the sidebar to test
-            different permission views.
-          </p>
           <div className="mt-6">
             <Link
               href="/catalog"
               className="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
             >
-              Return to Request Catalog
+              Quay lại danh mục yêu cầu
             </Link>
           </div>
         </div>

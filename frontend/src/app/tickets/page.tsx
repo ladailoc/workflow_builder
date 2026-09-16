@@ -2,9 +2,16 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { fetchMyTickets, type TicketView } from "@/features/runtime";
+import {
+  fetchMyTickets,
+  getTicketDisplayName,
+  getTicketSummary,
+  type TicketView,
+} from "@/features/runtime";
 import { LoadingState } from "@/shared/components/ui/loading-state";
 import { ErrorState } from "@/shared/components/ui/error-state";
+import { PageHeader } from "@/shared/components/ui/page-header";
+import { StatusBadge } from "@/shared/components/ui/status-badge";
 
 export default function TicketsPage() {
   const [tickets, setTickets] = useState<TicketView[]>([]);
@@ -20,7 +27,7 @@ export default function TicketsPage() {
       })
       .catch((err: unknown) => {
         setError(
-          err instanceof Error ? err.message : "Failed to load ticket records",
+          err instanceof Error ? err.message : "Không thể tải danh sách ticket",
         );
       })
       .finally(() => {
@@ -40,7 +47,7 @@ export default function TicketsPage() {
       .catch((err: unknown) => {
         if (!ignore) {
           setError(
-            err instanceof Error ? err.message : "Failed to load ticket records",
+            err instanceof Error ? err.message : "Không thể tải danh sách ticket",
           );
           setIsLoading(false);
         }
@@ -51,88 +58,92 @@ export default function TicketsPage() {
   }, []);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            My Tickets
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Track and manage your submitted workflow tickets and drafts.
-          </p>
-        </div>
-        <Link
+    <div className="space-y-7" data-testid="tickets-page">
+      <PageHeader
+        eyebrow="Yêu cầu của tôi"
+        title="Ticket của tôi"
+        description="Theo dõi các yêu cầu bạn đã gửi và trạng thái xử lý của từng yêu cầu."
+        action={<Link
           href="/catalog"
-          className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-2xs hover:bg-blue-700 transition-colors"
+          className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
         >
-          + New Ticket
-        </Link>
-      </div>
+          + Tạo yêu cầu
+        </Link>}
+      />
 
       {isLoading ? (
-        <LoadingState title="Loading tickets..." />
+        <LoadingState title="Đang tải danh sách ticket…" />
       ) : error ? (
         <ErrorState
-          title="Could not load tickets"
+          title="Không thể tải danh sách ticket"
           message={error}
           onRetry={loadTickets}
         />
       ) : tickets.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 p-12 text-center">
           <h3 className="text-sm font-semibold text-slate-800">
-            No tickets found
+            Chưa có ticket nào
           </h3>
           <p className="mt-1 text-xs text-slate-500">
-            You haven&apos;t submitted any workflow requests yet.
+            Bạn chưa gửi yêu cầu nào.
           </p>
           <div className="mt-4">
             <Link
               href="/catalog"
               className="inline-flex rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
             >
-              Browse Catalog
+              Xem danh mục yêu cầu
             </Link>
           </div>
         </div>
       ) : (
-        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-xs">
-          <table className="w-full text-left text-xs">
-            <thead className="border-b border-slate-200 bg-slate-50 text-slate-500 font-semibold">
+        <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <thead className="border-b border-slate-200 bg-slate-50/80 text-[11px] font-bold tracking-wide text-slate-500 uppercase">
               <tr>
-                <th className="px-4 py-3">Ticket ID</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Revision</th>
-                <th className="px-4 py-3">Created</th>
-                <th className="px-4 py-3">Action</th>
+                <th className="px-5 py-3">Nội dung yêu cầu</th>
+                <th className="px-5 py-3">Trạng thái</th>
+                <th className="px-5 py-3">Cập nhật gần nhất</th>
+                <th className="px-5 py-3">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {tickets.map((t) => (
-                <tr key={t.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-4 py-3 font-mono font-medium text-slate-800">
-                    #{t.id.slice(0, 8)}
+                <tr key={t.id} className="transition-colors hover:bg-slate-50/70">
+                  <td className="px-5 py-4">
+                    <p className="font-semibold text-slate-800">
+                      {getTicketDisplayName(t)}
+                    </p>
+                    {getTicketSummary(t) ? (
+                      <p className="mt-1 max-w-md truncate text-xs text-slate-500">
+                        {getTicketSummary(t)}
+                      </p>
+                    ) : null}
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      Ticket #{t.id.slice(0, 8)} · Tạo ngày{" "}
+                      {new Date(t.createdAt).toLocaleDateString("vi-VN")}
+                    </p>
                   </td>
-                  <td className="px-4 py-3">
-                    <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
-                      {t.status}
-                    </span>
+                  <td className="px-5 py-4">
+                    <StatusBadge value={t.status} />
                   </td>
-                  <td className="px-4 py-3 text-slate-600">v{t.dataRevision}</td>
-                  <td className="px-4 py-3 text-slate-500">
-                    {new Date(t.createdAt).toLocaleDateString()}
+                  <td className="px-5 py-4 text-xs text-slate-500">
+                    {new Date(t.updatedAt).toLocaleDateString("vi-VN")}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-5 py-4">
                     <Link
                       href={`/tickets/${t.id}`}
-                      className="font-semibold text-blue-600 hover:underline"
+                      className="font-semibold text-blue-700 hover:text-blue-900"
                     >
-                      View Details →
+                      Xem chi tiết →
                     </Link>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

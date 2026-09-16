@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useAuthSession } from "@/features/auth";
 import type { EventMonitoringView } from "../types";
+import { formatTimelineEntry } from "../timeline-labels";
+import { formatOutcome, StatusBadge } from "@/shared/components/ui/status-badge";
 
 interface EventDetailViewProps {
   event: EventMonitoringView;
@@ -11,22 +13,6 @@ interface EventDetailViewProps {
 export function EventDetailView({ event }: EventDetailViewProps) {
   const { canAccessWorkflowBuilder, canAccessOperations } = useAuthSession();
   const isPrivileged = canAccessWorkflowBuilder || canAccessOperations;
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "COMPLETED":
-        return "bg-emerald-50 text-emerald-700 border-emerald-200";
-      case "FAILED":
-      case "TERMINATED":
-      case "CANCELLED":
-        return "bg-rose-50 text-rose-700 border-rose-200";
-      case "RUNNING":
-      case "WAITING":
-        return "bg-blue-50 text-blue-700 border-blue-200";
-      default:
-        return "bg-slate-50 text-slate-700 border-slate-200";
-    }
-  };
 
   return (
     <div className="space-y-6 max-w-5xl" data-testid="event-detail-view">
@@ -38,25 +24,18 @@ export function EventDetailView({ event }: EventDetailViewProps) {
               <h1 className="text-xl font-bold tracking-tight text-slate-900">
                 Event #{event.eventId.slice(0, 8)}
               </h1>
-              <span
-                data-testid="event-status-badge"
-                className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getStatusBadge(
-                  event.status,
-                )}`}
-              >
-                {event.status}
-              </span>
+              <span data-testid="event-status-badge"><StatusBadge value={event.status} /><span className="sr-only">{event.status}</span></span>
               {event.outcome && (
                 <span
                   data-testid="event-outcome-badge"
                   className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700"
                 >
-                  Outcome: {event.outcome}
+                  Kết quả: {formatOutcome(event.outcome)}
                 </span>
               )}
             </div>
             <p className="text-xs text-slate-500">
-              Workflow Version:{" "}
+              Phiên bản quy trình:{" "}
               <span className="font-semibold text-slate-700">
                 v{event.workflowVersion.versionNo}
               </span>{" "}
@@ -78,7 +57,7 @@ export function EventDetailView({ event }: EventDetailViewProps) {
         className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs space-y-4"
       >
         <h3 className="text-sm font-semibold text-slate-900">
-          Node Execution Progress
+          Tiến độ xử lý các bước
         </h3>
         <div className="divide-y divide-slate-100">
           {event.nodeExecutions.map((node) => (
@@ -90,22 +69,12 @@ export function EventDetailView({ event }: EventDetailViewProps) {
               <div className="space-y-0.5">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-800">
-                    {node.nodeName || `Node ${node.nodeDefinitionId.slice(0, 8)}`}
+                    {node.nodeName || `Bước ${node.nodeDefinitionId.slice(0, 8)}`}
                   </span>
-                  <span
-                    className={`rounded px-1.5 py-0.2 text-[10px] font-semibold ${
-                      node.status === "COMPLETED"
-                        ? "bg-emerald-50 text-emerald-700"
-                        : node.status === "RUNNING"
-                          ? "bg-blue-50 text-blue-700 animate-pulse"
-                          : "bg-slate-100 text-slate-600"
-                    }`}
-                  >
-                    {node.status}
-                  </span>
+                  <StatusBadge value={node.status} />
                 </div>
                 <p className="text-[11px] text-slate-400">
-                  Iteration: {node.iteration} • Outcome: {node.outcomePort || "—"}
+                  Lần xử lý: {node.iteration} • Kết quả: {node.outcomePort ? formatOutcome(node.outcomePort) : "—"}
                 </p>
               </div>
 
@@ -116,7 +85,7 @@ export function EventDetailView({ event }: EventDetailViewProps) {
                   data-testid={`link-child-event-${node.childEventId}`}
                   className="inline-flex items-center gap-1.5 rounded-md bg-purple-50 px-2.5 py-1 text-xs font-semibold text-purple-700 hover:bg-purple-100"
                 >
-                  <span>Child SubWorkflow</span>
+                  <span>Quy trình con</span>
                   <svg
                     className="h-3 w-3"
                     fill="none"
@@ -143,19 +112,19 @@ export function EventDetailView({ event }: EventDetailViewProps) {
         className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs space-y-4"
       >
         <h3 className="text-sm font-semibold text-slate-900">
-          Tasks & Assignees
+          Công việc & người xử lý
         </h3>
         {event.tasks.length === 0 ? (
-          <p className="text-xs text-slate-400">No human tasks for this event.</p>
+          <p className="text-xs text-slate-400">Không có công việc cần người xử lý cho hoạt động này.</p>
         ) : (
           <table className="w-full text-left text-xs">
             <thead className="border-b border-slate-200 text-slate-400">
               <tr>
-                <th className="py-2">Task ID</th>
-                <th className="py-2">Status</th>
-                <th className="py-2">Assignee</th>
-                <th className="py-2">Due Date</th>
-                <th className="py-2">Completed</th>
+                <th className="py-2">Mã công việc</th>
+                <th className="py-2">Trạng thái</th>
+                <th className="py-2">Người xử lý</th>
+                <th className="py-2">Hạn xử lý</th>
+                <th className="py-2">Hoàn tất</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -164,18 +133,16 @@ export function EventDetailView({ event }: EventDetailViewProps) {
                   <td className="py-2 font-mono text-slate-600">
                     #{task.id.slice(0, 8)}
                   </td>
-                  <td className="py-2 font-semibold text-slate-800">
-                    {task.status}
-                  </td>
+                  <td className="py-2"><StatusBadge value={task.status} /></td>
                   <td className="py-2 text-slate-700">
-                    {task.assigneeName || task.assigneeId?.slice(0, 8) || "Unassigned"}
+                    {task.assigneeName || task.assigneeId?.slice(0, 8) || "Chưa phân công"}
                   </td>
                   <td className="py-2 text-slate-500">
-                    {task.dueAt ? new Date(task.dueAt).toLocaleDateString() : "—"}
+                    {task.dueAt ? new Date(task.dueAt).toLocaleDateString("vi-VN") : "—"}
                   </td>
                   <td className="py-2 text-slate-500">
                     {task.completedAt
-                      ? new Date(task.completedAt).toLocaleDateString()
+                      ? new Date(task.completedAt).toLocaleDateString("vi-VN")
                       : "—"}
                   </td>
                 </tr>
@@ -185,13 +152,13 @@ export function EventDetailView({ event }: EventDetailViewProps) {
         )}
       </div>
 
-      {/* Execution Timeline */}
+      {/* Lịch sử xử lý */}
       <div
         data-testid="timeline-section"
         className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs space-y-4"
       >
         <h3 className="text-sm font-semibold text-slate-900">
-          Execution Timeline
+          Lịch sử xử lý
         </h3>
         <div className="relative border-l-2 border-slate-200 pl-4 space-y-5">
           {event.timeline.map((entry, idx) => (
@@ -202,19 +169,13 @@ export function EventDetailView({ event }: EventDetailViewProps) {
             >
               <div className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full border-2 border-white bg-blue-600 shadow-xs" />
               <div className="flex items-center gap-2">
-                <span className="rounded bg-slate-100 px-1.5 py-0.2 text-[10px] font-bold text-slate-600 uppercase">
-                  {entry.type}
-                </span>
                 <span className="text-xs font-semibold text-slate-800">
-                  {entry.state}
+                  {formatTimelineEntry(entry)}
                 </span>
                 <span className="text-[11px] text-slate-400">
-                  {new Date(entry.at).toLocaleString()}
+                  {new Date(entry.at).toLocaleString("vi-VN")}
                 </span>
               </div>
-              <p className="text-[11px] font-mono text-slate-500">
-                Ref: #{entry.id.slice(0, 8)}
-              </p>
             </div>
           ))}
         </div>
@@ -228,14 +189,14 @@ export function EventDetailView({ event }: EventDetailViewProps) {
         >
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-blue-900">
-              Technical Execution Context (Operator / Admin)
+              Thông tin kỹ thuật (Người vận hành / Quản trị viên)
             </h3>
             <span className="rounded bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-800 uppercase">
-              Privileged
+              Đặc quyền
             </span>
           </div>
           <p className="text-xs text-blue-700">
-            Internal DAG routing decisions and masked execution context.
+            Quyết định định tuyến nội bộ và dữ liệu thực thi đã được ẩn.
           </p>
           <pre
             data-testid="technical-context-json"
@@ -249,7 +210,7 @@ export function EventDetailView({ event }: EventDetailViewProps) {
           data-testid="unprivileged-hidden-notice"
           className="rounded-xl border border-dashed border-slate-200 p-4 text-center text-xs text-slate-400"
         >
-          Detailed technical DAG graph is restricted to Operators and Administrators.
+          Sơ đồ xử lý kỹ thuật chỉ dành cho người vận hành và quản trị viên.
         </div>
       )}
     </div>

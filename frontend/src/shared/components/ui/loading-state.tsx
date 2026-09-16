@@ -5,8 +5,7 @@ interface LoadingStateProps {
 }
 
 export function LoadingState({
-  title = "Loading data...",
-  description = "Please wait while we fetch the latest records.",
+  title = "Đang tải dữ liệu…",
   rows = 4,
 }: Readonly<LoadingStateProps>) {
   return (
@@ -18,7 +17,6 @@ export function LoadingState({
         <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
         <div>
           <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
-          <p className="text-xs text-slate-500">{description}</p>
         </div>
       </div>
       <div className="mt-6 space-y-3">

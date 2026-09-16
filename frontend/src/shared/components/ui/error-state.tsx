@@ -6,7 +6,7 @@ interface ErrorStateProps {
 }
 
 export function ErrorState({
-  title = "An error occurred",
+  title = "Đã xảy ra lỗi",
   message,
   code,
   onRetry,
@@ -49,7 +49,7 @@ export function ErrorState({
                 onClick={onRetry}
                 className="inline-flex items-center rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs border border-slate-300 hover:bg-slate-50 transition-colors"
               >
-                Retry Request
+                Thử lại
               </button>
             </div>
           )}
