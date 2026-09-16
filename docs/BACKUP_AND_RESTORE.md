@@ -43,11 +43,11 @@ Automated pruning is performed by `backup.sh` using the `RETENTION_DAYS` paramet
 
 ## 3. Flyway Compatibility & Schema Migrations
 
-Workflow Platform uses Flyway for schema management (currently 34 versioned migrations).
+Workflow Platform uses Flyway for schema management (currently 45 versioned migrations).
 
 ### Compatibility Rules:
 1. **`flyway_schema_history` is Authoritative**:
-   The backup dump contains the `flyway_schema_history` table with exact checksums of all applied scripts (`V1` to `V34`).
+   The backup dump contains the `flyway_schema_history` table with exact checksums of all applied scripts (`V1` to `V45`).
 2. **Post-Restore Verification**:
    After `pg_restore`, the platform runs `flyway.validate()` on startup.
    - If the code version matches the restored dump version, validation succeeds seamlessly.

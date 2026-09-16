@@ -81,7 +81,7 @@ curl -s http://localhost:8080/actuator/health
 
 ## 5. Verification Checklist
 
-1. **Database Migration**: Ensure backend logs indicate `Successfully applied 34 migrations to schema "public"`.
+1. **Database Migration**: Ensure backend logs indicate `Successfully applied 45 migrations to schema "public"`.
 2. **Backend Health**: `GET /actuator/health` returns `{"status":"UP", ...}`.
 3. **Frontend Access**: `GET http://localhost:3000/catalog` renders HTTP 200.
 4. **Inter-Service Communication**: Next.js proxy route `/api/v1/request-types` transparently retrieves backend data without CORS or 404/502 errors.

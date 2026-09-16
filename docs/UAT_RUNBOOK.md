@@ -8,7 +8,7 @@
 | Git Commit | `31dadcd` |
 | Environment | `local/staging` |
 | Database | `PostgreSQL 17.11` |
-| Flyway Version | `V34` |
+| Flyway Version | `V45` |
 | UAT Start Time | `2026-09-09 10:51:48 +07:00` |
 | UAT End Time | `2026-09-09 11:35:15 +07:00` |
 | Tester | `Dev` |
@@ -21,7 +21,7 @@ repository seed data for Prompt 69.
 
 - PostgreSQL service: `workflow-platform-postgres-1`, PostgreSQL `17.11`, healthy.
 - Backend: `http://localhost:8080`; startup verifier reported PostgreSQL major 17,
-  session timezone UTC, and Flyway schema version 34.
+  session timezone UTC, and Flyway schema version 45.
 - Frontend: `http://localhost:3000`.
 - Authenticated UI identities used: Alice User (`USER`), Bob Owner
   (`WORKFLOW_OWNER`), Charlie Ops (`OPERATOR`), and Diana Admin (`ADMIN`). HR is
@@ -192,7 +192,7 @@ Backend verification after defect closure (`mvn clean verify`):
   `0`, skipped `0`.
 - `BUILD SUCCESS`.
 - Total time: `03:51`; finished at `2026-09-09T11:32:36+07:00`.
-- Flyway clean installs reached `V34` on PostgreSQL `17.11` during the suite.
+- Flyway clean installs reached `V45` on PostgreSQL `17.11` during the suite.
 
 Frontend verification:
 

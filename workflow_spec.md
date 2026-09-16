@@ -312,6 +312,8 @@ ${inputs.departmentId}
 
 Default resolution order chốt: explicit mapping → explicit Category default → WorkflowInput default. Nếu target input required vẫn không resolve được thì CategoryVersion không được Publish. Không có silent implicit default như 0/empty/null để che lỗi mapping.
 
+`transform_json` là tùy chọn và chỉ chứa các phép biến đổi deterministic được allowlist: `TRIM`, `UPPER`/`LOWER`, `TO_STRING`, `TO_NUMBER`, `TO_INTEGER`, `TO_BOOLEAN`. Có thể khai báo một phép (`{"op":"TRIM"}`), tên phép dạng chuỗi, hoặc mảng tuần tự các phép. Mapping engine áp dụng transform sau khi resolve source và trước khi kiểm tra canonical type; phép không nằm trong allowlist hoặc không chuyển đổi được giá trị sẽ tạo lỗi validation/runtime rõ ràng.
+
 ## 3.7 Auto-match và semantic metadata
 
 semanticKey không phải global identity và không được runtime dùng làm source of truth. v2.4/v2.4.1 dùng semanticTag/businessConcept như metadata optional cho search, documentation và design-time suggestion. Explicit CategoryMapping mới là contract chính thức.

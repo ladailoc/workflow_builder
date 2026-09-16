@@ -1,6 +1,6 @@
 # Wave 2 closure matrix
 
-Source of truth: `workflow_spec.md` v2.3 and the master remediation prompt.
+Source of truth: `workflow_spec.md` v2.4.1 and the master remediation prompt.
 
 `FULL` below means the normative implementation and focused evidence exist. The Wave 2 gate is
 reported separately because a wave cannot pass until the complete `mvn verify` run is green.
@@ -43,8 +43,10 @@ reported separately because a wave cannot pass until the complete `mvn verify` r
   reporting, monitoring, and task-command boundaries).
 - Earlier full unit pass reached **335 tests** with one ArchUnit failure. That architectural failure
   was subsequently fixed and its test is green.
-- Fresh Flyway migration through **V37**: **PASS** in PostgreSQL 17 integration tests.
-- Final full `mvn verify`: **PENDING HOST RESOURCE RECOVERY**. Windows rejected native JVM
-  allocation because the paging-file commit limit was exhausted; this is not recorded as a product
-  PASS or FAIL.
-- Wave 3 must not start until that last gate finishes green.
+- Fresh Flyway migration through **V45**: **PASS** in PostgreSQL 17 integration tests.
+- Final full `mvn verify`: **PASS** with Testcontainers class isolation (`forkCount=1`,
+  `reuseForks=false`, encoded in the Failsafe configuration used by the standard CI verify
+  lifecycle). The complete run executed 45 integration-test classes (255 tests) on PostgreSQL
+  17.11 with 0 failures, 0 errors, and 0 skipped tests; Flyway validated and applied all 45
+  migrations, including the V42–V45 additions.
+- Wave 2 exit gate is **GREEN**; Wave 3 may proceed.

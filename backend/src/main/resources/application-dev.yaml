@@ -18,6 +18,12 @@ spring:
       validation-timeout: ${DB_POOL_VALIDATION_TIMEOUT_MS:5000}
 
 platform:
+  security:
+    # Local/demo frontend authenticates with the X-Actor-* headers.
+    # Keep this enabled only for the non-production dev profile; production
+    # profiles intentionally continue to require JWT authentication.
+    dev-headers:
+      enabled: true
   outbox:
     publisher:
       enabled: true

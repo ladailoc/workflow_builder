@@ -19,12 +19,14 @@ rules are described in `docs/definition-persistence.md`.
 The frontend uses the Next.js App Router and feature-first boundaries. Route files
 compose feature exports; runtime business decisions remain server-side. Shared API
 code owns transport concerns and uses `/api/v1` as the only business API prefix.
-TanStack Query is initialized once in the app shell. React Flow is installed for
-the future workflow builder but no graph semantics are implemented in this phase.
+TanStack Query is initialized once in the app shell. React Flow powers the
+workflow builder while graph semantics, validation, publishing, and simulation
+remain backend-owned.
 
-PostgreSQL is the only local infrastructure service currently defined. Object
-storage, queues, workers, and observability services are intentionally deferred
-until a capability needs them.
+PostgreSQL is the local system of record. Durable outbox/jobs, notifications,
+file metadata, connector callbacks, monitoring, and retention are implemented as
+capability packages; external transport and object storage providers remain
+replaceable at their adapters.
 
 PostgreSQL 17 is also the integration-test database through Testcontainers.
 HikariCP initializes every JDBC connection with `SET TIME ZONE 'UTC'`; the

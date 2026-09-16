@@ -62,6 +62,9 @@ platform:
     poller:
       enabled: ${PLATFORM_SLA_POLLER_ENABLED:true}
       fixed-delay-ms: ${PLATFORM_SLA_POLLER_DELAY_MS:5000}
+  notifications:
+    email:
+      webhook-url: ${PLATFORM_EMAIL_WEBHOOK_URL:}
   seed:
     demo:
       enabled: ${PLATFORM_SEED_DEMO_ENABLED:false}

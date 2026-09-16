@@ -3,7 +3,7 @@
 **Date**: 2026-09-09  
 **Target Environment**: Staging  
 **Database**: PostgreSQL 17.11 (Alpine)  
-**Schema Migration State**: Flyway v34 (All 34 migrations applied)  
+**Schema Migration State**: Flyway v45 (All 45 migrations applied)
 **Runtime**: Java 21 (Temurin Alpine) / Node.js 22 (Alpine Standalone)  
 **Verification Level**: Live Staging Integration (No Mocks)  
 **Test Suite**: `com.fpt.workflow.operations.staging.StagingDeploymentSmokeIT`  
@@ -93,7 +93,7 @@ The Workflow Platform has completed Staging deployment verification and passed 1
 
 ## 3. Infrastructure & Deployment Readiness
 
-- **PostgreSQL 17**: All 34 Flyway migrations verified on PostgreSQL 17 with strict UTC timezone enforcement.
+- **PostgreSQL 17**: All 45 Flyway migrations verified on PostgreSQL 17 with strict UTC timezone enforcement.
 - **Backend Container**: Multi-stage Temurin JRE 21 Alpine container with non-root user `workflow` (UID 10001) and Actuator health probe.
 - **Frontend Container**: Multi-stage Next.js standalone container with non-root user `nextjs` (UID 1001), built successfully.
 - **Inter-Service Networking**: Verified via `docker-compose.staging.yml` and dev compose stack.
