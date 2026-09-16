@@ -43,9 +43,6 @@ export function ReworkEditor({
         <h4 className="text-xs font-bold text-slate-800">
           Rework Loop Configuration
         </h4>
-        <p className="text-[11px] text-slate-500">
-          Defines loopback semantics when a review or inspection requires correction.
-        </p>
       </div>
 
       {/* Target Step */}
@@ -54,7 +51,7 @@ export function ReworkEditor({
           htmlFor={`${formHtmlId}-targetStepId`}
           className="text-xs font-semibold text-slate-700 block"
         >
-          Target Rework Step *
+          Bước xử lý lại đích *
         </label>
         {availableNodes.length > 0 ? (
           <select
@@ -78,7 +75,7 @@ export function ReworkEditor({
             data-testid="input-rework-target-step"
             disabled={readOnly}
             value={current.targetStepId}
-            placeholder="Node ID to loop back to"
+            placeholder="Mã bước cần quay lại"
             onChange={(e) => update({ targetStepId: e.target.value })}
             className="w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-xs disabled:bg-slate-100"
           />
@@ -92,7 +89,7 @@ export function ReworkEditor({
             htmlFor={`${formHtmlId}-maxIterations`}
             className="text-[11px] font-semibold text-slate-700 block mb-0.5"
           >
-            Max Iterations (Limit) *
+            Số lần xử lý tối đa *
           </label>
           <input
             id={`${formHtmlId}-maxIterations`}
@@ -115,7 +112,7 @@ export function ReworkEditor({
             htmlFor={`${formHtmlId}-exhaustionBehavior`}
             className="text-[11px] font-semibold text-slate-700 block mb-0.5"
           >
-            Exhaustion Behavior
+            Cách xử lý khi hết lượt
           </label>
           <select
             id={`${formHtmlId}-exhaustionBehavior`}
@@ -130,9 +127,9 @@ export function ReworkEditor({
             }
             className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs disabled:bg-slate-100"
           >
-            <option value="FAIL_EVENT">FAIL_EVENT (Terminal failure)</option>
+            <option value="FAIL_EVENT">FAIL_EVENT (Kết thúc với lỗi)</option>
             <option value="ROUTE_ESCALATION">
-              ROUTE_ESCALATION (Escalate to manager)
+              ROUTE_ESCALATION (Chuyển cấp cho quản lý)
             </option>
           </select>
         </div>
@@ -145,7 +142,7 @@ export function ReworkEditor({
             htmlFor={`${formHtmlId}-rollbackStrategy`}
             className="text-[11px] font-semibold text-slate-700 block mb-0.5"
           >
-            Payload Snapshot Strategy
+            Cách lưu dữ liệu trước khi xử lý lại
           </label>
           <select
             id={`${formHtmlId}-rollbackStrategy`}
@@ -161,10 +158,10 @@ export function ReworkEditor({
             className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs disabled:bg-slate-100"
           >
             <option value="KEEP_CURRENT">
-              KEEP_CURRENT (Preserve latest modifications)
+              KEEP_CURRENT (Giữ thay đổi mới nhất)
             </option>
             <option value="RESTORE_ORIGINAL">
-              RESTORE_ORIGINAL (Rollback to pre-rework values)
+              RESTORE_ORIGINAL (Khôi phục giá trị trước xử lý lại)
             </option>
           </select>
         </div>
@@ -175,7 +172,7 @@ export function ReworkEditor({
             htmlFor={`${formHtmlId}-multiInstanceScope`}
             className="text-[11px] font-semibold text-slate-700 block mb-0.5"
           >
-            Multi-Instance Scope
+            Phạm vi nhiều mục
           </label>
           <select
             id={`${formHtmlId}-multiInstanceScope`}
@@ -191,10 +188,10 @@ export function ReworkEditor({
             className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs disabled:bg-slate-100"
           >
             <option value="CURRENT_ITEM">
-              CURRENT_ITEM (Rework rejected item only)
+              CURRENT_ITEM (Chỉ xử lý lại mục bị từ chối)
             </option>
             <option value="WHOLE_NODE">
-              WHOLE_NODE (Rework entire collection)
+              WHOLE_NODE (Xử lý lại toàn bộ danh sách)
             </option>
           </select>
         </div>

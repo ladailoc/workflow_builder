@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { act, render, screen, fireEvent } from "@testing-library/react";
 import { WorkflowBuilder } from "./components/workflow-builder";
 import type { WorkflowVersionDto } from "./types";
+import { ApiRequestError } from "@/shared/api/client";
 
 // Mock React Flow to make it testable in jsdom without WebGL/DOM layout dimensions
 vi.mock("@xyflow/react", async () => {
@@ -11,11 +12,19 @@ vi.mock("@xyflow/react", async () => {
     ReactFlow: ({
       children,
       nodes,
+      onDrop,
+      onDragOver,
     }: {
       children: React.ReactNode;
       nodes: Array<{ id: string; data: { label: string; key: string } }>;
+      onDrop?: React.DragEventHandler<HTMLDivElement>;
+      onDragOver?: React.DragEventHandler<HTMLDivElement>;
     }) => (
-      <div data-testid="mock-react-flow">
+      <div
+        data-testid="mock-react-flow"
+        onDrop={onDrop}
+        onDragOver={onDragOver}
+      >
         {nodes.map((n) => (
           <div key={n.id} data-testid={`node-element-${n.id}`}>
             {n.data.label}
@@ -84,10 +93,11 @@ describe("WorkflowBuilder Component", () => {
 
     expect(screen.getByTestId("workflow-builder-shell")).toBeInTheDocument();
     expect(screen.getByTestId("node-catalog-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("properties-panel")).not.toBeInTheDocument();
     expect(screen.getByTestId("builder-version-status")).toHaveTextContent(
       "DRAFT",
     );
-    expect(screen.getByText("Version #1")).toBeInTheDocument();
+    expect(screen.getByText("Phiên bản #1")).toBeInTheDocument();
 
     // Verify nodes are rendered on canvas
     expect(screen.getByTestId("node-element-node_start")).toHaveTextContent(
@@ -98,6 +108,17 @@ describe("WorkflowBuilder Component", () => {
     );
   });
 
+  it("collapses and reopens the node catalog to give the canvas more space", () => {
+    render(<WorkflowBuilder initialVersion={TEST_DRAFT_VERSION} />);
+
+    fireEvent.click(screen.getByTestId("collapse-node-catalog"));
+    expect(screen.getByTestId("expand-node-catalog")).toBeInTheDocument();
+    expect(screen.queryByTestId("collapse-node-catalog")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("expand-node-catalog"));
+    expect(screen.getByTestId("collapse-node-catalog")).toBeInTheDocument();
+  });
+
   it("adds a new node from the catalog to the canvas in draft mode", () => {
     render(<WorkflowBuilder initialVersion={TEST_DRAFT_VERSION} />);
 
@@ -106,15 +127,55 @@ describe("WorkflowBuilder Component", () => {
     fireEvent.click(addApprovalBtn);
 
     // Verify new approval node is added to canvas
-    expect(screen.getByText("Approval Task")).toBeInTheDocument();
+    expect(screen.getAllByText("Phê duyệt").length).toBeGreaterThan(0);
 
     // Verify properties panel is open for newly selected node
     expect(screen.getByTestId("properties-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("prop-node-label")).toHaveValue("Approval Task");
+    expect(screen.getByTestId("prop-node-label")).toHaveValue("Phê duyệt");
+
+    fireEvent.click(screen.getByTestId("close-properties-modal"));
+    expect(screen.queryByTestId("properties-panel")).not.toBeInTheDocument();
+  });
+
+  it("adds a new node when dragged from the catalog onto the canvas", () => {
+    render(<WorkflowBuilder initialVersion={TEST_DRAFT_VERSION} />);
+
+    const dataTransfer = {
+      effectAllowed: "",
+      dropEffect: "",
+      setData: vi.fn(),
+      getData: vi.fn((format: string) =>
+        format === "application/x-workflow-node" ? "REVIEW" : "",
+      ),
+    };
+
+    fireEvent.dragStart(screen.getByTestId("catalog-node-review"), {
+      dataTransfer,
+    });
+    expect(dataTransfer.setData).toHaveBeenCalledWith(
+      "application/x-workflow-node",
+      "REVIEW",
+    );
+
+    fireEvent.drop(screen.getByTestId("mock-react-flow"), {
+      dataTransfer,
+      clientX: 700,
+      clientY: 300,
+    });
+
+    expect(screen.getAllByText("Kiểm tra").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("properties-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("prop-node-label")).toHaveValue("Kiểm tra");
   });
 
   it("enforces publish guard: published version is strictly read-only", () => {
-    render(<WorkflowBuilder initialVersion={TEST_PUBLISHED_VERSION} />);
+    const onCloneAsNewDraft = vi.fn();
+    render(
+      <WorkflowBuilder
+        initialVersion={TEST_PUBLISHED_VERSION}
+        onCloneAsNewDraft={onCloneAsNewDraft}
+      />,
+    );
 
     expect(screen.getByTestId("builder-version-status")).toHaveTextContent(
       "PUBLISHED",
@@ -128,6 +189,16 @@ describe("WorkflowBuilder Component", () => {
     // Catalog additions MUST be disabled
     const addApprovalBtn = screen.getByTestId("add-node-approval");
     expect(addApprovalBtn).toBeDisabled();
+    expect(
+      screen.queryByText(
+        "Phiên bản đã phát hành chỉ xem. Bấm Tạo bản nháp để tiếp tục chỉnh sửa.",
+      ),
+    ).not.toBeInTheDocument();
+
+    const cloneButton = screen.getByTestId("toolbar-clone-draft-button");
+    expect(cloneButton).toHaveClass("whitespace-nowrap");
+    fireEvent.click(cloneButton);
+    expect(onCloneAsNewDraft).toHaveBeenCalledWith(TEST_PUBLISHED_VERSION);
   });
 
   it("keeps a Draft read-only when the viewer lacks definition edit permission", () => {
@@ -191,5 +262,75 @@ describe("WorkflowBuilder Component", () => {
     // Node is selected -> Properties panel opens for orphan_end
     expect(screen.getByTestId("properties-panel")).toBeInTheDocument();
     expect(screen.getByTestId("prop-node-label")).toHaveValue("Orphan End");
+
+    // The validation report can be dismissed after reviewing an issue.
+    fireEvent.click(screen.getByTestId("close-validation-panel"));
+    expect(screen.queryByTestId("validation-panel")).not.toBeInTheDocument();
+  });
+
+  it("shows save API errors instead of creating an unhandled rejection", async () => {
+    const onSave = vi.fn().mockRejectedValue(
+      new ApiRequestError(422, {
+        code: "WORKFLOW_GRAPH_NODE_KEY_REQUIRED",
+        message: "Every graph node requires a nodeKey",
+      }),
+    );
+
+    render(
+      <WorkflowBuilder initialVersion={TEST_DRAFT_VERSION} onSave={onSave} />,
+    );
+
+    fireEvent.click(screen.getByTestId("toolbar-save-draft-button"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Every graph node requires a nodeKey (WORKFLOW_GRAPH_NODE_KEY_REQUIRED)",
+    );
+    expect(screen.queryByTestId("save-draft-toast")).not.toBeInTheDocument();
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifies the host after a successful draft save", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const onSaveSuccess = vi.fn();
+
+    render(
+      <WorkflowBuilder
+        initialVersion={TEST_DRAFT_VERSION}
+        onSave={onSave}
+        onSaveSuccess={onSaveSuccess}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("toolbar-save-draft-button"));
+    });
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSaveSuccess).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("save-draft-toast")).toHaveTextContent(
+      "Đã lưu bản nháp thành công.",
+    );
+  });
+
+  it("notifies the host with the published version after successful publication", async () => {
+    const onPublish = vi.fn().mockResolvedValue("published-version-1");
+    const onPublishSuccess = vi.fn();
+
+    render(
+      <WorkflowBuilder
+        initialVersion={TEST_DRAFT_VERSION}
+        onPublish={onPublish}
+        onPublishSuccess={onPublishSuccess}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("toolbar-publish-button"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("confirm-publish-btn"));
+    });
+
+    expect(onPublish).toHaveBeenCalledWith(TEST_DRAFT_VERSION.id);
+    expect(onPublishSuccess).toHaveBeenCalledWith("published-version-1");
+    expect(screen.getByTestId("publish-success-message")).toBeInTheDocument();
   });
 });

@@ -54,7 +54,7 @@ export function DynamicNodeProperties({
             Schema v{schemaVersion}
           </span>
           <span className="text-xs text-slate-500 capitalize">
-            {manifest?.category} Manifest
+            Danh mục {manifest?.category}
           </span>
         </div>
       </div>
@@ -66,7 +66,7 @@ export function DynamicNodeProperties({
           className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-xs text-rose-900 space-y-2"
         >
           <div className="flex items-center justify-between">
-            <span className="font-bold">Strict Schema Violation</span>
+            <span className="font-bold">Vi phạm schema nghiêm ngặt</span>
             {!readOnly && (
               <button
                 type="button"
@@ -74,12 +74,12 @@ export function DynamicNodeProperties({
                 onClick={handlePruneUnknown}
                 className="rounded bg-rose-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-rose-700"
               >
-                Prune Undeclared
+                Xóa thuộc tính không khai báo
               </button>
             )}
           </div>
           <p className="text-[11px] text-rose-800">
-            The following properties are not declared by the strict{" "}
+            Các thuộc tính sau chưa được khai báo trong schema nghiêm ngặt của{" "}
             {node.data.nodeType} schema:
           </p>
           <ul className="list-disc pl-4 font-mono text-[11px]">
@@ -169,13 +169,13 @@ function ApprovalPropertiesSection({
 }) {
   const [activeTab, setActiveTab] = useState<string>("general");
   const tabs = [
-    { id: "general", label: "General" },
-    { id: "assignee", label: "Assignee" },
-    { id: "taskGen", label: "Task Gen" },
-    { id: "form", label: "Form" },
-    { id: "decision", label: "Decision" },
+    { id: "general", label: "Chung" },
+    { id: "assignee", label: "Người xử lý" },
+    { id: "taskGen", label: "Tạo công việc" },
+    { id: "form", label: "Biểu mẫu" },
+    { id: "decision", label: "Quyết định" },
     { id: "sla", label: "SLA" },
-    { id: "failure", label: "Failure" },
+    { id: "failure", label: "Lỗi" },
   ];
 
   return (
@@ -206,7 +206,7 @@ function ApprovalPropertiesSection({
               htmlFor={`${formHtmlId}-titleSnapshot`}
               className="text-xs font-semibold text-slate-700 block mb-1"
             >
-              Task Title Snapshot
+              Tiêu đề công việc
             </label>
             <input
               id={`${formHtmlId}-titleSnapshot`}
@@ -214,7 +214,7 @@ function ApprovalPropertiesSection({
               data-testid="input-titleSnapshot"
               disabled={readOnly}
               value={String(config.titleSnapshot ?? "")}
-              placeholder="e.g. Manager Review & Approval"
+              placeholder="Ví dụ: Phê duyệt của quản lý"
               onChange={(e) => onChange("titleSnapshot", e.target.value)}
               className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100"
             />
@@ -224,7 +224,7 @@ function ApprovalPropertiesSection({
               htmlFor={`${formHtmlId}-priority`}
               className="text-xs font-semibold text-slate-700 block mb-1"
             >
-              Priority (0 - 100)
+              Mức ưu tiên (0 - 100)
             </label>
             <input
               id={`${formHtmlId}-priority`}
@@ -260,7 +260,7 @@ function ApprovalPropertiesSection({
       {activeTab === "taskGen" && (
         <div className="space-y-3 pt-1">
           <span className="text-xs font-semibold text-slate-700 block">
-            Task Generation Mode
+            Cách tạo công việc
           </span>
           <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700">
             <input
@@ -281,7 +281,7 @@ function ApprovalPropertiesSection({
               }}
               className="h-4 w-4 rounded border-slate-300 text-blue-600"
             />
-            <span>Enable Multi-Instance Task Generation</span>
+            <span>Cho phép tạo công việc cho nhiều mục</span>
           </label>
         </div>
       )}
@@ -293,7 +293,7 @@ function ApprovalPropertiesSection({
               htmlFor={`${formHtmlId}-formKey`}
               className="text-xs font-semibold text-slate-700 block mb-1"
             >
-              Task Form Key
+              Khóa biểu mẫu công việc
             </label>
             <input
               id={`${formHtmlId}-formKey`}
@@ -301,7 +301,7 @@ function ApprovalPropertiesSection({
               data-testid="input-formKey"
               disabled={readOnly}
               value={String(config.formKey ?? "")}
-              placeholder="e.g. expense_approval_form"
+              placeholder="Ví dụ: expense_approval_form"
               onChange={(e) => onChange("formKey", e.target.value)}
               className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100"
             />
@@ -313,8 +313,7 @@ function ApprovalPropertiesSection({
               }
               onChange={(newSchema) => onChange("stepFormSchema", newSchema)}
               readOnly={readOnly}
-              title="Step Form Schema"
-              description="Configure form fields required for this approval decision."
+              title="Schema biểu mẫu của bước"
             />
           </div>
         </div>
@@ -323,7 +322,7 @@ function ApprovalPropertiesSection({
       {activeTab === "decision" && (
         <div className="space-y-3 pt-1">
           <span className="text-xs font-semibold text-slate-700 block mb-1">
-            Allowed Decision Actions
+            Các thao tác quyết định được phép
           </span>
           <div className="space-y-1.5" data-testid="allowed-actions-group">
             {["APPROVED", "REJECTED", "REVISION_REQUESTED"].map((act) => {
@@ -360,7 +359,7 @@ function ApprovalPropertiesSection({
             htmlFor={`${formHtmlId}-slaMinutes`}
             className="text-xs font-semibold text-slate-700 block mb-1"
           >
-            SLA Duration (Minutes)
+            Thời hạn SLA (phút)
           </label>
           <input
             id={`${formHtmlId}-slaMinutes`}
@@ -387,7 +386,7 @@ function ApprovalPropertiesSection({
             htmlFor={`${formHtmlId}-failurePolicy`}
             className="text-xs font-semibold text-slate-700 block mb-1"
           >
-            Failure Behavior
+            Cách xử lý khi lỗi
           </label>
           <select
             id={`${formHtmlId}-failurePolicy`}
@@ -397,8 +396,8 @@ function ApprovalPropertiesSection({
             onChange={(e) => onChange("failurePolicy", e.target.value)}
             className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100"
           >
-            <option value="FAIL_EVENT">Terminate Event on Failure</option>
-            <option value="ROUTE_ERROR">Route to Error Port</option>
+            <option value="FAIL_EVENT">Kết thúc sự kiện khi lỗi</option>
+            <option value="ROUTE_ERROR">Chuyển đến cổng lỗi</option>
           </select>
         </div>
       )}
@@ -422,10 +421,10 @@ function SystemActionPropertiesSection({
 }) {
   const [activeTab, setActiveTab] = useState<string>("connector");
   const tabs = [
-    { id: "connector", label: "Connector" },
-    { id: "actionVersion", label: "Action Version" },
-    { id: "retry", label: "Retry" },
-    { id: "failure", label: "Failure" },
+    { id: "connector", label: "Kết nối" },
+    { id: "actionVersion", label: "Phiên bản thao tác" },
+    { id: "retry", label: "Thử lại" },
+    { id: "failure", label: "Lỗi" },
   ];
 
   return (
@@ -455,7 +454,7 @@ function SystemActionPropertiesSection({
               htmlFor={`${formHtmlId}-connectorKey`}
               className="text-xs font-semibold text-slate-700 block mb-1"
             >
-              Connector Key *
+              Khóa kết nối *
             </label>
             <input
               id={`${formHtmlId}-connectorKey`}
@@ -463,7 +462,7 @@ function SystemActionPropertiesSection({
               data-testid="input-connectorKey"
               disabled={readOnly}
               value={String(config.connectorKey ?? "")}
-              placeholder="e.g. slack, payment_gateway, jira"
+              placeholder="Ví dụ: slack, payment_gateway, jira"
               onChange={(e) => onChange("connectorKey", e.target.value)}
               className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100"
             />
@@ -473,7 +472,7 @@ function SystemActionPropertiesSection({
               htmlFor={`${formHtmlId}-credentialRef`}
               className="text-xs font-semibold text-slate-700 block mb-1"
             >
-              Credential Reference
+              Tham chiếu thông tin xác thực
             </label>
             <input
               id={`${formHtmlId}-credentialRef`}
@@ -481,7 +480,7 @@ function SystemActionPropertiesSection({
               data-testid="input-credentialRef"
               disabled={readOnly}
               value={String(config.credentialRef ?? "")}
-              placeholder="e.g. vault:secret/slack-token"
+              placeholder="Ví dụ: vault:secret/slack-token"
               onChange={(e) => onChange("credentialRef", e.target.value)}
               className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100 font-mono text-[11px]"
             />
@@ -496,7 +495,7 @@ function SystemActionPropertiesSection({
               htmlFor={`${formHtmlId}-actionKey`}
               className="text-xs font-semibold text-slate-700 block mb-1"
             >
-              Action Key *
+              Khóa thao tác *
             </label>
             <input
               id={`${formHtmlId}-actionKey`}
@@ -504,7 +503,7 @@ function SystemActionPropertiesSection({
               data-testid="input-actionKey"
               disabled={readOnly}
               value={String(config.actionKey ?? "")}
-              placeholder="e.g. post_message, charge_card"
+              placeholder="Ví dụ: post_message, charge_card"
               onChange={(e) => onChange("actionKey", e.target.value)}
               className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100"
             />
@@ -514,7 +513,7 @@ function SystemActionPropertiesSection({
               htmlFor={`${formHtmlId}-actionVersion`}
               className="text-xs font-semibold text-slate-700 block mb-1"
             >
-              Action Version *
+              Phiên bản thao tác *
             </label>
             <input
               id={`${formHtmlId}-actionVersion`}
@@ -538,7 +537,7 @@ function SystemActionPropertiesSection({
             htmlFor={`${formHtmlId}-maxAttempts`}
             className="text-xs font-semibold text-slate-700 block mb-1"
           >
-            Max Retry Attempts
+            Số lần thử lại tối đa
           </label>
           <input
             id={`${formHtmlId}-maxAttempts`}
@@ -566,7 +565,7 @@ function SystemActionPropertiesSection({
             htmlFor={`${formHtmlId}-failureAction`}
             className="text-xs font-semibold text-slate-700 block mb-1"
           >
-            Failure Route Action
+            Thao tác khi định tuyến lỗi
           </label>
           <select
             id={`${formHtmlId}-failureAction`}
@@ -576,8 +575,8 @@ function SystemActionPropertiesSection({
             onChange={(e) => onChange("failureAction", e.target.value)}
             className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100"
           >
-            <option value="ROUTE_ERROR_PORT">Route to ERROR port</option>
-            <option value="FAIL_EVENT">Fail Event Immediately</option>
+            <option value="ROUTE_ERROR_PORT">Chuyển đến cổng ERROR</option>
+            <option value="FAIL_EVENT">Làm sự kiện thất bại ngay lập tức</option>
           </select>
         </div>
       )}
@@ -601,9 +600,9 @@ function JoinPropertiesSection({
 }) {
   const [activeTab, setActiveTab] = useState<string>("policy");
   const tabs = [
-    { id: "policy", label: "Join Policy" },
-    { id: "scope", label: "Scope" },
-    { id: "remaining", label: "Remaining Branch" },
+    { id: "policy", label: "Quy tắc hợp nhất" },
+    { id: "scope", label: "Phạm vi" },
+    { id: "remaining", label: "Nhánh còn lại" },
   ];
 
   return (
@@ -632,7 +631,7 @@ function JoinPropertiesSection({
             htmlFor={`${formHtmlId}-joinPolicy`}
             className="text-xs font-semibold text-slate-700 block mb-1"
           >
-            Join Execution Policy
+            Quy tắc hợp nhất các nhánh
           </label>
           <select
             id={`${formHtmlId}-joinPolicy`}
@@ -642,8 +641,8 @@ function JoinPropertiesSection({
             onChange={(e) => onChange("policy", e.target.value)}
             className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100"
           >
-            <option value="ALL">ALL (Wait for all inbound branches)</option>
-            <option value="ANY">ANY (First arriving branch triggers)</option>
+            <option value="ALL">ALL (Chờ tất cả nhánh đi vào)</option>
+            <option value="ANY">ANY (Kích hoạt khi nhánh đầu tiên đến)</option>
           </select>
         </div>
       )}
@@ -654,7 +653,7 @@ function JoinPropertiesSection({
             htmlFor={`${formHtmlId}-joinScopeId`}
             className="text-xs font-semibold text-slate-700 block mb-1"
           >
-            Join Scope Identifier
+            Mã phạm vi hợp nhất
           </label>
           <input
             id={`${formHtmlId}-joinScopeId`}
@@ -662,7 +661,7 @@ function JoinPropertiesSection({
             data-testid="input-joinScopeId"
             disabled={readOnly}
             value={String(config.joinScopeId ?? "")}
-            placeholder="Scope UUID or branch reference"
+            placeholder="UUID phạm vi hoặc tham chiếu nhánh"
             onChange={(e) => onChange("joinScopeId", e.target.value)}
             className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100 font-mono text-[11px]"
           />
@@ -675,7 +674,7 @@ function JoinPropertiesSection({
             htmlFor={`${formHtmlId}-remainingBranchPolicy`}
             className="text-xs font-semibold text-slate-700 block mb-1"
           >
-            Remaining Branch Policy
+            Quy tắc nhánh còn lại
           </label>
           <select
             id={`${formHtmlId}-remainingBranchPolicy`}
@@ -685,8 +684,8 @@ function JoinPropertiesSection({
             onChange={(e) => onChange("remainingBranchPolicy", e.target.value)}
             className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100"
           >
-            <option value="CANCEL_REMAINING">Cancel Remaining Branches</option>
-            <option value="AWAIT_COMPLETION">Await All Branches Silently</option>
+            <option value="CANCEL_REMAINING">Hủy các nhánh còn lại</option>
+            <option value="AWAIT_COMPLETION">Âm thầm chờ tất cả nhánh hoàn tất</option>
           </select>
         </div>
       )}
@@ -710,10 +709,10 @@ function SubWorkflowPropertiesSection({
 }) {
   const [activeTab, setActiveTab] = useState<string>("childDef");
   const tabs = [
-    { id: "childDef", label: "Definition" },
-    { id: "mode", label: "Execution Mode" },
-    { id: "mapping", label: "Mappings" },
-    { id: "cancellation", label: "Cancellation" },
+    { id: "childDef", label: "Định nghĩa" },
+    { id: "mode", label: "Cách thực thi" },
+    { id: "mapping", label: "Liên kết" },
+    { id: "cancellation", label: "Hủy" },
   ];
 
   return (
@@ -742,7 +741,7 @@ function SubWorkflowPropertiesSection({
             htmlFor={`${formHtmlId}-childDefKey`}
             className="text-xs font-semibold text-slate-700 block mb-1"
           >
-            Child Workflow Definition Key *
+            Khóa định nghĩa quy trình con *
           </label>
           <input
             id={`${formHtmlId}-childDefKey`}
@@ -750,7 +749,7 @@ function SubWorkflowPropertiesSection({
             data-testid="input-childWorkflowDefinitionKey"
             disabled={readOnly}
             value={String(config.childWorkflowDefinitionKey ?? "")}
-            placeholder="e.g. employee_onboarding"
+              placeholder="Ví dụ: employee_onboarding"
             onChange={(e) => onChange("childWorkflowDefinitionKey", e.target.value)}
             className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100 font-mono"
           />
@@ -763,7 +762,7 @@ function SubWorkflowPropertiesSection({
             htmlFor={`${formHtmlId}-execMode`}
             className="text-xs font-semibold text-slate-700 block mb-1"
           >
-            Execution Mode
+            Cách thực thi
           </label>
           <select
             id={`${formHtmlId}-execMode`}
@@ -782,11 +781,8 @@ function SubWorkflowPropertiesSection({
       {activeTab === "mapping" && (
         <div className="space-y-3 pt-1">
           <span className="text-xs font-semibold text-slate-700 block">
-            Parent ↔ Child Variable Mappings
+            Liên kết biến cha ↔ con
           </span>
-          <p className="text-[11px] text-slate-400">
-            Configure input/output parameters explicitly.
-          </p>
         </div>
       )}
 
@@ -796,7 +792,7 @@ function SubWorkflowPropertiesSection({
             htmlFor={`${formHtmlId}-cancelPolicy`}
             className="text-xs font-semibold text-slate-700 block mb-1"
           >
-            Cancellation Propagation
+            Cách lan truyền thao tác hủy
           </label>
           <select
             id={`${formHtmlId}-cancelPolicy`}
@@ -806,8 +802,8 @@ function SubWorkflowPropertiesSection({
             onChange={(e) => onChange("cancellationPolicy", e.target.value)}
             className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100"
           >
-            <option value="PROPAGATE">PROPAGATE (Cancel Child on Parent Terminate)</option>
-            <option value="DETACH">DETACH (Allow Child to Complete Independently)</option>
+            <option value="PROPAGATE">PROPAGATE (Hủy con khi cha kết thúc)</option>
+            <option value="DETACH">DETACH (Cho phép con hoàn tất độc lập)</option>
           </select>
         </div>
       )}
@@ -835,7 +831,7 @@ function ConditionPropertiesSection({
         htmlFor={`${formHtmlId}-conditionExpr`}
         className="text-xs font-semibold text-slate-700 block mb-1"
       >
-        Condition Expression (JSON AST)
+        Biểu thức điều kiện (JSON AST)
       </label>
       <textarea
         id={`${formHtmlId}-conditionExpr`}
@@ -882,7 +878,7 @@ function GenericNodePropertiesSection({
         htmlFor={`${formHtmlId}-outcome`}
         className="text-xs font-semibold text-slate-700 block mb-1"
       >
-        Outcome Value
+        Giá trị kết quả
       </label>
       <input
         id={`${formHtmlId}-outcome`}

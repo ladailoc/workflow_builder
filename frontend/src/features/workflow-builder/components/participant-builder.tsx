@@ -11,74 +11,60 @@ import type {
 import {
   compileParticipantConfig,
   decompileParticipantConfig,
-  explainResolutionBehavior,
 } from "../utils/participant-compiler";
 
-const RESOLVER_OPTIONS: { value: FriendlyResolverKind; label: string; description: string }[] = [
+const RESOLVER_OPTIONS: { value: FriendlyResolverKind; label: string }[] = [
   {
     value: "CREATORS_MANAGER",
-    label: "Creator's Direct Manager",
-    description: "Evaluates immediate manager (depth 1) in reporting hierarchy.",
+    label: "Quản lý trực tiếp của người tạo",
   },
   {
     value: "MANAGER_N_LEVELS_UP",
-    label: "Manager N Levels Up",
-    description: "Walks up reporting hierarchy by N levels.",
+    label: "Quản lý cách N cấp",
   },
   {
     value: "DEPARTMENT_HEAD",
-    label: "Department Head",
-    description: "Head of unit / department of the ticket submitter.",
+    label: "Trưởng phòng ban",
   },
   {
     value: "CREATOR",
-    label: "Request Creator / Submitter",
-    description: "Routes back to the creator of this workflow instance.",
+    label: "Người tạo / gửi yêu cầu",
   },
   {
     value: "FIXED_USER",
-    label: "Fixed User",
-    description: "Static user assignment via user UUID.",
+    label: "Người dùng cố định",
   },
   {
     value: "ROLE",
-    label: "Organizational Role",
-    description: "Assigns to members having a designated organizational role.",
+    label: "Vai trò tổ chức",
   },
   {
     value: "GROUP",
-    label: "Organizational Group",
-    description: "Assigns to a team or operational workgroup.",
+    label: "Nhóm tổ chức",
   },
   {
     value: "REQUEST_FIELD",
-    label: "Request Form Field",
-    description: "Dynamically extracts user ID from a ticket form field.",
+    label: "Trường biểu mẫu yêu cầu",
   },
   {
     value: "ITEM_MANAGER",
-    label: "Item / Asset Manager",
-    description: "Resolves manager of the specific item being requested.",
+    label: "Quản lý tài sản / mục",
   },
   {
     value: "ITEM_USER",
-    label: "Item User / Beneficiary",
-    description: "Resolves designated user of the target item.",
+    label: "Người dùng / người thụ hưởng",
   },
   {
     value: "PREVIOUS_PARTICIPANT",
-    label: "Previous Step Participant",
-    description: "Re-engages person who performed an earlier approval step.",
+    label: "Người xử lý bước trước",
   },
   {
     value: "NODE_OUTPUT",
-    label: "System Action Output",
-    description: "Uses user ID returned by an upstream integration node.",
+    label: "Kết quả thao tác hệ thống",
   },
   {
     value: "EXPRESSION",
-    label: "Custom Expression",
-    description: "Evaluates custom logic expression at runtime.",
+    label: "Biểu thức tùy chỉnh",
   },
 ];
 
@@ -143,8 +129,6 @@ export function ParticipantBuilder({
   };
 
   const isMulti = friendly.cardinality === "MULTI";
-  const explanation = explainResolutionBehavior(friendly);
-
   return (
     <div className="space-y-4" data-testid="participant-builder">
       {/* 1. Primary Resolver Selection */}
@@ -153,7 +137,7 @@ export function ParticipantBuilder({
           htmlFor={`${formHtmlId}-primaryResolver`}
           className="text-xs font-semibold text-slate-800 block"
         >
-          Primary Assignee Resolver *
+          Cách xác định người xử lý chính *
         </label>
         <select
           id={`${formHtmlId}-primaryResolver`}
@@ -171,9 +155,6 @@ export function ParticipantBuilder({
             </option>
           ))}
         </select>
-        <p className="text-[11px] text-slate-500">
-          {RESOLVER_OPTIONS.find((o) => o.value === friendly.kind)?.description}
-        </p>
       </div>
 
       {/* 2. Specific Resolver Options */}
@@ -183,7 +164,7 @@ export function ParticipantBuilder({
             htmlFor={`${formHtmlId}-userId`}
             className="text-xs font-semibold text-slate-700 block"
           >
-            User UUID *
+            UUID người dùng *
           </label>
           <input
             id={`${formHtmlId}-userId`}
@@ -191,7 +172,7 @@ export function ParticipantBuilder({
             data-testid="input-fixed-user-id"
             disabled={readOnly}
             value={friendly.userId ?? ""}
-            placeholder="e.g. 11111111-1111-1111-1111-111111111111"
+            placeholder="Ví dụ: 11111111-1111-1111-1111-111111111111"
             onChange={(e) => updateFriendly({ userId: e.target.value })}
             className="w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-xs disabled:bg-slate-100"
           />
@@ -204,7 +185,7 @@ export function ParticipantBuilder({
             htmlFor={`${formHtmlId}-depth`}
             className="text-xs font-semibold text-slate-700 block"
           >
-            Manager Hierarchy Depth (Levels) *
+            Số cấp quản lý *
           </label>
           <input
             id={`${formHtmlId}-depth`}
@@ -228,7 +209,7 @@ export function ParticipantBuilder({
             htmlFor={`${formHtmlId}-itemDepth`}
             className="text-xs font-semibold text-slate-700 block"
           >
-            Item Manager Depth *
+            Số cấp quản lý tài sản *
           </label>
           <input
             id={`${formHtmlId}-itemDepth`}
@@ -252,7 +233,7 @@ export function ParticipantBuilder({
             htmlFor={`${formHtmlId}-fieldKey`}
             className="text-xs font-semibold text-slate-700 block"
           >
-            Form Field Key *
+            Khóa trường biểu mẫu *
           </label>
           <input
             id={`${formHtmlId}-fieldKey`}
@@ -260,7 +241,7 @@ export function ParticipantBuilder({
             data-testid="input-request-field-key"
             disabled={readOnly}
             value={friendly.fieldKey ?? ""}
-            placeholder="e.g. designatedApproverId"
+            placeholder="Ví dụ: designatedApproverId"
             onChange={(e) => updateFriendly({ fieldKey: e.target.value })}
             className="w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-xs disabled:bg-slate-100"
           />
@@ -273,7 +254,7 @@ export function ParticipantBuilder({
             htmlFor={`${formHtmlId}-role`}
             className="text-xs font-semibold text-slate-700 block"
           >
-            Role Name / Code *
+            Tên / mã vai trò *
           </label>
           <input
             id={`${formHtmlId}-role`}
@@ -281,7 +262,7 @@ export function ParticipantBuilder({
             data-testid="input-role-name"
             disabled={readOnly}
             value={friendly.role ?? ""}
-            placeholder="e.g. FINANCE_DIRECTOR, LEGAL_REVIEWER"
+            placeholder="Ví dụ: FINANCE_DIRECTOR, LEGAL_REVIEWER"
             onChange={(e) => updateFriendly({ role: e.target.value })}
             className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100"
           />
@@ -294,7 +275,7 @@ export function ParticipantBuilder({
             htmlFor={`${formHtmlId}-group`}
             className="text-xs font-semibold text-slate-700 block"
           >
-            Group Code *
+            Mã nhóm *
           </label>
           <input
             id={`${formHtmlId}-group`}
@@ -302,7 +283,7 @@ export function ParticipantBuilder({
             data-testid="input-group-code"
             disabled={readOnly}
             value={friendly.group ?? ""}
-            placeholder="e.g. IT_DESK, SECURITY_TEAM"
+            placeholder="Ví dụ: IT_DESK, SECURITY_TEAM"
             onChange={(e) => updateFriendly({ group: e.target.value })}
             className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100"
           />
@@ -315,7 +296,7 @@ export function ParticipantBuilder({
             htmlFor={`${formHtmlId}-stepId`}
             className="text-xs font-semibold text-slate-700 block"
           >
-            Previous Step Identifier *
+            Mã bước trước *
           </label>
           <input
             id={`${formHtmlId}-stepId`}
@@ -323,7 +304,7 @@ export function ParticipantBuilder({
             data-testid="input-step-id"
             disabled={readOnly}
             value={friendly.stepId ?? ""}
-            placeholder="e.g. initial_review"
+            placeholder="Ví dụ: initial_review"
             onChange={(e) => updateFriendly({ stepId: e.target.value })}
             className="w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-xs disabled:bg-slate-100"
           />
@@ -336,7 +317,7 @@ export function ParticipantBuilder({
             htmlFor={`${formHtmlId}-expression`}
             className="text-xs font-semibold text-slate-700 block"
           >
-            Rule Expression *
+            Biểu thức quy tắc *
           </label>
           <textarea
             id={`${formHtmlId}-expression`}
@@ -355,7 +336,7 @@ export function ParticipantBuilder({
       <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold text-slate-800">
-            Participant Cardinality
+            Số lượng người xử lý
           </span>
           <div className="flex items-center gap-1 rounded bg-slate-200 p-0.5">
             <button
@@ -375,7 +356,7 @@ export function ParticipantBuilder({
                   : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              Single
+              Một người
             </button>
             <button
               type="button"
@@ -394,7 +375,7 @@ export function ParticipantBuilder({
                   : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              Multi-Participant
+              Nhiều người
             </button>
           </div>
         </div>
@@ -407,7 +388,7 @@ export function ParticipantBuilder({
                 htmlFor={`${formHtmlId}-taskGenMode`}
                 className="text-[11px] font-semibold text-slate-700 block mb-1"
               >
-                Task Generation Mode
+                Cách tạo công việc
               </label>
               <select
                 id={`${formHtmlId}-taskGenMode`}
@@ -422,10 +403,10 @@ export function ParticipantBuilder({
                 className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs disabled:bg-slate-100"
               >
                 <option value="ONE_PER_PARTICIPANT">
-                  ONE_PER_PARTICIPANT (Individual task per person)
+                  ONE_PER_PARTICIPANT (Mỗi người một công việc)
                 </option>
                 <option value="SINGLE_CLAIMABLE">
-                  SINGLE_CLAIMABLE (Shared pool task claimable by any member)
+                  SINGLE_CLAIMABLE (Công việc chung, thành viên bất kỳ có thể nhận)
                 </option>
               </select>
             </div>
@@ -436,7 +417,7 @@ export function ParticipantBuilder({
                 htmlFor={`${formHtmlId}-completionPolicy`}
                 className="text-[11px] font-semibold text-slate-700 block mb-1"
               >
-                Multi-Participant Completion Policy
+                Quy tắc hoàn tất khi có nhiều người xử lý
               </label>
               <select
                 id={`${formHtmlId}-completionPolicy`}
@@ -451,16 +432,16 @@ export function ParticipantBuilder({
                 className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs disabled:bg-slate-100"
               >
                 <option value="ALL_MUST_APPROVE">
-                  ALL_MUST_APPROVE (100% Unanimity required)
+                  ALL_MUST_APPROVE (Cần 100% đồng thuận)
                 </option>
                 <option value="FIRST_RESPONSE">
-                  FIRST_RESPONSE (First completed decision resolves step)
+                  FIRST_RESPONSE (Quyết định đầu tiên hoàn tất bước)
                 </option>
                 <option value="PERCENTAGE">
-                  PERCENTAGE (Approval percentage threshold)
+                  PERCENTAGE (Theo tỷ lệ phê duyệt)
                 </option>
                 <option value="QUORUM">
-                  QUORUM (Minimum number of approvals)
+                  QUORUM (Theo số lượng phê duyệt tối thiểu)
                 </option>
               </select>
             </div>
@@ -471,7 +452,7 @@ export function ParticipantBuilder({
                   htmlFor={`${formHtmlId}-completionPercent`}
                   className="text-[11px] font-semibold text-slate-700 block mb-1"
                 >
-                  Required Approval Percentage (%)
+                  Tỷ lệ phê duyệt bắt buộc (%)
                 </label>
                 <input
                   id={`${formHtmlId}-completionPercent`}
@@ -497,7 +478,7 @@ export function ParticipantBuilder({
                   htmlFor={`${formHtmlId}-quorumCount`}
                   className="text-[11px] font-semibold text-slate-700 block mb-1"
                 >
-                  Minimum Quorum Count (Votes)
+                  Số phiếu tối thiểu
                 </label>
                 <input
                   id={`${formHtmlId}-quorumCount`}
@@ -525,11 +506,8 @@ export function ParticipantBuilder({
         <div className="flex items-center justify-between">
           <div>
             <span className="text-xs font-bold text-slate-800 block">
-              Fallback Resolution Chain
+              Chuỗi người xử lý dự phòng
             </span>
-            <p className="text-[11px] text-slate-500">
-              Evaluated sequentially when the primary assignee cannot be resolved.
-            </p>
           </div>
           {!readOnly && (
             <button
@@ -538,7 +516,7 @@ export function ParticipantBuilder({
               onClick={handleAddFallback}
               className="rounded bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-200"
             >
-              + Fallback
+              + Thêm dự phòng
             </button>
           )}
         </div>
@@ -580,29 +558,15 @@ export function ParticipantBuilder({
                     onClick={() => handleRemoveFallback(idx)}
                     className="text-xs text-rose-600 hover:text-rose-800"
                   >
-                    Remove
+                    Xóa
                   </button>
                 )}
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-[11px] italic text-slate-400">
-            No fallback resolvers configured. Will fail or default to creator.
-          </p>
+          <p className="text-[11px] italic text-slate-400">Chưa cấu hình người xử lý dự phòng.</p>
         )}
-      </div>
-
-      {/* 5. Runtime Resolution Behavior Explanation */}
-      <div
-        data-testid="runtime-resolution-explanation"
-        className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-3 text-xs text-indigo-950 space-y-1"
-      >
-        <span className="font-bold text-indigo-900 block flex items-center gap-1.5">
-          <span className="inline-block h-2 w-2 rounded-full bg-indigo-600" />
-          Runtime Resolution Behavior
-        </span>
-        <p className="text-[11px] leading-relaxed text-indigo-900/90">{explanation}</p>
       </div>
     </div>
   );

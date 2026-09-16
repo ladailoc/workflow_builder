@@ -64,11 +64,8 @@ export function PublishModal({
         <div className="flex items-center justify-between border-b border-slate-200 pb-3">
           <div>
             <h3 className="text-sm font-bold text-slate-900">
-              Publish Workflow Release #{version.versionNo}
+              Phát hành phiên bản quy trình #{version.versionNo}
             </h3>
-            <p className="text-xs text-slate-500">
-              Promotes draft into an immutable production release.
-            </p>
           </div>
           <button
             type="button"
@@ -86,9 +83,9 @@ export function PublishModal({
             data-testid="publish-success-message"
             className="rounded-lg bg-emerald-50 border border-emerald-200 p-4 text-center text-xs font-semibold text-emerald-800 space-y-1"
           >
-            <p className="text-sm font-bold">✓ Successfully Published!</p>
+            <p className="text-sm font-bold">✓ Phát hành thành công!</p>
             <p className="text-[11px] text-emerald-700">
-              Version #{version.versionNo} is now published and active.
+              Phiên bản #{version.versionNo} đã được phát hành và đang hoạt động.
             </p>
           </div>
         ) : (
@@ -103,11 +100,8 @@ export function PublishModal({
                   <span className="flex h-5 w-5 items-center justify-center rounded-full bg-rose-200 text-rose-800 font-mono text-[10px]">
                     !
                   </span>
-                  <span>Publication Blocked: {errorIssues.length} Error(s) Detected</span>
+                  <span>Không thể phát hành: phát hiện {errorIssues.length} lỗi</span>
                 </div>
-                <p className="text-[11px] text-rose-700">
-                  Workflow invariants must be completely satisfied before publishing to production.
-                </p>
                 <div className="max-h-36 overflow-y-auto space-y-1.5 pt-1">
                   {errorIssues.map((err) => (
                     <div
@@ -125,7 +119,7 @@ export function PublishModal({
                           }}
                           className="text-blue-600 hover:underline shrink-0 ml-2"
                         >
-                          Focus →
+                          Xem lỗi →
                         </button>
                       )}
                     </div>
@@ -137,27 +131,27 @@ export function PublishModal({
                 data-testid="publish-validation-clean"
                 className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-xs text-emerald-900 flex items-center gap-2"
               >
-                <span className="font-bold text-emerald-700">✓ Invariants Passed:</span>
-                <span>All graph compiler validation rules satisfied with 0 errors.</span>
+                <span className="font-bold text-emerald-700">✓ Đã vượt qua kiểm tra:</span>
+                <span>Tất cả quy tắc kiểm tra sơ đồ đều đạt, không có lỗi.</span>
               </div>
             )}
 
             {/* Publication Summary */}
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs">
               <span className="font-bold text-slate-800 block">
-                Publication Summary
+                Tóm tắt phát hành
               </span>
               <div className="grid grid-cols-3 gap-2">
                 <div className="rounded bg-white p-2 border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] text-slate-500 block">Nodes</span>
+                  <span className="text-[10px] text-slate-500 block">Bước</span>
                   <span className="font-bold text-slate-800">{nodes.length}</span>
                 </div>
                 <div className="rounded bg-white p-2 border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] text-slate-500 block">Transitions</span>
+                  <span className="text-[10px] text-slate-500 block">Chuyển tiếp</span>
                   <span className="font-bold text-slate-800">{edges.length}</span>
                 </div>
                 <div className="rounded bg-white p-2 border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] text-slate-500 block">Warnings</span>
+                  <span className="text-[10px] text-slate-500 block">Cảnh báo</span>
                   <span className="font-bold text-amber-600">{warningIssues.length}</span>
                 </div>
               </div>
@@ -171,7 +165,7 @@ export function PublishModal({
                 onClick={onClose}
                 className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
               >
-                Cancel
+                Hủy
               </button>
               <button
                 type="button"
@@ -180,7 +174,7 @@ export function PublishModal({
                 onClick={handlePublish}
                 className="rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
               >
-                {isPublishing ? "Publishing..." : "Confirm & Publish"}
+                {isPublishing ? "Đang phát hành…" : "Xác nhận & phát hành"}
               </button>
             </div>
           </>

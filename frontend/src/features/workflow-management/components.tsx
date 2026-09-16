@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { formatStatus } from "@/shared/components/ui/status-badge";
 import type { WorkflowLifecycle, WorkflowSummary } from "./types";
 
 export function LifecycleBadge({
@@ -21,14 +22,13 @@ export function LifecycleBadge({
     <span
       className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${colors}`}
     >
-      {value}
+      {formatStatus(value)}
     </span>
   );
 }
 
 export function AdminPageHeader({
   title,
-  description,
   action,
 }: {
   title: string;
@@ -41,7 +41,6 @@ export function AdminPageHeader({
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">
           {title}
         </h1>
-        <p className="mt-1 text-sm text-slate-500">{description}</p>
       </div>
       {action}
     </div>
@@ -65,7 +64,7 @@ export function PrimaryLink({
   );
 }
 
-export function LoadingPanel({ label = "Loading…" }: { label?: string }) {
+export function LoadingPanel({ label = "Đang tải…" }: { label?: string }) {
   return (
     <div
       data-testid="management-loading"
@@ -78,7 +77,6 @@ export function LoadingPanel({ label = "Loading…" }: { label?: string }) {
 
 export function EmptyPanel({
   title,
-  detail,
 }: {
   title: string;
   detail: string;
@@ -89,7 +87,6 @@ export function EmptyPanel({
       className="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center"
     >
       <h2 className="font-semibold text-slate-800">{title}</h2>
-      <p className="mt-2 text-sm text-slate-500">{detail}</p>
     </div>
   );
 }
@@ -139,7 +136,7 @@ export function RequestTypeForm({
         </p>
       )}
       <label className="block text-sm font-semibold">
-        Name
+        Tên
         <input
           required
           value={form.name}
@@ -148,7 +145,7 @@ export function RequestTypeForm({
         />
       </label>
       <label className="block text-sm font-semibold">
-        Stable key
+        Khóa ổn định
         <input
           required
           disabled={editMode}
@@ -163,7 +160,7 @@ export function RequestTypeForm({
         />
       </label>
       <label className="block text-sm font-semibold">
-        Category
+        Danh mục
         <input
           required
           value={form.category}
@@ -174,7 +171,7 @@ export function RequestTypeForm({
         />
       </label>
       <label className="block text-sm font-semibold">
-        WorkflowDefinition
+        WorkflowDefinition (định danh quy trình)
         <select
           required
           value={form.workflowDefinitionId}
@@ -183,23 +180,19 @@ export function RequestTypeForm({
           }
           className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-normal"
         >
-          <option value="">Select a WorkflowDefinition</option>
+          <option value="">Chọn WorkflowDefinition</option>
           {workflows.map((workflow) => (
             <option key={workflow.id} value={workflow.id}>
-              {workflow.name} · {workflow.lifecycle}
+              {workflow.name} · {formatStatus(workflow.lifecycle)}
               {workflow.currentPublishedVersionNo
                 ? ` · V${workflow.currentPublishedVersionNo}`
-                : " · no Published version"}
+                : " · chưa có phiên bản đã phát hành"}
             </option>
           ))}
         </select>
-        <span className="mt-1 block text-xs font-normal text-slate-500">
-          The mapping always targets WorkflowDefinition; Published version is
-          resolved at form load and Submit.
-        </span>
       </label>
       <label className="block text-sm font-semibold">
-        Description
+        Mô tả
         <textarea
           value={form.description}
           onChange={(event) =>
@@ -217,7 +210,7 @@ export function RequestTypeForm({
               onChange({ ...form, active: event.target.checked })
             }
           />{" "}
-          Active in business catalog
+          Hiển thị trong danh mục yêu cầu
         </label>
       )}
       <div className="flex justify-end">
@@ -225,7 +218,7 @@ export function RequestTypeForm({
           disabled={saving || !form.workflowDefinitionId}
           className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
-          {saving ? "Saving…" : submitLabel}
+          {saving ? "Đang lưu…" : submitLabel}
         </button>
       </div>
     </form>

@@ -24,8 +24,8 @@ export default function NewWorkflowPage() {
         data-testid="create-workflow-page"
       >
         <AdminPageHeader
-          title="New Workflow"
-          description="Create the stable WorkflowDefinition identity. Runtime Tickets and Events are not created here."
+          title="Tạo quy trình"
+          description="Tạo định danh WorkflowDefinition ổn định. Ticket và sự kiện chạy thực tế không được tạo ở đây."
         />
         <form
           className="space-y-5 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
@@ -46,7 +46,7 @@ export default function NewWorkflowPage() {
               setError(
                 reason instanceof Error
                   ? reason.message
-                  : "Unable to create workflow",
+                  : "Không thể tạo quy trình",
               );
             } finally {
               setSaving(false);
@@ -62,17 +62,17 @@ export default function NewWorkflowPage() {
             </p>
           )}
           <label className="block text-sm font-semibold text-slate-700">
-            Name
+            Tên
             <input
               required
               value={name}
               onChange={(event) => setName(event.target.value)}
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-normal"
-              placeholder="Purchase Approval"
+              placeholder="Phê duyệt mua sắm"
             />
           </label>
           <label className="block text-sm font-semibold text-slate-700">
-            Stable key
+            Khóa ổn định
             <input
               required
               value={key}
@@ -86,7 +86,7 @@ export default function NewWorkflowPage() {
             />
           </label>
           <label className="block text-sm font-semibold text-slate-700">
-            Description
+            Mô tả
             <textarea
               value={description}
               onChange={(event) => setDescription(event.target.value)}
@@ -99,13 +99,13 @@ export default function NewWorkflowPage() {
               onClick={() => router.back()}
               className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold"
             >
-              Cancel
+              Hủy
             </button>
             <button
               disabled={saving}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
-              {saving ? "Creating…" : "Create Workflow"}
+              {saving ? "Đang tạo…" : "Tạo quy trình"}
             </button>
           </div>
         </form>

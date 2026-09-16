@@ -175,7 +175,7 @@ describe("Prompt 55: Form Builder & Participant Builder", () => {
 
       // Dependency modal should open
       expect(screen.getByTestId("field-dependency-modal")).toBeInTheDocument();
-      expect(screen.getByText(/Breaking Change Detected/i)).toBeInTheDocument();
+      expect(screen.getByText(/Phát hiện thay đổi ảnh hưởng/i)).toBeInTheDocument();
       expect(screen.getByTestId("dependency-item")).toHaveTextContent("TITLE TEMPLATE");
 
       // Clicking Force Delete confirms the action
@@ -250,7 +250,7 @@ describe("Prompt 55: Form Builder & Participant Builder", () => {
       expect(d3.kind).toBe("DEPARTMENT_HEAD");
     });
 
-    it("renders ParticipantBuilder UI with fallback chain and explanation", () => {
+    it("renders ParticipantBuilder UI with fallback chain", () => {
       const changeSpy = vi.fn();
       render(
         <ParticipantBuilder
@@ -279,11 +279,7 @@ describe("Prompt 55: Form Builder & Participant Builder", () => {
       expect(screen.getByTestId("fallback-item-0")).toBeInTheDocument();
       expect(screen.getByTestId("fallback-item-1")).toBeInTheDocument();
 
-      // Runtime explanation card
-      const explanation = screen.getByTestId("runtime-resolution-explanation");
-      expect(explanation).toHaveTextContent("direct manager (depth 1)");
-      expect(explanation).toHaveTextContent("evaluates fallback chain in order");
-      expect(explanation).toHaveTextContent("QUORUM of at least 3");
+      expect(screen.queryByTestId("runtime-resolution-explanation")).not.toBeInTheDocument();
 
       // Add another fallback
       fireEvent.click(screen.getByTestId("add-fallback-btn"));
@@ -295,8 +291,8 @@ describe("Prompt 55: Form Builder & Participant Builder", () => {
         kind: "DEPARTMENT_HEAD",
         cardinality: "SINGLE",
       });
-      expect(singleDesc).toContain("department head");
-      expect(singleDesc).toContain("Assigns a single task");
+      expect(singleDesc).toContain("Giao cho quản lý đơn vị/trưởng phòng ban");
+      expect(singleDesc).toContain("Giao một công việc cho người xử lý đã xác định");
 
       const multiPercentageDesc = explainResolutionBehavior({
         kind: "ROLE",
@@ -308,7 +304,7 @@ describe("Prompt 55: Form Builder & Participant Builder", () => {
       });
       expect(multiPercentageDesc).toContain("FINANCE_APPROVER");
       expect(multiPercentageDesc).toContain("SINGLE_CLAIMABLE");
-      expect(multiPercentageDesc).toContain("at least 75%");
+      expect(multiPercentageDesc).toContain("Cần ít nhất 75% người xử lý phê duyệt");
     });
   });
 });

@@ -23,25 +23,25 @@ export function ValidationPanel({
   return (
     <div
       data-testid="validation-panel"
-      className="absolute bottom-0 left-72 right-80 z-20 max-h-64 overflow-hidden rounded-t-xl border-t border-x border-slate-200 bg-white shadow-xl"
+      className="absolute inset-x-0 bottom-0 z-20 max-h-64 min-w-0 overflow-hidden rounded-t-xl border-x border-t border-slate-200 bg-white shadow-xl"
     >
       <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-2.5">
         <div className="flex items-center gap-3">
           <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-            Compiler Validation Issues
+            Vấn đề kiểm tra quy trình
           </h3>
           <div className="flex items-center gap-1.5">
             <span
               data-testid="validation-error-count"
               className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700"
             >
-              {errorCount} Error{errorCount === 1 ? "" : "s"}
+              {errorCount} lỗi
             </span>
             <span
               data-testid="validation-warning-count"
               className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800"
             >
-              {warningCount} Warning{warningCount === 1 ? "" : "s"}
+              {warningCount} cảnh báo
             </span>
           </div>
         </div>
@@ -59,7 +59,7 @@ export function ValidationPanel({
       <div className="max-h-52 overflow-y-auto divide-y divide-slate-100 p-2">
         {issues.length === 0 ? (
           <div className="p-4 text-center text-xs text-emerald-600 font-medium">
-            ✓ Graph passes compiler validation with zero errors and warnings.
+            ✓ Sơ đồ đã vượt qua kiểm tra, không có lỗi hoặc cảnh báo.
           </div>
         ) : (
           issues.map((issue) => (
@@ -72,11 +72,11 @@ export function ValidationPanel({
             >
               {issue.severity === "ERROR" ? (
                 <span className="mt-0.5 shrink-0 rounded bg-rose-100 px-1.5 py-0.2 text-[9px] font-bold text-rose-700 uppercase">
-                  Error
+                  Lỗi
                 </span>
               ) : (
                 <span className="mt-0.5 shrink-0 rounded bg-amber-100 px-1.5 py-0.2 text-[9px] font-bold text-amber-800 uppercase">
-                  Warning
+                  Cảnh báo
                 </span>
               )}
               <div className="flex-1 min-w-0">
@@ -95,13 +95,13 @@ export function ValidationPanel({
                 </div>
                 {(issue.nodeId || issue.edgeId) && (
                   <p className="text-[10px] font-mono text-slate-400">
-                    {issue.nodeId ? `Node: ${issue.nodeId}` : `Edge: ${issue.edgeId}`}{" "}
-                    {issue.field ? `• Field: ${issue.field}` : ""}
+                    {issue.nodeId ? `Bước: ${issue.nodeId}` : `Liên kết: ${issue.edgeId}`} {" "}
+                    {issue.field ? `• Trường: ${issue.field}` : ""}
                   </p>
                 )}
               </div>
               <span className="text-[11px] text-blue-600 font-medium shrink-0">
-                Focus →
+                Xem →
               </span>
             </button>
           ))

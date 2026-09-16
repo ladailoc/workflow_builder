@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { WorkflowVersionDto } from "../types";
+import { formatStatus } from "@/shared/components/ui/status-badge";
 
 interface VersionDiffModalProps {
   isOpen: boolean;
@@ -70,11 +71,8 @@ export function VersionDiffModal({
         <div className="flex items-center justify-between border-b border-slate-200 pb-3">
           <div>
             <h3 className="text-sm font-bold text-slate-900">
-              Workflow Semantic Version Diff
+              So sánh thay đổi phiên bản quy trình
             </h3>
-            <p className="text-xs text-slate-500">
-              Compare structural and configuration changes between draft and previous releases.
-            </p>
           </div>
           <button
             type="button"
@@ -89,14 +87,14 @@ export function VersionDiffModal({
         {/* Version Compare Selector */}
         <div className="flex items-center justify-between rounded-lg bg-slate-50 p-3 border border-slate-200 text-xs">
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-slate-700">Current:</span>
+            <span className="font-semibold text-slate-700">Hiện tại:</span>
             <span className="rounded bg-blue-100 px-2 py-0.5 font-mono font-bold text-blue-800">
-              Version #{currentVersion.versionNo} ({currentVersion.status})
+              Phiên bản #{currentVersion.versionNo} ({formatStatus(currentVersion.status)})
             </span>
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-slate-700">Compare With:</span>
+            <span className="font-semibold text-slate-700">So sánh với:</span>
             {historicalVersions.length > 0 ? (
               <select
                 data-testid="select-diff-base-version"
@@ -106,12 +104,12 @@ export function VersionDiffModal({
               >
                 {historicalVersions.map((v) => (
                   <option key={v.id} value={v.id}>
-                    Version #{v.versionNo} ({v.status})
+                    Phiên bản #{v.versionNo} ({formatStatus(v.status)})
                   </option>
                 ))}
               </select>
             ) : (
-              <span className="text-slate-400 italic">No historical version available</span>
+              <span className="text-slate-400 italic">Chưa có phiên bản lịch sử</span>
             )}
           </div>
         </div>
@@ -119,7 +117,7 @@ export function VersionDiffModal({
         {/* Summary Stats */}
         <div className="grid grid-cols-4 gap-3 text-xs">
           <div className="rounded-lg border border-slate-200 bg-white p-2.5 shadow-2xs">
-            <span className="text-[11px] text-slate-500 block">Nodes Added</span>
+            <span className="text-[11px] text-slate-500 block">Bước được thêm</span>
             <span
               data-testid="diff-nodes-added-count"
               className="text-base font-bold text-emerald-600"
@@ -128,7 +126,7 @@ export function VersionDiffModal({
             </span>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-2.5 shadow-2xs">
-            <span className="text-[11px] text-slate-500 block">Nodes Removed</span>
+            <span className="text-[11px] text-slate-500 block">Bước bị xóa</span>
             <span
               data-testid="diff-nodes-removed-count"
               className="text-base font-bold text-rose-600"
@@ -137,7 +135,7 @@ export function VersionDiffModal({
             </span>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-2.5 shadow-2xs">
-            <span className="text-[11px] text-slate-500 block">Nodes Modified</span>
+            <span className="text-[11px] text-slate-500 block">Bước được sửa</span>
             <span
               data-testid="diff-nodes-modified-count"
               className="text-base font-bold text-amber-600"
@@ -146,7 +144,7 @@ export function VersionDiffModal({
             </span>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-2.5 shadow-2xs">
-            <span className="text-[11px] text-slate-500 block">Edge Transitions</span>
+            <span className="text-[11px] text-slate-500 block">Chuyển tiếp</span>
             <span className="text-base font-bold text-slate-700">
               +{addedEdges.length} / -{removedEdges.length}
             </span>
@@ -159,7 +157,7 @@ export function VersionDiffModal({
           {addedNodes.length > 0 && (
             <div className="space-y-1.5" data-testid="diff-section-added-nodes">
               <h5 className="text-xs font-bold text-emerald-800">
-                Added Nodes ({addedNodes.length})
+                Bước được thêm ({addedNodes.length})
               </h5>
               {addedNodes.map((n) => (
                 <div
@@ -183,7 +181,7 @@ export function VersionDiffModal({
           {removedNodes.length > 0 && (
             <div className="space-y-1.5" data-testid="diff-section-removed-nodes">
               <h5 className="text-xs font-bold text-rose-800">
-                Removed Nodes ({removedNodes.length})
+                Bước bị xóa ({removedNodes.length})
               </h5>
               {removedNodes.map((n) => (
                 <div
@@ -207,7 +205,7 @@ export function VersionDiffModal({
           {modifiedNodes.length > 0 && (
             <div className="space-y-1.5" data-testid="diff-section-modified-nodes">
               <h5 className="text-xs font-bold text-amber-800">
-                Modified Nodes ({modifiedNodes.length})
+                Bước được sửa ({modifiedNodes.length})
               </h5>
               {modifiedNodes.map((cn) => {
                 const bn = baseNodes.find((b) => b.id === cn.id)!;
@@ -226,12 +224,12 @@ export function VersionDiffModal({
                     </div>
                     {bn.data.label !== cn.data.label && (
                       <p className="text-[11px] text-slate-600">
-                        Label renamed from &quot;{bn.data.label}&quot; → &quot;{cn.data.label}&quot;
+                        Nhãn đã đổi từ &quot;{bn.data.label}&quot; → &quot;{cn.data.label}&quot;
                       </p>
                     )}
                     {JSON.stringify(bn.data.config) !== JSON.stringify(cn.data.config) && (
                       <p className="text-[11px] text-slate-600 font-mono">
-                        Config payload changed
+                        Cấu hình đã thay đổi
                       </p>
                     )}
                   </div>
@@ -244,14 +242,14 @@ export function VersionDiffModal({
           {(addedEdges.length > 0 || removedEdges.length > 0 || modifiedEdges.length > 0) && (
             <div className="space-y-1.5" data-testid="diff-section-edges">
               <h5 className="text-xs font-bold text-slate-800">
-                Edge Transitions Diff
+                So sánh chuyển tiếp
               </h5>
               {addedEdges.map((e) => (
                 <div
                   key={e.id}
                   className="rounded border border-emerald-200 bg-emerald-50/40 p-2 text-xs text-emerald-800"
                 >
-                  + Added transition: {e.source} → {e.target} {e.label ? `("${e.label}")` : ""}
+                  + Đã thêm chuyển tiếp: {e.source} → {e.target} {e.label ? `("${e.label}")` : ""}
                 </div>
               ))}
               {removedEdges.map((e) => (
@@ -259,7 +257,7 @@ export function VersionDiffModal({
                   key={e.id}
                   className="rounded border border-rose-200 bg-rose-50/40 p-2 text-xs text-rose-800"
                 >
-                  - Removed transition: {e.source} → {e.target}
+                  - Đã xóa chuyển tiếp: {e.source} → {e.target}
                 </div>
               ))}
             </div>
@@ -271,7 +269,7 @@ export function VersionDiffModal({
             addedEdges.length === 0 &&
             removedEdges.length === 0 && (
               <div className="p-8 text-center text-xs text-slate-400">
-                No semantic differences detected between Version #{currentVersion.versionNo} and Version #{baseVersion?.versionNo}.
+                Không phát hiện thay đổi giữa phiên bản #{currentVersion.versionNo} và phiên bản #{baseVersion?.versionNo}.
               </div>
             )}
         </div>

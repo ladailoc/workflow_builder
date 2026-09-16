@@ -1,6 +1,7 @@
 "use client";
 
 import type { WorkflowVersionDto } from "../types";
+import { formatStatus } from "@/shared/components/ui/status-badge";
 
 interface VersionHistoryDrawerProps {
   isOpen: boolean;
@@ -33,11 +34,8 @@ export function VersionHistoryDrawer({
         <div className="flex items-center justify-between border-b border-slate-200 pb-3">
           <div>
             <h3 className="text-sm font-bold text-slate-900">
-              Version History & Rollback
+              Lịch sử phiên bản & khôi phục
             </h3>
-            <p className="text-xs text-slate-500">
-              Historical immutable versions and draft revision lineage.
-            </p>
           </div>
           <button
             type="button"
@@ -47,20 +45,6 @@ export function VersionHistoryDrawer({
           >
             ✕
           </button>
-        </div>
-
-        {/* Normative Rollback Information Alert */}
-        <div
-          data-testid="rollback-policy-callout"
-          className="rounded-lg border border-indigo-200 bg-indigo-50/70 p-3 text-xs text-indigo-900 space-y-1"
-        >
-          <span className="font-bold flex items-center gap-1.5">
-            <span className="inline-block h-2 w-2 rounded-full bg-indigo-600" />
-            Audit Safe Rollback Model
-          </span>
-          <p className="text-[11px] leading-relaxed text-indigo-900/90">
-            Rollback never rewrites history. Selecting a historical release clones its configuration into a <strong>NEW Draft</strong> revision, preserving a complete audit trail.
-          </p>
         </div>
 
         {/* Versions List */}
@@ -81,11 +65,11 @@ export function VersionHistoryDrawer({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-slate-900">
-                      Version #{ver.versionNo}
+                      Phiên bản #{ver.versionNo}
                     </span>
                     {isCurrent && (
                       <span className="rounded bg-blue-600 px-1.5 py-0.2 text-[9px] font-bold text-white">
-                        Active
+                        Hiện tại
                       </span>
                     )}
                   </div>
@@ -98,14 +82,14 @@ export function VersionHistoryDrawer({
                           : "bg-slate-100 text-slate-700 border-slate-300"
                     }`}
                   >
-                    {ver.status}
+                    {formatStatus(ver.status)}
                   </span>
                 </div>
 
                 <div className="flex items-center gap-3 text-[11px] text-slate-500 font-mono">
-                  <span>{ver.nodes.length} Nodes</span>
+                  <span>{ver.nodes.length} bước</span>
                   <span>•</span>
-                  <span>{ver.edges.length} Transitions</span>
+                  <span>{ver.edges.length} chuyển tiếp</span>
                   <span>•</span>
                   <span>Rev {ver.revision}</span>
                 </div>
@@ -119,7 +103,7 @@ export function VersionHistoryDrawer({
                       onClick={() => onOpenDiff(ver)}
                       className="rounded border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
                     >
-                      Compare Diff
+                      So sánh thay đổi
                     </button>
                   )}
 
@@ -130,7 +114,7 @@ export function VersionHistoryDrawer({
                       onClick={() => onCloneAsNewDraft(ver)}
                       className="rounded bg-indigo-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-indigo-700 shadow-2xs"
                     >
-                      Clone as New Draft
+                      Sao chép thành bản nháp mới
                     </button>
                   )}
                 </div>

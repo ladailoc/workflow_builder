@@ -21,7 +21,7 @@ export function FieldDependencyModal({
 }: FieldDependencyModalProps) {
   if (!isOpen) return null;
 
-  const actionLabel = actionType === "DELETE" ? "Delete" : "Rename";
+  const actionLabel = actionType === "DELETE" ? "Xóa" : "Đổi tên";
 
   return (
     <div
@@ -38,11 +38,11 @@ export function FieldDependencyModal({
           </div>
           <div>
             <h3 className="text-sm font-bold text-slate-900">
-              Breaking Change Detected: Field &apos;{fieldKey}&apos;
+              Phát hiện thay đổi ảnh hưởng: trường &apos;{fieldKey}&apos;
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              This field is referenced by {dependencies.length} workflow component{dependencies.length > 1 ? "s" : ""}.
-              Modifying or deleting it may break graph evaluation.
+              Trường này đang được {dependencies.length} thành phần quy trình tham chiếu.
+              Việc sửa hoặc xóa có thể làm sai quá trình đánh giá sơ đồ.
             </p>
           </div>
         </div>
@@ -76,7 +76,7 @@ export function FieldDependencyModal({
             onClick={onCancel}
             className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
           >
-            Cancel
+            Hủy
           </button>
           <button
             type="button"
@@ -84,7 +84,7 @@ export function FieldDependencyModal({
             onClick={onConfirm}
             className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 shadow-xs"
           >
-            Force {actionLabel}
+            Vẫn {actionLabel}
           </button>
         </div>
       </div>

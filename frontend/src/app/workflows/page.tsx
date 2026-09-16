@@ -27,7 +27,7 @@ export default function WorkflowsPage() {
       .then((page) => setItems(page.items))
       .catch((reason: unknown) =>
         setError(
-          reason instanceof Error ? reason.message : "Unable to load workflows",
+          reason instanceof Error ? reason.message : "Không thể tải danh sách quy trình",
         ),
       )
       .finally(() => setLoading(false));
@@ -44,7 +44,7 @@ export default function WorkflowsPage() {
           setError(
             reason instanceof Error
               ? reason.message
-              : "Unable to load workflows",
+              : "Không thể tải danh sách quy trình",
           );
         }
       })
@@ -62,10 +62,10 @@ export default function WorkflowsPage() {
     >
       <div className="space-y-6" data-testid="workflow-management-page">
         <AdminPageHeader
-          title="Workflows"
-          description="Manage workflow definitions, drafts, immutable releases, and version history."
+          title="Quy trình"
+          description="Quản lý định danh quy trình, bản nháp, các phiên bản đã phát hành và lịch sử phiên bản."
           action={
-            <PrimaryLink href="/workflows/new">+ New Workflow</PrimaryLink>
+            <PrimaryLink href="/workflows/new">+ Tạo quy trình</PrimaryLink>
           }
         />
 
@@ -77,29 +77,29 @@ export default function WorkflowsPage() {
           }}
         >
           <input
-            aria-label="Search workflows"
+            aria-label="Tìm quy trình"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search by workflow name or stable key"
+            placeholder="Tìm theo tên hoặc khóa quy trình"
             className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
           />
           <button className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-            Search
+            Tìm kiếm
           </button>
         </form>
 
         {error ? (
           <ErrorState
-            title="Could not load workflows"
+            title="Không thể tải danh sách quy trình"
             message={error}
             onRetry={() => load()}
           />
         ) : loading ? (
-          <LoadingPanel label="Loading workflow definitions…" />
+          <LoadingPanel label="Đang tải danh sách quy trình…" />
         ) : items.length === 0 ? (
           <EmptyPanel
-            title="No workflow definitions found"
-            detail="Create a WorkflowDefinition, then create a Draft version to open the Builder."
+            title="Không tìm thấy quy trình"
+            detail="Hãy tạo một WorkflowDefinition, sau đó tạo phiên bản bản nháp để mở trình xây dựng."
           />
         ) : (
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -107,12 +107,12 @@ export default function WorkflowsPage() {
               <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                 <thead className="bg-slate-50 text-xs tracking-wide text-slate-500 uppercase">
                   <tr>
-                    <th className="px-5 py-3">Name</th>
-                    <th className="px-5 py-3">Key</th>
-                    <th className="px-5 py-3">Published</th>
-                    <th className="px-5 py-3">Draft</th>
-                    <th className="px-5 py-3">Lifecycle</th>
-                    <th className="px-5 py-3">Updated</th>
+                    <th className="px-5 py-3">Tên</th>
+                    <th className="px-5 py-3">Khóa</th>
+                    <th className="px-5 py-3">Đã phát hành</th>
+                    <th className="px-5 py-3">Bản nháp</th>
+                    <th className="px-5 py-3">Trạng thái</th>
+                    <th className="px-5 py-3">Cập nhật</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -130,7 +130,7 @@ export default function WorkflowsPage() {
                           {workflow.name}
                         </Link>
                         <p className="mt-0.5 max-w-sm truncate text-xs text-slate-500">
-                          {workflow.description || "No description"}
+                          {workflow.description || "Chưa có mô tả"}
                         </p>
                       </td>
                       <td className="px-5 py-4 font-mono text-xs text-slate-600">
@@ -150,7 +150,7 @@ export default function WorkflowsPage() {
                         <LifecycleBadge value={workflow.lifecycle} />
                       </td>
                       <td className="px-5 py-4 text-xs text-slate-500">
-                        {new Date(workflow.updatedAt).toLocaleString()}
+                        {new Date(workflow.updatedAt).toLocaleString("vi-VN")}
                       </td>
                     </tr>
                   ))}

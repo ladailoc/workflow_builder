@@ -214,43 +214,43 @@ export function explainResolutionBehavior(ui: FriendlyParticipantConfig): string
   // 1. Primary Resolution
   switch (ui.kind) {
     case "FIXED_USER":
-      parts.push(`Resolves directly to user '${ui.userId || "unspecified"}'`);
+      parts.push(`Giao trực tiếp cho người dùng '${ui.userId || "chưa chỉ định"}'`);
       break;
     case "CREATOR":
-      parts.push("Resolves to the creator / submitter of the request ticket");
+      parts.push("Giao cho người tạo/người gửi ticket");
       break;
     case "CREATORS_MANAGER":
-      parts.push("Resolves to the direct manager (depth 1) of the ticket creator via organization hierarchy");
+      parts.push("Giao cho quản lý trực tiếp của người tạo ticket theo cơ cấu tổ chức");
       break;
     case "MANAGER_N_LEVELS_UP":
-      parts.push(`Resolves to the manager ${ui.depth || 2} levels above the creator in the organizational tree`);
+      parts.push(`Giao cho quản lý cách người tạo ${ui.depth || 2} cấp trong cơ cấu tổ chức`);
       break;
     case "DEPARTMENT_HEAD":
-      parts.push("Resolves to the unit manager / department head of the creator's organizational unit");
+      parts.push("Giao cho quản lý đơn vị/trưởng phòng ban của người tạo");
       break;
     case "ITEM_MANAGER":
-      parts.push(`Resolves to the manager of the asset / item owner (depth ${ui.depth || 1})`);
+      parts.push(`Giao cho quản lý của chủ tài sản/mục (cấp ${ui.depth || 1})`);
       break;
     case "ITEM_USER":
-      parts.push("Resolves to the designated user / beneficiary of the target item");
+      parts.push("Giao cho người dùng/người thụ hưởng được chỉ định của mục tiêu");
       break;
     case "REQUEST_FIELD":
-      parts.push(`Extracts participant user identity dynamically from request payload field '${ui.fieldKey || "unknown"}'`);
+      parts.push(`Lấy động mã người dùng từ trường '${ui.fieldKey || "chưa biết"}' trong dữ liệu yêu cầu`);
       break;
     case "ROLE":
-      parts.push(`Resolves active members holding the '${ui.role || "specified"}' organizational role`);
+      parts.push(`Giao cho các thành viên đang hoạt động có vai trò '${ui.role || "đã chỉ định"}'`);
       break;
     case "GROUP":
-      parts.push(`Resolves active members belonging to group '${ui.group || "specified"}'`);
+      parts.push(`Giao cho các thành viên đang hoạt động thuộc nhóm '${ui.group || "đã chỉ định"}'`);
       break;
     case "PREVIOUS_PARTICIPANT":
-      parts.push(`Resolves the user who executed prior step '${ui.stepId || "previous"}'`);
+      parts.push(`Giao cho người đã thực hiện bước trước '${ui.stepId || "previous"}'`);
       break;
     case "NODE_OUTPUT":
-      parts.push(`Resolves participant ID from upstream node output '${ui.stepId || "output"}'`);
+      parts.push(`Lấy mã người xử lý từ kết quả bước trước '${ui.stepId || "output"}'`);
       break;
     case "EXPRESSION":
-      parts.push(`Evaluates dynamic rule expression: "${ui.expression || "true"}"`);
+      parts.push(`Đánh giá biểu thức quy tắc động: "${ui.expression || "true"}"`);
       break;
   }
 
@@ -259,36 +259,36 @@ export function explainResolutionBehavior(ui: FriendlyParticipantConfig): string
     const fallbackDesc = ui.fallbackChain
       .map((fb, idx) => `[${idx + 1}] ${fb.kind.replace(/_/g, " ")}`)
       .join(" -> ");
-    parts.push(`If primary resolution fails, evaluates fallback chain in order: ${fallbackDesc}`);
+    parts.push(`Nếu không xác định được người xử lý chính, lần lượt xét chuỗi dự phòng: ${fallbackDesc}`);
   } else {
-    parts.push("If resolution fails, execution will default to ticket creator or fail according to failure policy.");
+    parts.push("Nếu không xác định được, hệ thống sẽ giao cho người tạo ticket hoặc báo lỗi theo quy tắc xử lý lỗi.");
   }
 
   // 3. Task Generation & Cardinality
   if (ui.cardinality === "MULTI") {
     if (ui.taskGenerationMode === "SINGLE_CLAIMABLE") {
-      parts.push("Creates 1 shared task claimable by any of the resolved participants (SINGLE_CLAIMABLE)");
+      parts.push("Tạo 1 công việc chung để bất kỳ người xử lý nào đã xác định cũng có thể nhận (SINGLE_CLAIMABLE)");
     } else {
-      parts.push("Spawns individual, separate task instances for each resolved participant (ONE_PER_PARTICIPANT)");
+      parts.push("Tạo công việc riêng cho từng người xử lý đã xác định (ONE_PER_PARTICIPANT)");
     }
 
     // 4. Completion Policy
     switch (ui.completionPolicy) {
       case "ALL_MUST_APPROVE":
-        parts.push("Requires 100% unanimity (every assigned participant must approve)");
+        parts.push("Cần 100% đồng thuận (tất cả người xử lý được giao phải phê duyệt)");
         break;
       case "FIRST_RESPONSE":
-        parts.push("Completes immediately upon the first response submitted");
+        parts.push("Hoàn tất ngay khi có phản hồi đầu tiên");
         break;
       case "PERCENTAGE":
-        parts.push(`Requires approval from at least ${ui.completionPercentage ?? 50}% of participants`);
+        parts.push(`Cần ít nhất ${ui.completionPercentage ?? 50}% người xử lý phê duyệt`);
         break;
       case "QUORUM":
-        parts.push(`Requires a QUORUM of at least ${ui.quorumCount ?? 2} affirmative approvals`);
+        parts.push(`Cần QUORUM gồm ít nhất ${ui.quorumCount ?? 2} lượt phê duyệt đồng ý`);
         break;
     }
   } else {
-    parts.push("Assigns a single task to the resolved participant. The node completes on their decision");
+    parts.push("Giao một công việc cho người xử lý đã xác định. Bước hoàn tất theo quyết định của họ");
   }
 
   return parts.map((p) => p.replace(/\.+$/, "")).join(". ") + ".";

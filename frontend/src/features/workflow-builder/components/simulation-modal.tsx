@@ -2,6 +2,7 @@
 
 import { useId, useState } from "react";
 import type { BuilderEdge, BuilderNode } from "../types";
+import { apiPost } from "@/shared/api/client";
 
 interface SimulationStep {
   stepIndex: number;
@@ -20,7 +21,36 @@ interface SimulationModalProps {
   isOpen: boolean;
   nodes: BuilderNode[];
   edges: BuilderEdge[];
+  workflowId?: string;
+  versionId?: string;
   onClose: () => void;
+}
+
+interface BackendSimulationResult {
+  transitions: Array<{
+    sourceNodeKey: string;
+    outputPort: string;
+    targetNodeKey: string;
+    priority: number;
+    selected: boolean;
+    edgeId: string;
+  }>;
+  participants: Array<{ nodeKey: string; resolverType: string; status: string }>;
+  multiInstancePlans: Array<{
+    nodeKey: string;
+    collectionPath: string;
+    itemVariable: string;
+    plannedCount: number;
+  }>;
+  subWorkflows: Array<{
+    nodeKey: string;
+    childDefinitionKey: string;
+    childKey: string;
+    resolution: string;
+    disposition: string;
+  }>;
+  warnings: string[];
+  validationIssues: string[];
 }
 
 const DEFAULT_MOCK_CONTEXT = JSON.stringify(
@@ -45,6 +75,8 @@ export function SimulationModal({
   isOpen,
   nodes,
   edges,
+  workflowId,
+  versionId,
   onClose,
 }: SimulationModalProps) {
   const [mockContextJson, setMockContextJson] = useState(DEFAULT_MOCK_CONTEXT);
@@ -54,6 +86,7 @@ export function SimulationModal({
   const [steps, setSteps] = useState<SimulationStep[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
   const [isRunning, setIsRunning] = useState(false);
+  const [simulationError, setSimulationError] = useState<string | null>(null);
   const formHtmlId = useId();
 
   if (!isOpen) return null;
@@ -86,13 +119,13 @@ export function SimulationModal({
         const pType = String(participant?.type || "MANAGER_OF");
         if (pType === "MANAGER_OF") {
           const creator = context.creator as Record<string, unknown> | undefined;
-          step.participantPreview = `Resolved Manager: ${creator?.managerName || "Bob Director"} (${creator?.managerId || "mgr-5001"})`;
+          step.participantPreview = `Quản lý được xác định: ${creator?.managerName || "Bob Director"} (${creator?.managerId || "mgr-5001"})`;
         } else if (pType === "FIXED_USER") {
-          step.participantPreview = `Resolved Fixed User: ${participant?.userId || "user-specified"}`;
+          step.participantPreview = `Người dùng cố định: ${participant?.userId || "do người dùng chỉ định"}`;
         } else if (pType === "HEAD_OF_UNIT") {
-          step.participantPreview = `Resolved Department Head: head-9001`;
+          step.participantPreview = `Trưởng phòng ban được xác định: head-9001`;
         } else {
-          step.participantPreview = `Resolved Creator: Alice Submitter`;
+          step.participantPreview = `Người tạo được xác định: Alice Submitter`;
         }
 
         // Multi-instance fan out count
@@ -106,7 +139,7 @@ export function SimulationModal({
       if (nodeType === "JOIN") {
         const policy = String(config.policy || "ALL");
         const incomingEdges = edges.filter((e) => e.target === currentNode?.id);
-        step.joinBehavior = `Policy: ${policy} • Arriving branches: ${incomingEdges.length} • Activates downstream immediately.`;
+        step.joinBehavior = `Quy tắc: ${policy} • Nhánh đã đến: ${incomingEdges.length} • Kích hoạt bước tiếp theo ngay.`;
       }
 
       // 3. SubWorkflow parameter mapping
@@ -136,15 +169,15 @@ export function SimulationModal({
         });
         if (condEdge) {
           selectedEdge = condEdge;
-          step.evaluatedRoute = `Condition matched (${condEdge.label ? String(condEdge.label) : "Over 5000 USD"})`;
+          step.evaluatedRoute = `Điều kiện phù hợp (${condEdge.label ? String(condEdge.label) : "Trên 5.000 USD"})`;
         } else {
           const defaultEdge = outEdges.find((e) => e.data?.isDefault) || outEdges[0];
           selectedEdge = defaultEdge;
-          step.evaluatedRoute = `Default fallback route: ${defaultEdge.label ? String(defaultEdge.label) : "Default"}`;
-          step.warnings = ["No specific rule condition matched; took default fallback transition."];
+          step.evaluatedRoute = `Tuyến mặc định: ${defaultEdge.label ? String(defaultEdge.label) : "Mặc định"}`;
+          step.warnings = ["Không có điều kiện cụ thể phù hợp; đã dùng chuyển tiếp mặc định."];
         }
       } else {
-        step.evaluatedRoute = selectedEdge.label ? String(selectedEdge.label) : "Direct transition";
+        step.evaluatedRoute = selectedEdge.label ? String(selectedEdge.label) : "Chuyển tiếp trực tiếp";
       }
 
       trace.push(step);
@@ -152,7 +185,7 @@ export function SimulationModal({
       // Advance
       const nextNode = nodes.find((n) => n.id === selectedEdge.target);
       if (nextNode && visited.has(nextNode.id) && stepCount > 5) {
-        step.warnings = [...(step.warnings || []), "Loop detected in path; stopping simulation."];
+        step.warnings = [...(step.warnings || []), "Phát hiện vòng lặp; dừng mô phỏng."];
         break;
       }
       currentNode = nextNode;
@@ -162,16 +195,68 @@ export function SimulationModal({
     return trace;
   };
 
-  const handleRunSimulation = () => {
+  const applyBackendResult = (result: BackendSimulationResult) => {
+    const participants = new Map(result.participants.map((item) => [item.nodeKey, item]));
+    const fanOut = new Map(result.multiInstancePlans.map((item) => [item.nodeKey, item]));
+    const subWorkflows = new Map(result.subWorkflows.map((item) => [item.nodeKey, item]));
+    const visited = new Set<string>();
+    const trace: SimulationStep[] = [];
+    for (const transition of result.transitions.filter((item) => item.selected)) {
+      if (visited.has(transition.sourceNodeKey)) continue;
+      visited.add(transition.sourceNodeKey);
+      const node = nodes.find(
+        (item) => item.data.key === transition.sourceNodeKey || item.id === transition.sourceNodeKey,
+      );
+      if (!node) continue;
+      const participant = participants.get(transition.sourceNodeKey);
+      const plan = fanOut.get(transition.sourceNodeKey);
+      const subWorkflow = subWorkflows.get(transition.sourceNodeKey);
+      trace.push({
+        stepIndex: trace.length,
+        nodeId: node.id,
+        nodeLabel: node.data.label,
+        nodeType: node.data.nodeType,
+        evaluatedRoute: `${transition.outputPort} → ${transition.targetNodeKey}`,
+        participantPreview: participant
+          ? `${participant.resolverType} (${participant.status})`
+          : undefined,
+        fanOutCount: plan?.plannedCount,
+        subWorkflowMappings: subWorkflow
+          ? { child: subWorkflow.childDefinitionKey, resolution: subWorkflow.resolution }
+          : undefined,
+        warnings: result.warnings,
+      });
+    }
+    setSteps(trace);
+    setCurrentStepIndex(Math.max(trace.length - 1, 0));
+    setIsRunning(true);
+  };
+
+  const handleRunSimulation = async () => {
+    let parsed: Record<string, unknown>;
     try {
-      const parsed = JSON.parse(mockContextJson);
-      setContextError(null);
-      const trace = computeSimulationTrace(parsed);
-      setSteps(trace);
-      setCurrentStepIndex(trace.length - 1);
-      setIsRunning(true);
+      parsed = JSON.parse(mockContextJson) as Record<string, unknown>;
     } catch {
-      setContextError("Invalid JSON in mock context payload.");
+      setContextError("Dữ liệu mô phỏng không đúng định dạng JSON.");
+      return;
+    }
+    setContextError(null);
+    setSimulationError(null);
+    try {
+      if (workflowId && versionId) {
+        const result = await apiPost<BackendSimulationResult>(
+          `/api/v1/workflows/${encodeURIComponent(workflowId)}/versions/${encodeURIComponent(versionId)}/simulate`,
+          { ticketData: parsed, subjects: [] },
+        );
+        applyBackendResult(result);
+      } else {
+        const trace = computeSimulationTrace(parsed);
+        setSteps(trace);
+        setCurrentStepIndex(Math.max(trace.length - 1, 0));
+        setIsRunning(true);
+      }
+    } catch {
+      setSimulationError("Không thể chạy mô phỏng phía máy chủ. Kiểm tra dữ liệu và quyền truy cập.");
     }
   };
 
@@ -209,15 +294,12 @@ export function SimulationModal({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-bold text-slate-900">
-                Design-Time Simulation Sandbox
+                Môi trường mô phỏng quy trình
               </h3>
               <span className="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
-                Side-Effect Free
+                Không tác động dữ liệu thật
               </span>
             </div>
-            <p className="text-xs text-slate-500">
-              Simulate graph traversal, participant resolution, and condition routing in-memory without saving or executing external services.
-            </p>
           </div>
           <button
             type="button"
@@ -237,14 +319,14 @@ export function SimulationModal({
               htmlFor={`${formHtmlId}-mockContext`}
               className="text-xs font-bold text-slate-800 flex items-center justify-between"
             >
-              <span>Mock Input Context</span>
+              <span>Dữ liệu đầu vào mô phỏng</span>
               <button
                 type="button"
                 data-testid="reset-mock-context-btn"
                 onClick={() => setMockContextJson(DEFAULT_MOCK_CONTEXT)}
                 className="text-[10px] text-blue-600 hover:underline"
               >
-                Reset Default
+                Khôi phục mặc định
               </button>
             </label>
             <textarea
@@ -258,6 +340,9 @@ export function SimulationModal({
             {contextError && (
               <p className="text-xs text-rose-600 font-medium">{contextError}</p>
             )}
+            {simulationError && !contextError && (
+              <p className="text-xs text-rose-600 font-medium">{simulationError}</p>
+            )}
 
             <div className="pt-2 flex items-center gap-2">
               <button
@@ -266,7 +351,7 @@ export function SimulationModal({
                 onClick={handleRunSimulation}
                 className="flex-1 rounded-lg bg-blue-600 py-2 text-xs font-semibold text-white hover:bg-blue-700 shadow-xs"
               >
-                Run to Completion
+                Chạy đến khi hoàn tất
               </button>
               {isRunning && (
                 <button
@@ -275,7 +360,7 @@ export function SimulationModal({
                   onClick={handleReset}
                   className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                 >
-                  Reset
+                  Đặt lại
                 </button>
               )}
             </div>
@@ -285,7 +370,7 @@ export function SimulationModal({
           <div className="col-span-3 flex flex-col space-y-3 overflow-hidden">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <span className="text-xs font-bold text-slate-800">
-                Simulated Execution Trace ({visibleSteps.length} / {steps.length} Steps)
+                Luồng xử lý mô phỏng ({visibleSteps.length} / {steps.length} bước)
               </span>
               {isRunning && (
                 <div className="flex items-center gap-1">
@@ -296,7 +381,7 @@ export function SimulationModal({
                     onClick={handleStepBackward}
                     className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 disabled:opacity-30"
                   >
-                    ◀ Step
+                    ◀ Bước trước
                   </button>
                   <button
                     type="button"
@@ -305,7 +390,7 @@ export function SimulationModal({
                     onClick={handleStepForward}
                     className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 disabled:opacity-30"
                   >
-                    Step ▶
+                    Bước sau ▶
                   </button>
                 </div>
               )}
@@ -318,7 +403,7 @@ export function SimulationModal({
             >
               {steps.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-slate-200 p-8 text-center text-xs text-slate-400">
-                  Click &quot;Run to Completion&quot; to dry-run this workflow with mock input.
+                  Chưa có kết quả mô phỏng.
                 </div>
               ) : (
                 visibleSteps.map((s, idx) => (
@@ -345,7 +430,7 @@ export function SimulationModal({
                       </div>
                       {s.evaluatedRoute && (
                         <span className="rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                          Route: {s.evaluatedRoute}
+                          Tuyến: {s.evaluatedRoute}
                         </span>
                       )}
                     </div>
@@ -366,7 +451,7 @@ export function SimulationModal({
                         data-testid="sim-fanout-count"
                         className="text-[11px] text-amber-700 font-medium"
                       >
-                        🔀 Multi-Instance: Spawns {s.fanOutCount} parallel tasks
+                        🔀 Nhiều mục: tạo {s.fanOutCount} công việc song song
                       </p>
                     )}
 
@@ -376,7 +461,7 @@ export function SimulationModal({
                         data-testid="sim-join-behavior"
                         className="text-[11px] text-purple-700 font-medium"
                       >
-                        ⚡ Join: {s.joinBehavior}
+                        ⚡ Hợp nhất: {s.joinBehavior}
                       </p>
                     )}
 
@@ -386,7 +471,7 @@ export function SimulationModal({
                         data-testid="sim-subworkflow-mappings"
                         className="rounded bg-slate-50 p-1.5 text-[10px] font-mono text-slate-600"
                       >
-                        Mappings: {JSON.stringify(s.subWorkflowMappings)}
+                        Liên kết: {JSON.stringify(s.subWorkflowMappings)}
                       </div>
                     )}
 
@@ -408,10 +493,10 @@ export function SimulationModal({
             {activeStep && (
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-[11px] text-slate-600 flex items-center justify-between">
                 <span>
-                  Active Node: <strong>{activeStep.nodeLabel}</strong> ({activeStep.nodeId})
+                  Bước hiện tại: <strong>{activeStep.nodeLabel}</strong> ({activeStep.nodeId})
                 </span>
                 <span className="font-mono text-[10px] text-slate-400">
-                  Step {currentStepIndex + 1} of {steps.length}
+                  Bước {currentStepIndex + 1}/{steps.length}
                 </span>
               </div>
             )}

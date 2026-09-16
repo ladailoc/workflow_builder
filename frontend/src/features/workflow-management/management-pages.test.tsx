@@ -78,16 +78,16 @@ describe("Workflow and Request Type management pages", () => {
       </AuthSessionProvider>,
     );
 
-    fireEvent.change(screen.getByLabelText("Name"), {
+    fireEvent.change(screen.getByLabelText("Tên"), {
       target: { value: "Leave Approval" },
     });
-    fireEvent.change(screen.getByLabelText("Stable key"), {
+    fireEvent.change(screen.getByLabelText("Khóa ổn định"), {
       target: { value: "leave approval" },
     });
-    fireEvent.change(screen.getByLabelText("Description"), {
+    fireEvent.change(screen.getByLabelText("Mô tả"), {
       target: { value: "Administrative definition only" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create Workflow" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tạo quy trình" }));
 
     await waitFor(() =>
       expect(managementMocks.createWorkflow).toHaveBeenCalledWith({
@@ -118,17 +118,17 @@ describe("Workflow and Request Type management pages", () => {
     expect(
       await screen.findByTestId("workflow-detail-page"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Version history")).toBeInTheDocument();
-    expect(screen.getByText("PUBLISHED")).toBeInTheDocument();
-    expect(screen.getByText("SUPERSEDED")).toBeInTheDocument();
+    expect(screen.getByText("Lịch sử phiên bản")).toBeInTheDocument();
+    expect(screen.getAllByText("PUBLISHED").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("SUPERSEDED").length).toBeGreaterThan(0);
     expect(
-      screen.getAllByRole("link", { name: "Inspect graph" })[0],
+      screen.getAllByRole("link", { name: "Xem sơ đồ" })[0],
     ).toHaveAttribute(
       "href",
       "/workflows/10000000-0000-4000-8000-000000000100/versions/10000000-0000-4000-8000-000000000102/builder",
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Compare" }));
+    fireEvent.click(screen.getByRole("button", { name: "So sánh" }));
     expect(await screen.findByTestId("semantic-diff-result")).toHaveTextContent(
       "approval",
     );
@@ -156,7 +156,7 @@ describe("Workflow and Request Type management pages", () => {
     expect(
       await screen.findByTestId("workflow-detail-page"),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Suspend" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tạm dừng" }));
     await waitFor(() =>
       expect(managementMocks.changeWorkflowLifecycle).toHaveBeenCalledWith(
         workflow.workflow.id,
@@ -167,7 +167,7 @@ describe("Workflow and Request Type management pages", () => {
     );
 
     fireEvent.click(
-      screen.getAllByRole("button", { name: "Clone as Draft" })[0],
+      screen.getAllByRole("button", { name: "Sao chép thành bản nháp" })[0],
     );
     await waitFor(() =>
       expect(navigationMocks.push).toHaveBeenCalledWith(
@@ -206,7 +206,7 @@ describe("Workflow and Request Type management pages", () => {
     expect(screen.getByText("PURCHASE_APPROVAL")).toBeInTheDocument();
     expect(screen.getByText("V3")).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "+ New Workflow" }),
+      screen.getByRole("link", { name: "+ Tạo quy trình" }),
     ).toHaveAttribute("href", "/workflows/new");
     expect(screen.queryByTestId("workflow-builder")).not.toBeInTheDocument();
   });
@@ -245,7 +245,7 @@ describe("Workflow and Request Type management pages", () => {
     expect(screen.getByText("Purchase Approval")).toBeInTheDocument();
     expect(screen.getByText("V3")).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "+ New Request Type" }),
+      screen.getByRole("link", { name: "+ Tạo loại yêu cầu" }),
     ).toHaveAttribute("href", "/request-types/new");
   });
 });

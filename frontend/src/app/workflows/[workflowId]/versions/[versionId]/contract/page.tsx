@@ -19,24 +19,20 @@ export default function WorkflowContractPage({
         { headers: { "If-Match": String(revision) } },
       );
       setRevision((v) => v + 1);
-      setMessage(`${path} saved; workflow draft revision advanced.`);
+      setMessage(`Đã lưu ${path}; bản nháp quy trình đã được cập nhật.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Save failed");
+      setMessage(error instanceof Error ? error.message : "Lưu thất bại");
     }
   }
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-bold text-slate-900">
-          Workflow Inputs &amp; Business States
+          Đầu vào quy trình &amp; trạng thái nghiệp vụ
         </h1>
-        <p className="text-sm text-slate-500">
-          Typed inputs are independent from form field keys. Display states
-          remain separate from technical node status.
-        </p>
       </div>
       <label className="block text-sm">
-        Draft revision
+        Lần cập nhật bản nháp
         <input
           type="number"
           className="ml-2 w-24 rounded border p-2"
@@ -46,7 +42,7 @@ export default function WorkflowContractPage({
       </label>
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-xl border bg-white p-5">
-          <h2 className="font-semibold">Inputs</h2>
+          <h2 className="font-semibold">Đầu vào</h2>
           <textarea
             className="mt-3 h-96 w-full rounded border p-3 font-mono text-xs"
             value={inputs}
@@ -56,11 +52,11 @@ export default function WorkflowContractPage({
             className="mt-3 rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
             onClick={() => save("inputs", inputs)}
           >
-            Save Inputs
+            Lưu đầu vào
           </button>
         </section>
         <section className="rounded-xl border bg-white p-5">
-          <h2 className="font-semibold">Business states</h2>
+          <h2 className="font-semibold">Trạng thái nghiệp vụ</h2>
           <textarea
             className="mt-3 h-96 w-full rounded border p-3 font-mono text-xs"
             value={states}
@@ -70,7 +66,7 @@ export default function WorkflowContractPage({
             className="mt-3 rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
             onClick={() => save("states", states)}
           >
-            Save States
+            Lưu trạng thái
           </button>
         </section>
       </div>

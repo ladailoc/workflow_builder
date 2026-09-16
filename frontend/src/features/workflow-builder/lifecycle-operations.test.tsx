@@ -126,8 +126,8 @@ describe("Prompt 57: Validate / Simulate / Diff / Publish & Rollback Frontend", 
       );
 
       expect(screen.getByTestId("validation-panel")).toBeInTheDocument();
-      expect(screen.getByTestId("validation-error-count")).toHaveTextContent("1 Error");
-      expect(screen.getByTestId("validation-warning-count")).toHaveTextContent("1 Warning");
+      expect(screen.getByTestId("validation-error-count")).toHaveTextContent("1 lỗi");
+      expect(screen.getByTestId("validation-warning-count")).toHaveTextContent("1 cảnh báo");
 
       // Verify stable issue codes
       const codes = screen.getAllByTestId("validation-issue-code");
@@ -153,7 +153,7 @@ describe("Prompt 57: Validate / Simulate / Diff / Publish & Rollback Frontend", 
       );
 
       expect(screen.getByTestId("simulation-modal")).toBeInTheDocument();
-      expect(screen.getByText("Side-Effect Free")).toBeInTheDocument();
+      expect(screen.getByText("Không tác động dữ liệu thật")).toBeInTheDocument();
 
       // Run simulation
       fireEvent.click(screen.getByTestId("btn-run-simulation"));
@@ -166,7 +166,7 @@ describe("Prompt 57: Validate / Simulate / Diff / Publish & Rollback Frontend", 
       expect(screen.getByTestId("sim-participant-preview")).toHaveTextContent("Bob Director");
 
       // Verify multi-instance fan-out count (3 items in mock context)
-      expect(screen.getByTestId("sim-fanout-count")).toHaveTextContent("Spawns 3 parallel tasks");
+      expect(screen.getByTestId("sim-fanout-count")).toHaveTextContent("tạo 3 công việc song song");
 
       // Test step backward and forward
       fireEvent.click(screen.getByTestId("btn-step-backward"));
@@ -194,7 +194,7 @@ describe("Prompt 57: Validate / Simulate / Diff / Publish & Rollback Frontend", 
       );
 
       expect(screen.getByTestId("publish-blocked-alert")).toBeInTheDocument();
-      expect(screen.getByText(/Publication Blocked/i)).toBeInTheDocument();
+      expect(screen.getByText(/Không thể phát hành/i)).toBeInTheDocument();
 
       const publishBtn = screen.getByTestId("confirm-publish-btn");
       expect(publishBtn).toBeDisabled();
@@ -245,7 +245,7 @@ describe("Prompt 57: Validate / Simulate / Diff / Publish & Rollback Frontend", 
       );
 
       expect(screen.getByTestId("version-history-drawer")).toBeInTheDocument();
-      expect(screen.getByTestId("rollback-policy-callout")).toHaveTextContent("Audit Safe Rollback Model");
+      expect(screen.queryByTestId("rollback-policy-callout")).not.toBeInTheDocument();
 
       // Verify clone button for historical version #2
       const cloneBtn = screen.getByTestId(`clone-version-btn-${historicalV2.id}`);

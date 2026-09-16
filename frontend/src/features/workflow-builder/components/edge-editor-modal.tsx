@@ -92,11 +92,8 @@ export function EdgeEditorModal({
         <div className="flex items-center justify-between border-b border-slate-200 pb-3">
           <div>
             <h3 className="text-sm font-bold text-slate-900">
-              Edge Transition Editor
+              Trình chỉnh sửa chuyển tiếp
             </h3>
-            <p className="text-xs text-slate-500">
-              Configure routing rules, transition priority, and condition semantics.
-            </p>
           </div>
           <button
             type="button"
@@ -120,7 +117,7 @@ export function EdgeEditorModal({
                 : "text-slate-500 hover:text-slate-900"
             }`}
           >
-            General & Routing
+            Chung & định tuyến
           </button>
           <button
             type="button"
@@ -132,7 +129,7 @@ export function EdgeEditorModal({
                 : "text-slate-500 hover:text-slate-900"
             }`}
           >
-            Condition Expression
+            Biểu thức điều kiện
           </button>
           {transitionType === "REWORK" && (
             <button
@@ -145,7 +142,7 @@ export function EdgeEditorModal({
                   : "text-slate-500 hover:text-slate-900"
               }`}
             >
-              Rework Loop
+              Vòng lặp xử lý lại
             </button>
           )}
         </div>
@@ -160,7 +157,7 @@ export function EdgeEditorModal({
                   htmlFor={`${formHtmlId}-sourceHandle`}
                   className="text-[11px] font-semibold text-slate-700 block mb-0.5"
                 >
-                  Source Port Handle *
+                  Cổng nguồn *
                 </label>
                 <select
                   id={`${formHtmlId}-sourceHandle`}
@@ -184,7 +181,7 @@ export function EdgeEditorModal({
                   htmlFor={`${formHtmlId}-targetNodeId`}
                   className="text-[11px] font-semibold text-slate-700 block mb-0.5"
                 >
-                  Target Node Destination *
+                  Bước đích *
                 </label>
                 <select
                   id={`${formHtmlId}-targetNodeId`}
@@ -212,7 +209,7 @@ export function EdgeEditorModal({
                   htmlFor={`${formHtmlId}-transitionType`}
                   className="text-[11px] font-semibold text-slate-700 block mb-0.5"
                 >
-                  Transition Type *
+                  Loại chuyển tiếp *
                 </label>
                 <select
                   id={`${formHtmlId}-transitionType`}
@@ -234,9 +231,9 @@ export function EdgeEditorModal({
                   }}
                   className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs disabled:bg-slate-100 font-bold text-slate-800"
                 >
-                  <option value="NORMAL">NORMAL (Forward execution flow)</option>
-                  <option value="REWORK">REWORK (Loopback revision transition)</option>
-                  <option value="RETURN">RETURN (Return from sub-process)</option>
+                  <option value="NORMAL">NORMAL (Luồng xử lý tiếp theo)</option>
+                  <option value="REWORK">REWORK (Quay lại bước trước)</option>
+                  <option value="RETURN">RETURN (Quay về từ quy trình con)</option>
                 </select>
               </div>
 
@@ -246,7 +243,7 @@ export function EdgeEditorModal({
                   htmlFor={`${formHtmlId}-priority`}
                   className="text-[11px] font-semibold text-slate-700 block mb-0.5"
                 >
-                  Priority (Order of Evaluation)
+                  Độ ưu tiên (thứ tự đánh giá)
                 </label>
                 <input
                   id={`${formHtmlId}-priority`}
@@ -269,7 +266,7 @@ export function EdgeEditorModal({
                 htmlFor={`${formHtmlId}-edgeLabel`}
                 className="text-[11px] font-semibold text-slate-700 block mb-0.5"
               >
-                Transition Label
+                Nhãn chuyển tiếp
               </label>
               <input
                 id={`${formHtmlId}-edgeLabel`}
@@ -277,7 +274,7 @@ export function EdgeEditorModal({
                 data-testid="input-edge-label"
                 disabled={readOnly}
                 value={label}
-                placeholder="e.g. Approved / Over 5000 USD"
+                placeholder="Ví dụ: Đã duyệt / Trên 5.000 USD"
                 onChange={(e) => setLabel(e.target.value)}
                 className="w-full rounded border border-slate-300 px-2.5 py-1.5 text-xs disabled:bg-slate-100"
               />
@@ -293,7 +290,7 @@ export function EdgeEditorModal({
                   onChange={(e) => setIsDefault(e.target.checked)}
                   className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                 />
-                <span>Default Fallback Transition (Triggers when no condition matches)</span>
+                <span>Chuyển tiếp mặc định (kích hoạt khi không có điều kiện phù hợp)</span>
               </label>
             </div>
           </div>
@@ -335,7 +332,7 @@ export function EdgeEditorModal({
                 }}
                 className="text-xs font-semibold text-rose-600 hover:text-rose-800"
               >
-                Delete Transition
+                Xóa chuyển tiếp
               </button>
             )}
           </div>
@@ -346,7 +343,7 @@ export function EdgeEditorModal({
               onClick={onClose}
               className="rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
             >
-              Cancel
+              Hủy
             </button>
             {!readOnly && (
               <button
@@ -355,7 +352,7 @@ export function EdgeEditorModal({
                 onClick={handleSave}
                 className="rounded bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 shadow-xs"
               >
-                Save Changes
+                Lưu thay đổi
               </button>
             )}
           </div>

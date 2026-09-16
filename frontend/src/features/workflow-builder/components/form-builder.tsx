@@ -11,13 +11,13 @@ import { findFieldDependencies } from "../utils/field-dependency";
 import { FieldDependencyModal } from "./field-dependency-modal";
 
 const FIELD_TYPES: { value: FormFieldType; label: string }[] = [
-  { value: "STRING", label: "Text / String" },
-  { value: "INTEGER", label: "Integer Number" },
-  { value: "DECIMAL", label: "Decimal / Currency" },
-  { value: "BOOLEAN", label: "Boolean / Switch" },
-  { value: "DATE", label: "Date" },
-  { value: "ENUM", label: "Dropdown / Enum" },
-  { value: "FILE", label: "File Attachment" },
+  { value: "STRING", label: "Văn bản" },
+  { value: "INTEGER", label: "Số nguyên" },
+  { value: "DECIMAL", label: "Số thập phân / Tiền tệ" },
+  { value: "BOOLEAN", label: "Có / Không" },
+  { value: "DATE", label: "Ngày" },
+  { value: "ENUM", label: "Danh sách chọn" },
+  { value: "FILE", label: "Tệp đính kèm" },
 ];
 
 interface FormBuilderProps {
@@ -36,8 +36,7 @@ export function FormBuilder({
   nodes = [],
   edges = [],
   readOnly = false,
-  title = "Form Field Schema",
-  description = "Define form input fields for this workflow step or request form.",
+  title = "Schema trường biểu mẫu",
 }: FormBuilderProps) {
   const fields = schema.fields || [];
 
@@ -136,17 +135,17 @@ export function FormBuilder({
     const trimmedLabel = fieldLabel.trim();
 
     if (!trimmedKey) {
-      setFormError("Field identifier key is required.");
+      setFormError("Khóa định danh trường là bắt buộc.");
       return;
     }
     if (!/^[a-zA-Z0-9_]+$/.test(trimmedKey)) {
       setFormError(
-        "Key must contain only alphanumeric characters and underscores.",
+        "Khóa chỉ được chứa chữ cái, chữ số và dấu gạch dưới.",
       );
       return;
     }
     if (!trimmedLabel) {
-      setFormError("Field label is required.");
+      setFormError("Nhãn trường là bắt buộc.");
       return;
     }
 
@@ -223,7 +222,6 @@ export function FormBuilder({
       <div className="flex items-center justify-between border-b border-slate-200 pb-2">
         <div>
           <h4 className="text-xs font-bold text-slate-900">{title}</h4>
-          <p className="text-[11px] text-slate-500">{description}</p>
         </div>
         {!readOnly && !isAdding && editingIndex === null && (
           <button
@@ -232,7 +230,7 @@ export function FormBuilder({
             onClick={startAdd}
             className="inline-flex items-center gap-1 rounded bg-blue-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-blue-700"
           >
-            + Add Field
+            + Thêm trường
           </button>
         )}
       </div>
@@ -243,8 +241,7 @@ export function FormBuilder({
           data-testid="empty-form-fields-message"
           className="rounded-lg border border-dashed border-slate-300 p-4 text-center text-xs text-slate-400"
         >
-          No form fields defined yet. Click &quot;+ Add Field&quot; to configure
-          input parameters.
+          Chưa có trường biểu mẫu.
         </div>
       ) : (
         <div className="space-y-2">
@@ -264,7 +261,7 @@ export function FormBuilder({
                       disabled={idx === 0}
                       onClick={() => handleMove(idx, "UP")}
                       className="text-[10px] text-slate-400 hover:text-slate-800 disabled:opacity-20"
-                      title="Move up"
+                      title="Di chuyển lên"
                     >
                       ▲
                     </button>
@@ -274,7 +271,7 @@ export function FormBuilder({
                       disabled={idx === fields.length - 1}
                       onClick={() => handleMove(idx, "DOWN")}
                       className="text-[10px] text-slate-400 hover:text-slate-800 disabled:opacity-20"
-                      title="Move down"
+                      title="Di chuyển xuống"
                     >
                       ▼
                     </button>
@@ -291,7 +288,7 @@ export function FormBuilder({
                     </span>
                     {f.required && (
                       <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600">
-                        Required
+                        Bắt buộc
                       </span>
                     )}
                   </div>
@@ -308,7 +305,7 @@ export function FormBuilder({
                     onClick={() => startEdit(idx)}
                     className="rounded p-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                   >
-                    Edit
+                    Sửa
                   </button>
                   <button
                     type="button"
@@ -316,7 +313,7 @@ export function FormBuilder({
                     onClick={() => handleDelete(idx)}
                     className="rounded p-1 text-xs text-rose-600 hover:bg-rose-50"
                   >
-                    Delete
+                    Xóa
                   </button>
                 </div>
               )}
@@ -333,8 +330,8 @@ export function FormBuilder({
         >
           <h5 className="text-xs font-bold text-blue-900">
             {isAdding
-              ? "Add Form Field"
-              : `Edit Field: ${fields[editingIndex!].key}`}
+              ? "Thêm trường biểu mẫu"
+              : `Sửa trường: ${fields[editingIndex!].key}`}
           </h5>
 
           {formError && (
@@ -349,7 +346,7 @@ export function FormBuilder({
                 htmlFor={`${formHtmlId}-fieldKey`}
                 className="mb-0.5 block text-[11px] font-semibold text-slate-700"
               >
-                Field Identifier Key *
+                Khóa định danh trường *
               </label>
               <input
                 id={`${formHtmlId}-fieldKey`}
@@ -357,7 +354,7 @@ export function FormBuilder({
                 data-testid="input-field-key"
                 value={fieldKey}
                 onChange={(e) => setFieldKey(e.target.value)}
-                placeholder="e.g. totalAmount"
+                placeholder="Ví dụ: totalAmount"
                 className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs"
               />
             </div>
@@ -366,7 +363,7 @@ export function FormBuilder({
                 htmlFor={`${formHtmlId}-fieldLabel`}
                 className="mb-0.5 block text-[11px] font-semibold text-slate-700"
               >
-                Display Label *
+                Nhãn hiển thị *
               </label>
               <input
                 id={`${formHtmlId}-fieldLabel`}
@@ -374,7 +371,7 @@ export function FormBuilder({
                 data-testid="input-field-label"
                 value={fieldLabel}
                 onChange={(e) => setFieldLabel(e.target.value)}
-                placeholder="e.g. Total Amount"
+                placeholder="Ví dụ: Tổng số tiền"
                 className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs"
               />
             </div>
@@ -386,7 +383,7 @@ export function FormBuilder({
                 htmlFor={`${formHtmlId}-fieldType`}
                 className="mb-0.5 block text-[11px] font-semibold text-slate-700"
               >
-                Data Type
+                Kiểu dữ liệu
               </label>
               <select
                 id={`${formHtmlId}-fieldType`}
@@ -411,7 +408,7 @@ export function FormBuilder({
                   onChange={(e) => setFieldRequired(e.target.checked)}
                   className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                 />
-                Required Field
+                Trường bắt buộc
               </label>
             </div>
           </div>
@@ -422,7 +419,7 @@ export function FormBuilder({
                 htmlFor={`${formHtmlId}-fieldOptions`}
                 className="mb-0.5 block text-[11px] font-semibold text-slate-700"
               >
-                Options (comma-separated)
+                Các lựa chọn (ngăn cách bằng dấu phẩy)
               </label>
               <input
                 id={`${formHtmlId}-fieldOptions`}
@@ -441,7 +438,7 @@ export function FormBuilder({
               htmlFor={`${formHtmlId}-fieldDesc`}
               className="mb-0.5 block text-[11px] font-semibold text-slate-700"
             >
-              Help Description
+                Hướng dẫn
             </label>
             <input
               id={`${formHtmlId}-fieldDesc`}
@@ -449,7 +446,7 @@ export function FormBuilder({
               data-testid="input-field-description"
               value={fieldDesc}
               onChange={(e) => setFieldDesc(e.target.value)}
-              placeholder="Optional user guidance"
+              placeholder="Hướng dẫn cho người dùng (không bắt buộc)"
               className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs"
             />
           </div>
@@ -461,7 +458,7 @@ export function FormBuilder({
               onClick={resetForm}
               className="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
             >
-              Cancel
+              Hủy
             </button>
             <button
               type="button"
@@ -469,7 +466,7 @@ export function FormBuilder({
               onClick={handleSaveField}
               className="rounded bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700"
             >
-              Save Field
+              Lưu trường
             </button>
           </div>
         </div>

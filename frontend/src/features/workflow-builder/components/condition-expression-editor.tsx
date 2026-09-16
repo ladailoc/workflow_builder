@@ -79,10 +79,10 @@ export function ConditionExpressionEditor({
     <div className="space-y-3" data-testid="condition-expression-editor">
       <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
         <span className="text-xs font-bold text-slate-800">
-          Condition Expression Builder
+          Trình tạo biểu thức điều kiện
         </span>
         <span className="font-mono text-[10px] text-slate-500">
-          Safe AST Engine
+          Công cụ AST an toàn
         </span>
       </div>
 
@@ -177,7 +177,7 @@ function RenderGroup({
       {/* Logical Operator Selector */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-bold text-slate-700">Match:</span>
+          <span className="text-[11px] font-bold text-slate-700">Điều kiện:</span>
           <div className="flex rounded border border-slate-300 bg-white p-0.5">
             {(["AND", "OR", "NOT"] as LogicalOperator[]).map((op) => (
               <button
@@ -197,9 +197,9 @@ function RenderGroup({
             ))}
           </div>
           <span className="text-[10px] text-slate-400">
-            {group.logical === "AND" && "(All clauses must be TRUE)"}
-            {group.logical === "OR" && "(Any clause must be TRUE)"}
-            {group.logical === "NOT" && "(Inverts result of clause)"}
+            {group.logical === "AND" && "(Tất cả mệnh đề phải ĐÚNG)"}
+            {group.logical === "OR" && "(Một mệnh đề đúng là đủ)"}
+            {group.logical === "NOT" && "(Đảo ngược kết quả mệnh đề)"}
           </span>
         </div>
 
@@ -211,7 +211,7 @@ function RenderGroup({
               onClick={handleAddClause}
               className="rounded bg-white border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs"
             >
-              + Clause
+              + Thêm mệnh đề
             </button>
             <button
               type="button"
@@ -219,7 +219,7 @@ function RenderGroup({
               onClick={handleAddSubGroup}
               className="rounded bg-white border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs"
             >
-              + Group
+              + Thêm nhóm
             </button>
           </div>
         )}
@@ -244,7 +244,7 @@ function RenderGroup({
                     onClick={() => handleRemoveClause(idx)}
                     className="absolute top-2 right-2 text-[10px] text-rose-600 hover:text-rose-800"
                   >
-                    Remove Group
+                    Xóa nhóm
                   </button>
                 )}
               </div>
@@ -275,7 +275,7 @@ function RenderGroup({
                     })
                   }
                   list={`context-vars-${atomic.id}`}
-                  placeholder="payload.* or event.*"
+                  placeholder="payload.* hoặc event.*"
                   className="w-full rounded border border-slate-300 px-2 py-1 font-mono text-xs text-slate-800 disabled:bg-slate-100"
                 />
                 <datalist id={`context-vars-${atomic.id}`}>
@@ -319,7 +319,7 @@ function RenderGroup({
                         value: e.target.value,
                       })
                     }
-                    placeholder="Literal value or list [1, 2]"
+                    placeholder="Giá trị hoặc danh sách [1, 2]"
                     className="w-full rounded border border-slate-300 px-2 py-1 font-mono text-xs text-slate-800 disabled:bg-slate-100"
                   />
                 </div>
@@ -332,7 +332,7 @@ function RenderGroup({
                   data-testid={`btn-remove-clause-${idx}`}
                   onClick={() => handleRemoveClause(idx)}
                   className="rounded p-1 text-xs text-slate-400 hover:text-rose-600"
-                  title="Remove clause"
+                  title="Xóa mệnh đề"
                 >
                   ✕
                 </button>

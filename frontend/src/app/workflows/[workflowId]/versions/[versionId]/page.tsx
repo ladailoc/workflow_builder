@@ -39,7 +39,7 @@ export default function WorkflowVersionPage() {
       .catch((reason: unknown) => {
         if (!ignore)
           setError(
-            reason instanceof Error ? reason.message : "Version not found",
+            reason instanceof Error ? reason.message : "Không tìm thấy phiên bản",
           );
       });
     return () => {
@@ -52,31 +52,30 @@ export default function WorkflowVersionPage() {
       roles={["WORKFLOW_OWNER", "WORKFLOW_EDITOR", "OPERATOR", "ADMIN"]}
     >
       {error ? (
-        <ErrorState title="Workflow version unavailable" message={error} />
+        <ErrorState title="Không thể tải phiên bản quy trình" message={error} />
       ) : !workflow || !detail ? (
-        <LoadingPanel label="Loading version detail…" />
+        <LoadingPanel label="Đang tải thông tin phiên bản…" />
       ) : (
         <div className="space-y-6" data-testid="workflow-version-detail-page">
           <AdminPageHeader
-            title={`${workflow.workflow.name} · Version ${detail.version.versionNo}`}
-            description="Immutable version metadata and normalized execution contracts."
+            title={`${workflow.workflow.name} · Phiên bản ${detail.version.versionNo}`}
+            description="Thông tin phiên bản không thể thay đổi và các hợp đồng thực thi đã chuẩn hóa."
             action={<LifecycleBadge value={detail.version.status} />}
           />
           {detail.version.status !== "DRAFT" && (
             <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-              This version is immutable. Open the graph in read-only mode or
-              clone it as a new Draft from Workflow Detail.
+              Phiên bản này không thể chỉnh sửa.
             </div>
           )}
           <div className="grid gap-4 md:grid-cols-3">
-            <Card label="Revision" value={String(detail.version.revision)} />
+            <Card label="Lần cập nhật" value={String(detail.version.revision)} />
             <Card
-              label="Nodes / edges"
+              label="Bước / liên kết"
               value={`${detail.nodes.length} / ${detail.edges.length}`}
             />
             <Card
               label="Checksum"
-              value={detail.version.checksum || "Not published"}
+              value={detail.version.checksum || "Chưa phát hành"}
               mono
             />
           </div>
@@ -86,46 +85,46 @@ export default function WorkflowVersionPage() {
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
             >
               {detail.version.status === "DRAFT"
-                ? "Open Builder"
-                : "Inspect graph"}
+                ? "Mở trình xây dựng"
+                : "Xem sơ đồ"}
             </Link>
             <Link
               href={`/workflows/${workflowId}`}
               className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
             >
-              Back to history
+              Quay lại lịch sử
             </Link>
           </div>
           <section className="rounded-xl border border-slate-200 bg-white p-5">
             <h2 className="font-semibold text-slate-900">
-              Execution contracts
+              Hợp đồng thực thi
             </h2>
             <dl className="mt-4 grid gap-3 text-sm md:grid-cols-2">
               <div>
-                <dt className="text-slate-500">Based on</dt>
+                <dt className="text-slate-500">Dựa trên</dt>
                 <dd className="font-mono text-xs">
                   {detail.version.basedOnVersionId || "—"}
                 </dd>
               </div>
               <div>
-                <dt className="text-slate-500">Rollback of</dt>
+                <dt className="text-slate-500">Khôi phục từ</dt>
                 <dd className="font-mono text-xs">
                   {detail.version.rollbackOfVersionId || "—"}
                 </dd>
               </div>
               <div>
-                <dt className="text-slate-500">Forms</dt>
+                <dt className="text-slate-500">Biểu mẫu</dt>
                 <dd>
                   {detail.forms.map((form) => form.formKey).join(", ") ||
-                    "No forms"}
+                    "Chưa có biểu mẫu"}
                 </dd>
               </div>
               <div>
-                <dt className="text-slate-500">Published</dt>
+                <dt className="text-slate-500">Đã phát hành</dt>
                 <dd>
                   {detail.version.publishedAt
-                    ? new Date(detail.version.publishedAt).toLocaleString()
-                    : "Not published"}
+                    ? new Date(detail.version.publishedAt).toLocaleString("vi-VN")
+                    : "Chưa phát hành"}
                 </dd>
               </div>
             </dl>

@@ -19,9 +19,9 @@ export const RUNTIME_CONFIG_PROPERTIES: readonly string[] = [
 export const NODE_CATALOG: readonly NodeSchemaManifest[] = [
   {
     type: "START",
-    name: "Start",
+    name: "Bắt đầu",
     category: "Control",
-    description: "Initial activation node for the workflow instance.",
+    description: "Kích hoạt ban đầu cho một phiên chạy quy trình.",
     outputPorts: ["STARTED"],
     color: "bg-emerald-500 text-white",
     configSchemaVersion: 1,
@@ -30,9 +30,9 @@ export const NODE_CATALOG: readonly NodeSchemaManifest[] = [
   },
   {
     type: "END",
-    name: "End",
+    name: "Kết thúc",
     category: "Control",
-    description: "Terminal node completing execution of this path.",
+    description: "Kết thúc việc xử lý của nhánh này.",
     outputPorts: [],
     color: "bg-slate-700 text-white",
     configSchemaVersion: 1,
@@ -41,10 +41,9 @@ export const NODE_CATALOG: readonly NodeSchemaManifest[] = [
   },
   {
     type: "APPROVAL",
-    name: "Approval",
+    name: "Phê duyệt",
     category: "Human",
-    description:
-      "Human task with single or multi-instance decision resolution.",
+    description: "Công việc cần một hoặc nhiều người đưa ra quyết định.",
     outputPorts: ["APPROVED", "REJECTED", "REVISION_REQUESTED"],
     color: "bg-blue-600 text-white",
     configSchemaVersion: 1,
@@ -58,9 +57,9 @@ export const NODE_CATALOG: readonly NodeSchemaManifest[] = [
   },
   {
     type: "REVIEW",
-    name: "Review",
+    name: "Kiểm tra",
     category: "Human",
-    description: "Human verification or document check task.",
+    description: "Công việc kiểm tra thông tin hoặc tài liệu.",
     outputPorts: ["SUBMITTED", "RETURNED"],
     color: "bg-sky-600 text-white",
     configSchemaVersion: 1,
@@ -74,9 +73,9 @@ export const NODE_CATALOG: readonly NodeSchemaManifest[] = [
   },
   {
     type: "CONDITION",
-    name: "Condition",
+    name: "Điều kiện",
     category: "Routing",
-    description: "Evaluates boolean expression to branch execution paths.",
+    description: "Đánh giá biểu thức đúng/sai để rẽ sang các nhánh xử lý.",
     outputPorts: ["TRUE", "FALSE", "ERROR"],
     color: "bg-amber-500 text-white",
     configSchemaVersion: 1,
@@ -85,9 +84,9 @@ export const NODE_CATALOG: readonly NodeSchemaManifest[] = [
   },
   {
     type: "PARALLEL_SPLIT",
-    name: "Parallel Split",
+    name: "Tách nhánh song song",
     category: "Routing",
-    description: "Forks concurrent execution across multiple branches.",
+    description: "Chia việc xử lý đồng thời thành nhiều nhánh.",
     outputPorts: ["SPLIT"],
     color: "bg-indigo-600 text-white",
     configSchemaVersion: 1,
@@ -96,9 +95,9 @@ export const NODE_CATALOG: readonly NodeSchemaManifest[] = [
   },
   {
     type: "JOIN",
-    name: "Join",
+    name: "Hợp nhất",
     category: "Routing",
-    description: "Synchronizes concurrent inbound branches.",
+    description: "Đồng bộ các nhánh xử lý đi vào.",
     outputPorts: ["DEFAULT"],
     color: "bg-indigo-500 text-white",
     configSchemaVersion: 1,
@@ -112,9 +111,10 @@ export const NODE_CATALOG: readonly NodeSchemaManifest[] = [
   },
   {
     type: "SYSTEM_ACTION",
-    name: "System Action",
+    name: "Tác vụ hệ thống",
     category: "Integration",
-    description: "Executes allowlisted Connector Action Version.",
+    description:
+      "Thực hiện một tác vụ đã được cấu hình để kết nối với hệ thống khác.",
     outputPorts: ["SUCCESS", "ERROR"],
     color: "bg-violet-600 text-white",
     configSchemaVersion: 1,
@@ -129,9 +129,10 @@ export const NODE_CATALOG: readonly NodeSchemaManifest[] = [
   },
   {
     type: "SUB_WORKFLOW",
-    name: "Sub-Workflow",
+    name: "Quy trình con",
     category: "Integration",
-    description: "Spawns child workflow event with Wait/Fire policy.",
+    description:
+      "Tạo sự kiện quy trình con theo chính sách chờ hoặc chạy tiếp.",
     outputPorts: ["COMPLETED", "FAILED", "CANCELLED"],
     color: "bg-purple-600 text-white",
     configSchemaVersion: 1,
@@ -147,9 +148,9 @@ export const NODE_CATALOG: readonly NodeSchemaManifest[] = [
   },
   {
     type: "NOTIFICATION",
-    name: "Notification",
+    name: "Thông báo",
     category: "Communication",
-    description: "Dispatches durable email or in-app message.",
+    description: "Gửi email hoặc thông báo trong ứng dụng có lưu vết.",
     outputPorts: ["QUEUED"],
     color: "bg-teal-600 text-white",
     configSchemaVersion: 1,
@@ -167,6 +168,60 @@ export const NODE_CATALOG: readonly NodeSchemaManifest[] = [
 
 export function getNodeManifest(type: string): NodeSchemaManifest | undefined {
   return NODE_CATALOG.find((item) => item.type === type);
+}
+
+const LEGACY_NODE_LABELS: Record<string, string[]> = {
+  START: ["START", "Start", "Start Node", "Start Task"],
+  END: ["END", "End", "End Node", "End Task"],
+  APPROVAL: ["APPROVAL", "Approval", "Approval Task"],
+  REVIEW: ["REVIEW", "Review", "Review Task"],
+  CONDITION: ["CONDITION", "Condition", "Condition Task"],
+  PARALLEL_SPLIT: ["PARALLEL_SPLIT", "Parallel Split", "Parallel Split Task"],
+  JOIN: ["JOIN", "Join", "Join Task"],
+  SYSTEM_ACTION: ["SYSTEM_ACTION", "System Action", "System Action Task"],
+  SUB_WORKFLOW: ["SUB_WORKFLOW", "SubWorkflow", "Sub Workflow", "Sub-Workflow"],
+  NOTIFICATION: ["NOTIFICATION", "Notification", "Notification Task"],
+};
+
+/**
+ * Shows the Vietnamese manifest name for nodes created by older versions
+ * while preserving a label that a user deliberately customized.
+ */
+export function getNodeDisplayName(
+  type: string,
+  label?: string | null,
+): string {
+  const trimmedLabel = label?.trim();
+  const legacyLabels = LEGACY_NODE_LABELS[type] ?? [];
+
+  if (!trimmedLabel || legacyLabels.includes(trimmedLabel)) {
+    return getNodeManifest(type)?.name ?? trimmedLabel ?? type;
+  }
+
+  return trimmedLabel;
+}
+
+const PORT_LABELS: Record<string, string> = {
+  STARTED: "Đã bắt đầu",
+  APPROVED: "Đã phê duyệt",
+  REJECTED: "Từ chối",
+  REVISION_REQUESTED: "Yêu cầu bổ sung",
+  SUBMITTED: "Đã gửi",
+  RETURNED: "Trả lại",
+  TRUE: "Đúng",
+  FALSE: "Sai",
+  ERROR: "Lỗi",
+  SPLIT: "Tách nhánh",
+  DEFAULT: "Mặc định",
+  SUCCESS: "Thành công",
+  COMPLETED: "Hoàn tất",
+  FAILED: "Thất bại",
+  CANCELLED: "Đã hủy",
+  QUEUED: "Đang chờ gửi",
+};
+
+export function formatPortLabel(port: string): string {
+  return PORT_LABELS[port] ?? port.replaceAll("_", " ");
 }
 
 export function findUnknownConfigProperties(

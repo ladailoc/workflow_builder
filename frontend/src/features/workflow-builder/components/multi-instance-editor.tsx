@@ -38,11 +38,8 @@ export function MultiInstanceEditor({
     <div className="space-y-3" data-testid="multi-instance-editor">
       <div className="border-b border-slate-200 pb-1.5">
         <h4 className="text-xs font-bold text-slate-800">
-          Multi-Instance Execution Configuration
+          Cấu hình xử lý nhiều mục
         </h4>
-        <p className="text-[11px] text-slate-500">
-          Executes this step iteratively for each item in a target collection.
-        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -52,7 +49,7 @@ export function MultiInstanceEditor({
             htmlFor={`${formHtmlId}-collectionExpr`}
             className="text-[11px] font-semibold text-slate-700 block mb-0.5"
           >
-            Collection Expression *
+            Biểu thức danh sách *
           </label>
           <input
             id={`${formHtmlId}-collectionExpr`}
@@ -60,7 +57,7 @@ export function MultiInstanceEditor({
             data-testid="input-mi-collection-expression"
             disabled={readOnly}
             value={current.collectionExpression}
-            placeholder="e.g. payload.lineItems"
+            placeholder="Ví dụ: payload.lineItems"
             onChange={(e) => update({ collectionExpression: e.target.value })}
             className="w-full rounded border border-slate-300 px-2.5 py-1.5 font-mono text-xs disabled:bg-slate-100"
           />
@@ -72,7 +69,7 @@ export function MultiInstanceEditor({
             htmlFor={`${formHtmlId}-itemVar`}
             className="text-[11px] font-semibold text-slate-700 block mb-0.5"
           >
-            Item Variable Name *
+            Tên biến của mục *
           </label>
           <input
             id={`${formHtmlId}-itemVar`}
@@ -80,7 +77,7 @@ export function MultiInstanceEditor({
             data-testid="input-mi-item-variable"
             disabled={readOnly}
             value={current.itemVariable}
-            placeholder="e.g. item"
+            placeholder="Ví dụ: item"
             onChange={(e) => update({ itemVariable: e.target.value })}
             className="w-full rounded border border-slate-300 px-2.5 py-1.5 font-mono text-xs disabled:bg-slate-100"
           />
@@ -94,7 +91,7 @@ export function MultiInstanceEditor({
             htmlFor={`${formHtmlId}-concurrency`}
             className="text-[11px] font-semibold text-slate-700 block mb-0.5"
           >
-            Concurrency Mode
+            Cách chạy đồng thời
           </label>
           <select
             id={`${formHtmlId}-concurrency`}
@@ -106,8 +103,8 @@ export function MultiInstanceEditor({
             }
             className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs disabled:bg-slate-100"
           >
-            <option value="PARALLEL">PARALLEL (Simultaneous instances)</option>
-            <option value="SEQUENTIAL">SEQUENTIAL (One item at a time)</option>
+            <option value="PARALLEL">PARALLEL (Các mục chạy đồng thời)</option>
+            <option value="SEQUENTIAL">SEQUENTIAL (Xử lý từng mục một)</option>
           </select>
         </div>
 
@@ -117,7 +114,7 @@ export function MultiInstanceEditor({
             htmlFor={`${formHtmlId}-remainingPolicy`}
             className="text-[11px] font-semibold text-slate-700 block mb-0.5"
           >
-            Remaining Item Policy
+            Quy tắc mục còn lại
           </label>
           <select
             id={`${formHtmlId}-remainingPolicy`}
@@ -132,9 +129,9 @@ export function MultiInstanceEditor({
             }
             className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs disabled:bg-slate-100"
           >
-            <option value="CANCEL">CANCEL (Abort remaining items)</option>
+            <option value="CANCEL">CANCEL (Hủy các mục còn lại)</option>
             <option value="ALLOW_COMPLETION">
-              ALLOW_COMPLETION (Let ongoing items finish)
+              ALLOW_COMPLETION (Để các mục đang chạy hoàn tất)
             </option>
           </select>
         </div>
@@ -146,7 +143,7 @@ export function MultiInstanceEditor({
           htmlFor={`${formHtmlId}-completionPolicy`}
           className="text-[11px] font-semibold text-slate-700 block mb-0.5"
         >
-          Completion Policy
+          Quy tắc hoàn tất
         </label>
         <select
           id={`${formHtmlId}-completionPolicy`}
@@ -161,10 +158,10 @@ export function MultiInstanceEditor({
           }
           className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs disabled:bg-slate-100"
         >
-          <option value="ALL">ALL (All items must complete)</option>
-          <option value="ANY">ANY (First completed item completes step)</option>
-          <option value="PERCENTAGE">PERCENTAGE (Percentage threshold)</option>
-          <option value="QUORUM">QUORUM (Fixed number of completions)</option>
+          <option value="ALL">ALL (Tất cả mục phải hoàn tất)</option>
+          <option value="ANY">ANY (Mục đầu tiên hoàn tất là đủ)</option>
+          <option value="PERCENTAGE">PERCENTAGE (Theo tỷ lệ phần trăm)</option>
+          <option value="QUORUM">QUORUM (Theo số lượng cố định)</option>
         </select>
       </div>
 
@@ -174,7 +171,7 @@ export function MultiInstanceEditor({
             htmlFor={`${formHtmlId}-completionPercent`}
             className="text-[11px] font-semibold text-slate-700 block mb-0.5"
           >
-            Completion Percentage (%)
+            Tỷ lệ hoàn tất (%)
           </label>
           <input
             id={`${formHtmlId}-completionPercent`}
@@ -200,7 +197,7 @@ export function MultiInstanceEditor({
             htmlFor={`${formHtmlId}-quorumCount`}
             className="text-[11px] font-semibold text-slate-700 block mb-0.5"
           >
-            Quorum Count (Items)
+            Số lượng tối thiểu (mục)
           </label>
           <input
             id={`${formHtmlId}-quorumCount`}

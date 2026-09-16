@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -12,6 +12,9 @@ import {
   type EdgeChange,
   type NodeChange,
   type NodeTypes,
+  type ReactFlowInstance,
+  ConnectionLineType,
+  MarkerType,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -36,6 +39,7 @@ import { SimulationModal } from "./simulation-modal";
 import { PublishModal } from "./publish-modal";
 import { VersionHistoryDrawer } from "./version-history-drawer";
 import { VersionDiffModal } from "./version-diff-modal";
+import { ApiRequestError } from "@/shared/api/client";
 
 interface WorkflowBuilderProps {
   workflowName?: string;
@@ -49,8 +53,10 @@ interface WorkflowBuilderProps {
     edges: BuilderEdge[],
     requestForm: FormSchema,
   ) => Promise<void>;
+  onSaveSuccess?: () => void;
   onValidate?: () => Promise<ValidationIssue[]>;
-  onPublish?: (versionId: string) => Promise<void>;
+  onPublish?: (versionId: string) => Promise<string | void>;
+  onPublishSuccess?: (publishedVersionId?: string) => void;
   onCloneAsNewDraft?: (sourceVersion: WorkflowVersionDto) => void;
   onOpenHistory?: () => void;
 }
@@ -61,6 +67,18 @@ const nodeTypes: NodeTypes = {
 
 let nodeCounter = 1;
 
+function getSaveErrorMessage(error: unknown): string {
+  if (error instanceof ApiRequestError) {
+    const detail = (error.payload as { detail?: unknown } | undefined)?.detail;
+    const message = typeof detail === "string" ? detail : error.message;
+    return `${message} (${error.code})`;
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return "Không thể lưu bản nháp. Hãy kiểm tra sơ đồ và thử lại.";
+}
+
 export function WorkflowBuilder({
   workflowName,
   readOnly = false,
@@ -69,8 +87,10 @@ export function WorkflowBuilder({
   initialRequestForm,
   historicalVersions = [],
   onSave,
+  onSaveSuccess,
   onValidate,
   onPublish,
+  onPublishSuccess,
   onCloneAsNewDraft,
   onOpenHistory,
 }: WorkflowBuilderProps) {
@@ -83,6 +103,10 @@ export function WorkflowBuilder({
   const [nodes, setNodes] = useState<BuilderNode[]>(initialVersion.nodes);
   const [edges, setEdges] = useState<BuilderEdge[]>(initialVersion.edges);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const reactFlowInstance = useRef<ReactFlowInstance<
+    BuilderNode,
+    BuilderEdge
+  > | null>(null);
 
   // Validation panel state
   const [validationIssues, setValidationIssues] = useState(() =>
@@ -90,6 +114,7 @@ export function WorkflowBuilder({
   );
   const [validationPanelOpen, setValidationPanelOpen] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+  const [saveErrorMsg, setSaveErrorMsg] = useState<string | null>(null);
 
   // Workflow Request Form state
   const [requestFormOpen, setRequestFormOpen] = useState(false);
@@ -98,13 +123,13 @@ export function WorkflowBuilder({
       fields: initialRequestForm?.fields ?? [
         {
           key: "title",
-          label: "Request Title",
+          label: "Tiêu đề yêu cầu",
           type: "STRING",
           required: true,
         },
         {
           key: "departmentId",
-          label: "Department",
+          label: "Phòng ban",
           type: "STRING",
           required: true,
         },
@@ -122,15 +147,18 @@ export function WorkflowBuilder({
   >(historicalVersions[0]);
 
   const handleConfirmPublish = async () => {
-    if (onPublish) {
-      await onPublish(currentVersion.id);
-    }
+    const publishedVersionId = onPublish
+      ? await onPublish(currentVersion.id)
+      : undefined;
     setStatus("PUBLISHED");
     setCurrentVersion((prev) => ({ ...prev, status: "PUBLISHED" }));
     setSaveSuccessMsg(
-      `Version #${currentVersion.versionNo} published successfully.`,
+      `Đã phát hành thành công phiên bản #${currentVersion.versionNo}.`,
     );
     setTimeout(() => setSaveSuccessMsg(null), 4000);
+    onPublishSuccess?.(
+      typeof publishedVersionId === "string" ? publishedVersionId : undefined,
+    );
   };
 
   const handleCloneAsNewDraft = (sourceVersion: WorkflowVersionDto) => {
@@ -153,7 +181,7 @@ export function WorkflowBuilder({
     setValidationIssues(validateWorkflowGraph(clonedNodes, clonedEdges));
     setHistoryDrawerOpen(false);
     setSaveSuccessMsg(
-      `Cloned Version #${sourceVersion.versionNo} into new draft revision.`,
+      `Đã sao chép phiên bản #${sourceVersion.versionNo} thành bản nháp mới.`,
     );
     setTimeout(() => setSaveSuccessMsg(null), 4000);
   };
@@ -218,7 +246,7 @@ export function WorkflowBuilder({
             id: `err-connect-${Date.now()}`,
             nodeId: sourceNode.id,
             severity: "ERROR",
-            message: "Cannot create an outgoing transition from an End node.",
+            message: "Không thể tạo chuyển tiếp đi ra từ bước kết thúc.",
           },
         ]);
         setValidationPanelOpen(true);
@@ -232,7 +260,7 @@ export function WorkflowBuilder({
             id: `err-connect-${Date.now()}`,
             nodeId: targetNode.id,
             severity: "ERROR",
-            message: "Cannot create an incoming transition to a Start node.",
+            message: "Không thể tạo chuyển tiếp đi vào bước bắt đầu.",
           },
         ]);
         setValidationPanelOpen(true);
@@ -300,33 +328,65 @@ export function WorkflowBuilder({
   }, []);
 
   // Add node from catalog
-  const handleAddNode = (type: BuilderNodeType) => {
-    if (!isDraft) return;
+  const handleAddNode = useCallback(
+    (type: BuilderNodeType, position?: { x: number; y: number }) => {
+      if (!isDraft) return;
 
-    const manifest = getNodeManifest(type);
-    const key = `${type.toLowerCase()}_${nodeCounter++}`;
-    const newNode: BuilderNode = {
-      id: `node_${key}`,
-      type: "workflowNode",
-      position: {
-        x: 250 + (nodes.length % 4) * 60,
-        y: 150 + (nodes.length % 4) * 60,
-      },
-      data: {
-        key,
-        label: `${manifest?.name ?? type} Task`,
-        nodeType: type,
-        outputPorts: manifest?.outputPorts ? [...manifest.outputPorts] : [],
-        config: {},
-        readOnly: !isDraft,
-      },
-    };
+      const manifest = getNodeManifest(type);
+      const key = `${type.toLowerCase()}_${nodeCounter++}`;
+      const newNode: BuilderNode = {
+        id: `node_${key}`,
+        type: "workflowNode",
+        position: position ?? {
+          x: 250 + (nodes.length % 4) * 60,
+          y: 150 + (nodes.length % 4) * 60,
+        },
+        data: {
+          key,
+          label: manifest?.name ?? type,
+          nodeType: type,
+          outputPorts: manifest?.outputPorts ? [...manifest.outputPorts] : [],
+          config: {},
+          readOnly: !isDraft,
+        },
+      };
 
-    const nextNodes = [...nodes, newNode];
-    setNodes(nextNodes);
-    setSelectedNodeId(newNode.id);
-    setValidationIssues(validateWorkflowGraph(nextNodes, edges));
-  };
+      const nextNodes = [...nodes, newNode];
+      setNodes(nextNodes);
+      setSelectedNodeId(newNode.id);
+      setValidationIssues(validateWorkflowGraph(nextNodes, edges));
+    },
+    [edges, isDraft, nodes],
+  );
+
+  const handleDragOver = useCallback(
+    (event: React.DragEvent<HTMLElement>) => {
+      if (!isDraft) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+    },
+    [isDraft],
+  );
+
+  const handleDrop = useCallback(
+    (event: React.DragEvent<HTMLElement>) => {
+      event.preventDefault();
+      if (!isDraft) return;
+
+      const rawType =
+        event.dataTransfer.getData("application/x-workflow-node") ||
+        event.dataTransfer.getData("application/reactflow");
+      if (!getNodeManifest(rawType)) return;
+
+      const position = reactFlowInstance.current?.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      }) ?? { x: event.clientX, y: event.clientY };
+
+      handleAddNode(rawType as BuilderNodeType, position);
+    },
+    [handleAddNode, isDraft],
+  );
 
   // Update properties of selected node
   const handleUpdateNode = (
@@ -373,11 +433,18 @@ export function WorkflowBuilder({
 
   const handleSaveDraft = async () => {
     if (!isDraft) return;
-    if (onSave) {
-      await onSave(nodes, edges, requestFormSchema);
+    setSaveErrorMsg(null);
+    try {
+      if (onSave) {
+        await onSave(nodes, edges, requestFormSchema);
+      }
+      setSaveSuccessMsg("Đã lưu bản nháp thành công.");
+      setTimeout(() => setSaveSuccessMsg(null), 3000);
+      onSaveSuccess?.();
+    } catch (error) {
+      setSaveSuccessMsg(null);
+      setSaveErrorMsg(getSaveErrorMessage(error));
     }
-    setSaveSuccessMsg("Draft saved successfully.");
-    setTimeout(() => setSaveSuccessMsg(null), 3000);
   };
 
   const handleSelectValidationIssue = (nodeId?: string) => {
@@ -412,6 +479,7 @@ export function WorkflowBuilder({
         }}
         onPublish={() => setPublishModalOpen(true)}
         onRequestForm={() => setRequestFormOpen(true)}
+        onCloneAsNewDraft={() => handleCloneAsNewDraft(currentVersion)}
       />
 
       {/* Save feedback toast */}
@@ -421,6 +489,15 @@ export function WorkflowBuilder({
           className="animate-fade-in absolute top-16 right-8 z-50 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-lg"
         >
           {saveSuccessMsg}
+        </div>
+      )}
+      {saveErrorMsg && (
+        <div
+          role="alert"
+          data-testid="save-draft-error"
+          className="animate-fade-in absolute top-16 right-8 z-50 max-w-lg rounded-lg bg-rose-600 px-4 py-2 text-xs font-semibold text-white shadow-lg"
+        >
+          {saveErrorMsg}
         </div>
       )}
 
@@ -444,15 +521,46 @@ export function WorkflowBuilder({
             onNodeClick={handleNodeClick}
             onEdgeClick={handleEdgeClick}
             onPaneClick={handlePaneClick}
+            onInit={(instance) => {
+              reactFlowInstance.current = instance;
+            }}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
             nodesDraggable={isDraft}
             nodesConnectable={isDraft}
             elementsSelectable={true}
+            connectionLineType={ConnectionLineType.SmoothStep}
+            connectionLineStyle={{ stroke: "#2563eb", strokeWidth: 2 }}
+            defaultEdgeOptions={{
+              type: "smoothstep",
+              style: { stroke: "#2563eb", strokeWidth: 2 },
+              markerEnd: {
+                type: MarkerType.ArrowClosed,
+                color: "#2563eb",
+                width: 18,
+                height: 18,
+              },
+              interactionWidth: 24,
+            }}
             fitView
             className="h-full w-full"
           >
             <Background gap={16} size={1} color="#cbd5e1" />
             <Controls showInteractive={isDraft} />
           </ReactFlow>
+
+          {nodes.length === 0 && (
+            <div
+              data-testid="canvas-drop-hint"
+              className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-8 text-center"
+            >
+              <div className="rounded-xl border border-dashed border-blue-200 bg-white/80 px-6 py-5 shadow-sm backdrop-blur-sm">
+                <p className="text-sm font-semibold text-slate-700">
+                  Chưa có bước nào
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Collapsible Validation Panel */}
           <ValidationPanel
@@ -468,6 +576,7 @@ export function WorkflowBuilder({
           selectedNode={selectedNode}
           onUpdateNode={handleUpdateNode}
           onDeleteNode={handleDeleteNode}
+          onClose={() => setSelectedNodeId(null)}
           readOnly={!isDraft}
         />
       </div>
@@ -497,12 +606,8 @@ export function WorkflowBuilder({
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div>
                 <h3 className="text-sm font-bold text-slate-900">
-                  Workflow Request Input Form
+                  Biểu mẫu đầu vào của yêu cầu
                 </h3>
-                <p className="text-xs text-slate-500">
-                  Configure form schema presented to users when submitting a
-                  ticket for this workflow.
-                </p>
               </div>
               <button
                 type="button"
@@ -510,7 +615,7 @@ export function WorkflowBuilder({
                 onClick={() => setRequestFormOpen(false)}
                 className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
               >
-                Close
+                Đóng
               </button>
             </div>
 
@@ -521,8 +626,7 @@ export function WorkflowBuilder({
                 nodes={nodes}
                 edges={edges}
                 readOnly={!isDraft}
-                title="Request Input Fields"
-                description="Fields entered by users during request submission."
+                title="Các trường đầu vào của yêu cầu"
               />
             </div>
           </div>
@@ -535,6 +639,8 @@ export function WorkflowBuilder({
           isOpen={true}
           nodes={nodes}
           edges={edges}
+          workflowId={currentVersion.definitionId}
+          versionId={currentVersion.id}
           onClose={() => setSimulationOpen(false)}
         />
       )}

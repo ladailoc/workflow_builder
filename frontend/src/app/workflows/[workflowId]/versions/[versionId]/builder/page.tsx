@@ -59,7 +59,7 @@ export default function VersionBuilderPage() {
       .catch((reason: unknown) => {
         if (!ignore)
           setError(
-            reason instanceof Error ? reason.message : "Unable to open Builder",
+            reason instanceof Error ? reason.message : "Không thể mở trình xây dựng",
           );
       });
     return () => {
@@ -72,13 +72,13 @@ export default function VersionBuilderPage() {
       roles={["WORKFLOW_OWNER", "WORKFLOW_EDITOR", "OPERATOR", "ADMIN"]}
     >
       {error ? (
-        <ErrorState title="Builder unavailable" message={error} />
+        <ErrorState title="Không thể tải trình xây dựng" message={error} />
       ) : !workflow || !version || !initialForm ? (
         <div
           data-testid="builder-loading"
           className="p-12 text-center text-sm text-slate-500"
         >
-          Loading version-bound Builder…
+          Đang tải trình xây dựng theo phiên bản…
         </div>
       ) : (
         <div className="-m-6 md:-m-8" data-testid="version-contextual-builder">
@@ -87,7 +87,7 @@ export default function VersionBuilderPage() {
               onClick={() => router.push("/workflows")}
               className="hover:text-blue-700"
             >
-              Workflows
+              Quy trình
             </button>
             <span className="px-2">›</span>
             <button
@@ -97,9 +97,9 @@ export default function VersionBuilderPage() {
               {workflow.workflow.name}
             </button>
             <span className="px-2">›</span>
-            <span>Version {version.versionNo}</span>
+            <span>Phiên bản {version.versionNo}</span>
             <span className="px-2">›</span>
-            <span className="font-semibold text-slate-800">Builder</span>
+            <span className="font-semibold text-slate-800">Trình xây dựng</span>
           </div>
           <WorkflowBuilder
             workflowName={workflow.workflow.name}
@@ -113,7 +113,7 @@ export default function VersionBuilderPage() {
             }
             onSave={async (nodes, edges, requestForm) => {
               if (version.status !== "DRAFT")
-                throw new Error("Only Draft versions are editable");
+                throw new Error("Chỉ phiên bản bản nháp mới có thể chỉnh sửa");
               const graphResult = await saveWorkflowGraph(
                 workflowId,
                 versionId,
@@ -131,6 +131,9 @@ export default function VersionBuilderPage() {
               );
               setLockVersion(formResult.draft.lockVersion);
               setRevision(formResult.draft.revision);
+            }}
+            onSaveSuccess={() => {
+              window.setTimeout(() => router.push(`/workflows/${workflowId}`), 900);
             }}
             onValidate={async () => {
               const result = await validateWorkflow(workflowId, versionId);
@@ -154,8 +157,13 @@ export default function VersionBuilderPage() {
               setVersion((current) =>
                 current ? { ...current, status: "PUBLISHED" } : current,
               );
-              router.push(
-                `/workflows/${workflowId}/versions/${published.workflowVersionId}`,
+              return published.workflowVersionId;
+            }}
+            onPublishSuccess={(publishedVersionId) => {
+              if (!publishedVersionId) return;
+              window.setTimeout(
+                () => router.push(`/workflows/${workflowId}/versions/${publishedVersionId}`),
+                1700,
               );
             }}
             onCloneAsNewDraft={(source) => {
@@ -173,7 +181,7 @@ export default function VersionBuilderPage() {
                   setError(
                     reason instanceof Error
                       ? reason.message
-                      : "Unable to clone version",
+                      : "Không thể sao chép phiên bản",
                   ),
                 );
             }}
