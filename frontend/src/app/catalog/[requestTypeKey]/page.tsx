@@ -33,7 +33,7 @@ export default function NewRequestPage({ params }: NewRequestPageProps) {
         setError(
           err instanceof Error
             ? err.message
-            : "Failed to load request schema for this service",
+            : "Không thể tải biểu mẫu của dịch vụ này",
         );
       })
       .finally(() => {
@@ -55,7 +55,7 @@ export default function NewRequestPage({ params }: NewRequestPageProps) {
           setError(
             err instanceof Error
               ? err.message
-              : "Failed to load request schema for this service",
+              : "Không thể tải biểu mẫu của dịch vụ này",
           );
           setIsLoading(false);
         }
@@ -85,24 +85,21 @@ export default function NewRequestPage({ params }: NewRequestPageProps) {
               d="M10 19l-7-7m0 0l7-7m-7 7h18"
             />
           </svg>
-          <span>Back to Catalog</span>
+          <span>Quay lại danh mục</span>
         </Link>
       </div>
 
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-          New Request
+          Tạo yêu cầu mới
         </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Complete the required form details below to initiate this workflow request.
-        </p>
       </div>
 
       {isLoading ? (
-        <LoadingState title="Loading form definition..." />
+        <LoadingState title="Đang tải biểu mẫu…" />
       ) : error ? (
         <ErrorState
-          title="Could not load form schema"
+          title="Không thể tải biểu mẫu"
           message={error}
           onRetry={loadSchema}
         />

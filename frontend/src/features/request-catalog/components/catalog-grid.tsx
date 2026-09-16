@@ -9,6 +9,22 @@ interface CatalogGridProps {
   isLoading?: boolean;
 }
 
+function categoryLabel(category?: string): string {
+  const labels: Record<string, string> = {
+    GENERAL: "Chung",
+    General: "Chung",
+    IT: "Công nghệ thông tin",
+    "IT ACCESS": "Quyền truy cập công nghệ thông tin",
+    "IT EQUIPMENT": "Thiết bị công nghệ thông tin",
+    HR: "Nhân sự",
+    FINANCE: "Tài chính",
+    PROCUREMENT: "Mua sắm",
+    SECURITY: "An ninh",
+  };
+  const normalized = category?.toUpperCase();
+  return labels[normalized ?? ""] ?? category ?? "Chung";
+}
+
 export function CatalogGrid({ items, isLoading = false }: CatalogGridProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
@@ -66,14 +82,15 @@ export function CatalogGrid({ items, isLoading = false }: CatalogGridProps) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       {/* Search and Category Filter Controls */}
-      <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-        <div className="relative flex-1 max-w-md">
+      <div className="flex flex-col gap-4 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative max-w-md flex-1">
           <input
             type="text"
             data-testid="catalog-search-input"
-            placeholder="Search request types..."
+            aria-label="Tìm trong danh mục yêu cầu"
+            placeholder="Tìm dịch vụ"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2 pl-9 text-sm text-slate-800 placeholder-slate-400 shadow-2xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -107,7 +124,7 @@ export function CatalogGrid({ items, isLoading = false }: CatalogGridProps) {
                   : "bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900"
               }`}
             >
-              {cat === "ALL" ? "All Categories" : cat}
+              {cat === "ALL" ? "Tất cả danh mục" : categoryLabel(cat)}
             </button>
           ))}
         </div>
@@ -132,19 +149,16 @@ export function CatalogGrid({ items, isLoading = false }: CatalogGridProps) {
             />
           </svg>
           <h3 className="mt-2 text-sm font-semibold text-slate-800">
-            No request types found
+            Không tìm thấy loại yêu cầu
           </h3>
-          <p className="mt-1 text-xs text-slate-500">
-            Try adjusting your search keywords or category filters.
-          </p>
         </div>
       ) : (
         <div className="space-y-8">
           {Array.from(groupedByCategory.entries()).map(([category, itemsInCat]) => (
-            <div key={category} className="space-y-3">
-              <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
-                <h3 className="text-base font-semibold text-slate-900">
-                  {category}
+            <div key={category} className="space-y-4">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold tracking-wide text-slate-700 uppercase">
+                  {categoryLabel(category)}
                 </h3>
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
                   {itemsInCat.length}
@@ -156,23 +170,26 @@ export function CatalogGrid({ items, isLoading = false }: CatalogGridProps) {
                   <div
                     key={item.id}
                     data-testid={`catalog-card-${item.key}`}
-                    className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-xs transition-shadow hover:shadow-md"
+                    className="group flex min-h-48 flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md"
                   >
                     <div>
                       <div className="flex items-center justify-between gap-2">
-                        <span className="rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
-                          {item.category || "General"}
+                        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-lg text-blue-700">
+                          {item.icon || "✦"}
+                        </span>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-500">
+                          {categoryLabel(item.category)}
                         </span>
                       </div>
                       {/* Business title: prominent and user-facing */}
                       <h4
                         data-testid="request-type-title"
-                        className="mt-2 text-base font-semibold text-slate-900 leading-snug"
+                        className="mt-4 text-base font-semibold leading-snug text-slate-950"
                       >
                         {item.name}
                       </h4>
                       <p className="mt-1.5 text-xs text-slate-500 line-clamp-3 leading-relaxed">
-                        {item.description || "Submit a new request for this service."}
+                        {item.description || "Gửi yêu cầu mới cho dịch vụ này."}
                       </p>
                     </div>
 
@@ -180,11 +197,11 @@ export function CatalogGrid({ items, isLoading = false }: CatalogGridProps) {
                       <Link
                         href={`/catalog/${encodeURIComponent(item.key)}`}
                         data-testid={`start-request-${item.key}`}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-2xs hover:bg-blue-700 transition-colors"
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-3 py-2.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
                       >
-                        <span>Start Request</span>
+                        <span>Tạo yêu cầu</span>
                         <svg
-                          className="h-3.5 w-3.5"
+                          className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5"
                           fill="none"
                           viewBox="0 0 24 24"
                           stroke="currentColor"

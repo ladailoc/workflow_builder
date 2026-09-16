@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { evaluateExpression } from "../expression-evaluator";
 import {
@@ -10,11 +10,38 @@ import {
   submitTicket,
 } from "../api";
 import type { CreateSchemaResponse, FormFieldDefinition } from "../types";
-import { ApiRequestError } from "@/shared/api/client";
+import { apiGet, ApiRequestError } from "@/shared/api/client";
 
 interface DynamicTicketFormProps {
   initialSchema: CreateSchemaResponse;
   requestTypeKey: string;
+}
+
+const FIELD_LABELS: Record<string, string> = {
+  businessjustification: "Lý do yêu cầu",
+  justification: "Lý do yêu cầu",
+  isurgent: "Yêu cầu này có gấp không?",
+  isthisrequesturgent: "Yêu cầu này có gấp không?",
+  urgencyreason: "Lý do yêu cầu gấp",
+  reasonforurgency: "Lý do yêu cầu gấp",
+  estimatedcost: "Chi phí dự kiến",
+  apikeysecret: "Khóa truy cập API",
+  apiaccesskey: "Khóa truy cập API",
+  equipmenttype: "Loại thiết bị",
+  department: "Phòng ban",
+  departmentid: "Phòng ban",
+};
+
+function normalizedFieldText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function displayFieldLabel(field: FormFieldDefinition): string {
+  return (
+    FIELD_LABELS[normalizedFieldText(field.key)] ??
+    FIELD_LABELS[normalizedFieldText(field.label)] ??
+    field.label
+  );
 }
 
 export function DynamicTicketForm({
@@ -27,6 +54,12 @@ export function DynamicTicketForm({
   // Schema state (can be updated on concurrent publish reload)
   const [schemaData, setSchemaData] =
     useState<CreateSchemaResponse>(initialSchema);
+  const [tenants, setTenants] = useState<Array<{ id: string; name: string }>>(
+    [],
+  );
+  const [selectedTenantId, setSelectedTenantId] = useState<string>(
+    initialSchema.tenantId ?? "",
+  );
   const [formData, setFormData] = useState<Record<string, unknown>>(() => {
     const initialValues: Record<string, unknown> = {};
     initialSchema.ticketFormSchema.fields.forEach((f) => {
@@ -57,6 +90,36 @@ export function DynamicTicketForm({
   const [reloadingSchema, setReloadingSchema] = useState<boolean>(false);
 
   const fields = schemaData.ticketFormSchema.fields;
+
+  useEffect(() => {
+    apiGet<Array<{ id: string; name: string }>>("/api/v1/tenants")
+      .then(setTenants)
+      .catch(() => setTenants([]));
+  }, []);
+
+  const handleTenantChange = async (tenantId: string) => {
+    setSelectedTenantId(tenantId);
+    setSubmitError(null);
+    setReloadingSchema(true);
+    try {
+      const latest = tenantId
+        ? await fetchCreateSchema(requestTypeKey, tenantId)
+        : await fetchCreateSchema(requestTypeKey);
+      const preservedData: Record<string, unknown> = {};
+      latest.ticketFormSchema.fields.forEach((field) => {
+        if (formData[field.key] !== undefined)
+          preservedData[field.key] = formData[field.key];
+      });
+      setSchemaData(latest);
+      setFormData(preservedData);
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error ? error.message : "Không thể đổi tenant",
+      );
+    } finally {
+      setReloadingSchema(false);
+    }
+  };
 
   // Evaluate dynamic visibility
   const isFieldVisible = (field: FormFieldDefinition): boolean => {
@@ -121,6 +184,7 @@ export function DynamicTicketForm({
 
       const required = isFieldRequired(field);
       const val = formData[field.key];
+      const label = displayFieldLabel(field);
 
       if (required) {
         if (
@@ -129,7 +193,7 @@ export function DynamicTicketForm({
           val === "" ||
           (Array.isArray(val) && val.length === 0)
         ) {
-          newErrors[field.key] = `${field.label} is required`;
+          newErrors[field.key] = `${label} là bắt buộc`;
           continue;
         }
       }
@@ -148,14 +212,14 @@ export function DynamicTicketForm({
             val < field.validation.minimum
           ) {
             newErrors[field.key] =
-              `${field.label} must be at least ${field.validation.minimum}`;
+              `${label} phải lớn hơn hoặc bằng ${field.validation.minimum}`;
           } else if (
             field.validation.maximum !== null &&
             field.validation.maximum !== undefined &&
             val > field.validation.maximum
           ) {
             newErrors[field.key] =
-              `${field.label} must be at most ${field.validation.maximum}`;
+              `${label} phải nhỏ hơn hoặc bằng ${field.validation.maximum}`;
           }
         }
 
@@ -167,19 +231,19 @@ export function DynamicTicketForm({
             val.length < field.validation.minimumLength
           ) {
             newErrors[field.key] =
-              `${field.label} must be at least ${field.validation.minimumLength} characters`;
+              `${label} phải có ít nhất ${field.validation.minimumLength} ký tự`;
           } else if (
             field.validation.maximumLength !== null &&
             field.validation.maximumLength !== undefined &&
             val.length > field.validation.maximumLength
           ) {
             newErrors[field.key] =
-              `${field.label} must be at most ${field.validation.maximumLength} characters`;
+              `${label} phải có nhiều nhất ${field.validation.maximumLength} ký tự`;
           } else if (field.validation.regex?.pattern) {
             try {
               const rx = new RegExp(field.validation.regex.pattern);
               if (!rx.test(val)) {
-                newErrors[field.key] = `${field.label} format is invalid`;
+                newErrors[field.key] = `${label} không đúng định dạng`;
               }
             } catch {
               // Ignore invalid regex in client
@@ -197,7 +261,9 @@ export function DynamicTicketForm({
     setReloadingSchema(true);
     setSubmitError(null);
     try {
-      const latest = await fetchCreateSchema(requestTypeKey);
+      const latest = selectedTenantId
+        ? await fetchCreateSchema(requestTypeKey, selectedTenantId)
+        : await fetchCreateSchema(requestTypeKey);
 
       // Calculate newly required fields
       const previousRequired = new Set(
@@ -230,9 +296,7 @@ export function DynamicTicketForm({
       setSchemaMismatch(false);
     } catch (err: unknown) {
       setSubmitError(
-        err instanceof Error
-          ? err.message
-          : "Failed to reload updated form schema",
+        err instanceof Error ? err.message : "Không thể tải lại biểu mẫu mới",
       );
     } finally {
       setReloadingSchema(false);
@@ -289,7 +353,7 @@ export function DynamicTicketForm({
         ) {
           setSchemaMismatch(true);
           setSubmitError(
-            "The request form definition has been updated by an administrator. Please reload the latest schema before submitting.",
+            "Biểu mẫu yêu cầu đã được quản trị viên cập nhật. Vui lòng tải lại phiên bản mới nhất trước khi gửi.",
           );
           setSubmitting(false);
           return;
@@ -298,7 +362,7 @@ export function DynamicTicketForm({
       setSubmitError(
         err instanceof Error
           ? err.message
-          : "An unexpected error occurred while submitting the request",
+          : "Đã xảy ra lỗi không mong muốn khi gửi yêu cầu",
       );
     } finally {
       setSubmitting(false);
@@ -330,12 +394,11 @@ export function DynamicTicketForm({
               </svg>
               <div>
                 <h4 className="text-sm font-semibold text-amber-900">
-                  Form Schema Updated
+                  Biểu mẫu đã được cập nhật
                 </h4>
                 <p className="mt-1 text-xs text-amber-800">
-                  An administrator published a new version of this workflow
-                  while you were editing. Your compatible answers will be
-                  preserved.
+                  Quản trị viên đã phát hành phiên bản mới trong khi bạn đang
+                  nhập. Các thông tin phù hợp bạn đã điền sẽ được giữ lại.
                 </p>
               </div>
             </div>
@@ -346,7 +409,7 @@ export function DynamicTicketForm({
               onClick={handleReloadSchema}
               className="shrink-0 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-amber-700 disabled:opacity-50"
             >
-              {reloadingSchema ? "Reloading..." : "Reload Schema"}
+              {reloadingSchema ? "Đang tải lại…" : "Tải lại biểu mẫu"}
             </button>
           </div>
         </div>
@@ -384,11 +447,28 @@ export function DynamicTicketForm({
       >
         <div className="border-b border-slate-100 pb-4">
           <h2 className="text-lg font-semibold text-slate-900">
-            Request Information
+            Thông tin yêu cầu
           </h2>
-          <p className="mt-1 text-xs text-slate-500">
-            Please fill out all required fields marked with an asterisk (*).
-          </p>
+          {tenants.length > 0 ? (
+            <label className="mt-4 block text-xs font-semibold text-slate-700">
+              Không gian xử lý
+              <select
+                value={selectedTenantId}
+                onChange={(event) =>
+                  void handleTenantChange(event.target.value)
+                }
+                disabled={reloadingSchema || submitting}
+                className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal disabled:bg-slate-100"
+              >
+                <option value="">DEFAULT · Mặc định</option>
+                {tenants.map((tenant) => (
+                  <option key={tenant.id} value={tenant.id}>
+                    {tenant.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
         </div>
 
         <div className="space-y-5">
@@ -404,6 +484,7 @@ export function DynamicTicketForm({
             const value = formData[field.key];
             const isSensitive = field.sensitive;
             const isRevealed = revealedSensitive[field.key] ?? false;
+            const label = displayFieldLabel(field);
 
             return (
               <div
@@ -420,7 +501,7 @@ export function DynamicTicketForm({
                     htmlFor={`${formHtmlId}-${field.key}`}
                     className="flex items-center gap-1.5 text-xs font-semibold text-slate-700"
                   >
-                    <span>{field.label}</span>
+                    <span>{label}</span>
                     {required && (
                       <span className="font-bold text-rose-500">*</span>
                     )}
@@ -429,7 +510,7 @@ export function DynamicTicketForm({
                         data-testid={`newly-required-badge-${field.key}`}
                         className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
                       >
-                        Newly Required
+                        Mới trở thành bắt buộc
                       </span>
                     )}
                   </label>
@@ -445,16 +526,10 @@ export function DynamicTicketForm({
                       }
                       className="text-[11px] font-medium text-slate-500 hover:text-slate-800"
                     >
-                      {isRevealed ? "Hide" : "Show"}
+                      {isRevealed ? "Ẩn" : "Hiện"}
                     </button>
                   )}
                 </div>
-
-                {field.description && (
-                  <p className="text-[11px] text-slate-400">
-                    {field.description}
-                  </p>
-                )}
 
                 {/* Render Control based on type and options */}
                 <div>
@@ -473,7 +548,7 @@ export function DynamicTicketForm({
                       }
                       className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-2xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400"
                     >
-                      <option value="">-- Select an option --</option>
+                      <option value="">-- Chọn một mục --</option>
                       {field.options.staticValues.map((opt) => {
                         const optVal =
                           typeof opt === "object" && opt !== null
@@ -506,7 +581,7 @@ export function DynamicTicketForm({
                         className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
                       />
                       <span className="text-xs text-slate-600">
-                        {Boolean(value) ? "Yes" : "No"}
+                        {Boolean(value) ? "Có" : "Không"}
                       </span>
                     </label>
                   ) : field.type.type === "INTEGER" ? (
@@ -597,7 +672,7 @@ export function DynamicTicketForm({
                         disabled={!editable}
                         placeholder={
                           field.placeholder ??
-                          "Enter attachment reference or URI"
+                          "Nhập mã tham chiếu hoặc URI của tệp"
                         }
                         value={String(value ?? "")}
                         onChange={(e) =>
@@ -606,7 +681,7 @@ export function DynamicTicketForm({
                         className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-2xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none disabled:bg-slate-100"
                       />
                       <span className="rounded-md bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-600">
-                        Attachment
+                        Tệp đính kèm
                       </span>
                     </div>
                   ) : field.type.type === "ARRAY" ? (
@@ -654,7 +729,7 @@ export function DynamicTicketForm({
                           }}
                           className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
                         >
-                          + Add Item
+                          + Thêm mục
                         </button>
                       )}
                     </div>
@@ -718,7 +793,7 @@ export function DynamicTicketForm({
             onClick={() => router.back()}
             className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
           >
-            Cancel
+            Hủy
           </button>
           <button
             type="submit"
@@ -747,10 +822,10 @@ export function DynamicTicketForm({
                     d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
                   />
                 </svg>
-                <span>Submitting...</span>
+                <span>Đang gửi…</span>
               </>
             ) : (
-              <span>Submit Request</span>
+              <span>Gửi yêu cầu</span>
             )}
           </button>
         </div>

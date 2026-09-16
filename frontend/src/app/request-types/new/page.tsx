@@ -29,7 +29,7 @@ export default function NewRequestTypePage() {
       .then((page) => setWorkflows(page.items))
       .catch((reason: unknown) =>
         setError(
-          reason instanceof Error ? reason.message : "Unable to load workflows",
+          reason instanceof Error ? reason.message : "Không thể tải danh sách quy trình",
         ),
       );
   }, []);
@@ -40,15 +40,15 @@ export default function NewRequestTypePage() {
         data-testid="create-request-type-page"
       >
         <AdminPageHeader
-          title="New Request Type"
-          description="Create a business-facing catalog entry mapped to a WorkflowDefinition, never a technical version."
+          title="Tạo loại yêu cầu"
+          description="Tạo một mục dễ hiểu trong danh mục yêu cầu và liên kết với WorkflowDefinition, không liên kết trực tiếp với phiên bản kỹ thuật."
         />
         <RequestTypeForm
           form={form}
           workflows={workflows}
           saving={saving}
           error={error}
-          submitLabel="Create Request Type"
+          submitLabel="Tạo loại yêu cầu"
           onChange={setForm}
           onSubmit={async () => {
             setSaving(true);
@@ -63,7 +63,7 @@ export default function NewRequestTypePage() {
               setError(
                 reason instanceof Error
                   ? reason.message
-                  : "Unable to create Request Type",
+                  : "Không thể tạo loại yêu cầu",
               );
             } finally {
               setSaving(false);

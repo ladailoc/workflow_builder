@@ -31,6 +31,7 @@ export async function fetchRequestTypes(): Promise<CatalogItem[]> {
 
 export async function fetchCreateSchema(
   key: string,
+  tenantId?: string,
 ): Promise<CreateSchemaResponse> {
   const contract = await apiGet<{
     categoryKey: string;
@@ -44,7 +45,11 @@ export async function fetchCreateSchema(
     workflowVersionNo: number;
     workflowChecksum: string;
     mappingChecksum: string;
-  }>(`/api/v1/ticket-categories/${encodeURIComponent(key)}/create-contract`);
+    tenantId?: string | null;
+    bindingScope?: "DEFAULT" | "OVERRIDE";
+  }>(
+    `/api/v1/ticket-categories/${encodeURIComponent(key)}/create-contract${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ""}`,
+  );
   return {
     requestTypeId: contract.categoryVersionId,
     requestTypeKey: contract.categoryKey,
@@ -57,6 +62,8 @@ export async function fetchCreateSchema(
     categoryChecksum: contract.categoryChecksum,
     formVersionId: contract.formVersionId,
     mappingChecksum: contract.mappingChecksum,
+    tenantId: contract.tenantId ?? tenantId ?? null,
+    bindingScope: contract.bindingScope,
   };
 }
 
@@ -85,6 +92,7 @@ export async function createCategoryTicket(
       formVersionId: schema.formVersionId,
       formChecksum: schema.formSchemaChecksum,
       mappingChecksum: schema.mappingChecksum,
+      tenantId: schema.tenantId ?? null,
     },
     { headers: { "X-Command-Id": cid } },
   );

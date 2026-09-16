@@ -133,6 +133,8 @@ export interface CreateSchemaResponse {
   categoryChecksum?: string;
   formVersionId?: string;
   mappingChecksum?: string;
+  tenantId?: string | null;
+  bindingScope?: "DEFAULT" | "OVERRIDE";
 }
 
 export interface TicketSubjectInput {

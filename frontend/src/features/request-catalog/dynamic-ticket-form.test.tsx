@@ -125,13 +125,15 @@ describe("DynamicTicketForm Component", () => {
     );
 
     expect(
-      screen.getByLabelText(/Business Justification/i),
+      screen.getByLabelText(/Lý do yêu cầu/i),
     ).toBeInTheDocument();
-    expect(
-      screen.getByLabelText(/Is this request urgent\?/i),
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText(/Estimated Cost/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/API Access Key/i)).toBeInTheDocument();
+    expect(screen.getByTestId("field-input-isUrgent")).toBeInTheDocument();
+    expect(screen.getByTestId("form-field-isUrgent")).toHaveTextContent(
+      "Yêu cầu này có gấp không?",
+    );
+    expect(screen.getByLabelText(/Chi phí dự kiến/i)).toBeInTheDocument();
+    expect(screen.getByTestId("field-input-apiKeySecret")).toBeInTheDocument();
+    expect(screen.getByText("Khóa truy cập API")).toBeInTheDocument();
 
     // Verify sensitive field starts masked as password
     const secretInput = screen.getByTestId("field-input-apiKeySecret");
@@ -153,7 +155,7 @@ describe("DynamicTicketForm Component", () => {
 
     // Initially isUrgent is false, so urgencyReason should not be visible
     expect(
-      screen.queryByLabelText(/Reason for Urgency/i),
+      screen.queryByLabelText(/Lý do yêu cầu gấp/i),
     ).not.toBeInTheDocument();
 
     // Toggle isUrgent to true
@@ -161,12 +163,12 @@ describe("DynamicTicketForm Component", () => {
     fireEvent.click(urgentCheckbox);
 
     // Now urgencyReason must be visible
-    expect(screen.getByLabelText(/Reason for Urgency/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Lý do yêu cầu gấp/i)).toBeInTheDocument();
 
     // Toggle back to false
     fireEvent.click(urgentCheckbox);
     expect(
-      screen.queryByLabelText(/Reason for Urgency/i),
+      screen.queryByLabelText(/Lý do yêu cầu gấp/i),
     ).not.toBeInTheDocument();
   });
 
@@ -184,10 +186,10 @@ describe("DynamicTicketForm Component", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText("Business Justification is required"),
+        screen.getByText("Lý do yêu cầu là bắt buộc"),
       ).toBeInTheDocument();
       expect(
-        screen.getByText("Estimated Cost is required"),
+        screen.getByText("Chi phí dự kiến là bắt buộc"),
       ).toBeInTheDocument();
     });
   });
@@ -316,7 +318,7 @@ describe("DynamicTicketForm Component", () => {
     // Verify mismatch banner appears
     await waitFor(() => {
       expect(screen.getByTestId("schema-mismatch-banner")).toBeInTheDocument();
-      expect(screen.getByText("Form Schema Updated")).toBeInTheDocument();
+      expect(screen.getByText("Biểu mẫu đã được cập nhật")).toBeInTheDocument();
     });
 
     // Click Reload Schema

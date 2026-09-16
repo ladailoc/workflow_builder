@@ -43,7 +43,7 @@ export default function RequestTypeDetailPage() {
         })
         .catch((reason: unknown) =>
           setError(
-            reason instanceof Error ? reason.message : "Request Type not found",
+            reason instanceof Error ? reason.message : "Không tìm thấy loại yêu cầu",
           ),
         ),
     [requestTypeId],
@@ -56,7 +56,7 @@ export default function RequestTypeDetailPage() {
     return (
       <AuthRouteGuard roles={["WORKFLOW_OWNER", "ADMIN"]}>
         <ErrorState
-          title="Request Type unavailable"
+          title="Không thể tải loại yêu cầu"
           message={error}
           onRetry={() => void load()}
         />
@@ -65,7 +65,7 @@ export default function RequestTypeDetailPage() {
   if (!item || !form)
     return (
       <AuthRouteGuard roles={["WORKFLOW_OWNER", "ADMIN"]}>
-        <LoadingPanel label="Loading Request Type…" />
+        <LoadingPanel label="Đang tải loại yêu cầu…" />
       </AuthRouteGuard>
     );
   return (
@@ -76,17 +76,17 @@ export default function RequestTypeDetailPage() {
       >
         <AdminPageHeader
           title={item.name}
-          description="Business-facing metadata and WorkflowDefinition mapping."
+          description="Thông tin hiển thị cho người dùng và liên kết WorkflowDefinition."
           action={
             <span
               className={`rounded-full px-3 py-1 text-xs font-semibold ${item.active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}
             >
-              {item.active ? "ACTIVE" : "INACTIVE"}
+              {item.active ? "ĐANG HIỂN THỊ" : "ĐANG ẨN"}
             </span>
           }
         />
         <section className="rounded-xl border border-slate-200 bg-white p-5">
-          <h2 className="font-semibold text-slate-900">Workflow mapping</h2>
+          <h2 className="font-semibold text-slate-900">Liên kết quy trình</h2>
           <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
             <Link
               href={`/workflows/${item.workflowDefinitionId}`}
@@ -97,15 +97,13 @@ export default function RequestTypeDetailPage() {
             <LifecycleBadge value={item.workflowLifecycle} />
             <span>
               {item.currentPublishedVersionNo
-                ? `Current Published V${item.currentPublishedVersionNo}`
-                : "No current Published version"}
+                ? `Phiên bản đã phát hành hiện tại V${item.currentPublishedVersionNo}`
+                : "Chưa có phiên bản đã phát hành"}
             </span>
           </div>
           {(!item.schemaAvailable || item.workflowLifecycle !== "ACTIVE") && (
             <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-              This Request Type is not currently creatable in the end-user
-              catalog. Activate the workflow and publish a valid
-              TicketFormSchema.
+              Loại yêu cầu này hiện chưa thể sử dụng trong danh mục dành cho người dùng.
             </p>
           )}
         </section>
@@ -115,7 +113,7 @@ export default function RequestTypeDetailPage() {
           workflows={workflows}
           saving={saving}
           error={error}
-          submitLabel="Save changes"
+          submitLabel="Lưu thay đổi"
           onChange={setForm}
           onSubmit={async () => {
             setSaving(true);
@@ -133,7 +131,7 @@ export default function RequestTypeDetailPage() {
               setError(
                 reason instanceof Error
                   ? reason.message
-                  : "Unable to save Request Type",
+                  : "Không thể lưu loại yêu cầu",
               );
             } finally {
               setSaving(false);
@@ -146,7 +144,7 @@ export default function RequestTypeDetailPage() {
             onClick={() => {
               if (
                 window.confirm(
-                  `${item.active ? "Deactivate" : "Activate"} this Request Type?`,
+                  `${item.active ? "Ẩn" : "Hiển thị"} loại yêu cầu này?`,
                 )
               ) {
                 setSaving(true);
@@ -161,7 +159,7 @@ export default function RequestTypeDetailPage() {
                     setError(
                       reason instanceof Error
                         ? reason.message
-                        : "Unable to update activation",
+                        : "Không thể cập nhật trạng thái hiển thị",
                     ),
                   )
                   .finally(() => setSaving(false));
@@ -169,7 +167,7 @@ export default function RequestTypeDetailPage() {
             }}
             className={`rounded-lg border px-4 py-2 text-sm font-semibold ${item.active ? "border-rose-300 text-rose-700" : "border-emerald-300 text-emerald-700"}`}
           >
-            {item.active ? "Deactivate" : "Activate"}
+            {item.active ? "Ẩn loại yêu cầu" : "Hiển thị loại yêu cầu"}
           </button>
         </div>
       </div>

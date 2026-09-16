@@ -14,6 +14,19 @@ import {
 } from "@/features/workflow-management";
 import { ErrorState } from "@/shared/components/ui/error-state";
 
+function categoryLabel(category?: string): string {
+  const labels: Record<string, string> = {
+    GENERAL: "Chung",
+    IT: "Công nghệ thông tin",
+    HR: "Nhân sự",
+    FINANCE: "Tài chính",
+    PROCUREMENT: "Mua sắm",
+    SECURITY: "An ninh",
+  };
+  const normalized = category?.toUpperCase();
+  return labels[normalized ?? ""] ?? category ?? "Chung";
+}
+
 export default function RequestTypesPage() {
   const [items, setItems] = useState<RequestTypeAdminView[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,7 +40,7 @@ export default function RequestTypesPage() {
         setError(
           reason instanceof Error
             ? reason.message
-            : "Unable to load Request Types",
+            : "Không thể tải loại yêu cầu",
         ),
       )
       .finally(() => setLoading(false));
@@ -43,7 +56,7 @@ export default function RequestTypesPage() {
           setError(
             reason instanceof Error
               ? reason.message
-              : "Unable to load Request Types",
+              : "Không thể tải loại yêu cầu",
           );
       })
       .finally(() => {
@@ -58,26 +71,26 @@ export default function RequestTypesPage() {
     <AuthRouteGuard roles={["WORKFLOW_OWNER", "ADMIN"]}>
       <div className="space-y-6" data-testid="request-type-management-page">
         <AdminPageHeader
-          title="Request Types"
-          description="Manage business catalog entries and their WorkflowDefinition mapping."
+          title="Loại yêu cầu"
+          description="Quản lý các mục trong danh mục yêu cầu và liên kết WorkflowDefinition tương ứng."
           action={
             <PrimaryLink href="/request-types/new">
-              + New Request Type
+              + Tạo loại yêu cầu
             </PrimaryLink>
           }
         />
         {error ? (
           <ErrorState
-            title="Could not load Request Types"
+            title="Không thể tải loại yêu cầu"
             message={error}
             onRetry={load}
           />
         ) : loading ? (
-          <LoadingPanel label="Loading Request Types…" />
+          <LoadingPanel label="Đang tải loại yêu cầu…" />
         ) : items.length === 0 ? (
           <EmptyPanel
-            title="No Request Types"
-            detail="Create a business-facing RequestType and map it to a WorkflowDefinition."
+            title="Chưa có loại yêu cầu"
+            detail="Hãy tạo một RequestType dành cho người dùng và liên kết với WorkflowDefinition."
           />
         ) : (
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -85,11 +98,11 @@ export default function RequestTypesPage() {
               <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                 <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
                   <tr>
-                    <th className="px-5 py-3">Name</th>
-                    <th className="px-5 py-3">Key</th>
-                    <th className="px-5 py-3">Workflow</th>
-                    <th className="px-5 py-3">Published</th>
-                    <th className="px-5 py-3">Active</th>
+                    <th className="px-5 py-3">Tên</th>
+                    <th className="px-5 py-3">Khóa</th>
+                    <th className="px-5 py-3">Quy trình</th>
+                    <th className="px-5 py-3">Đã phát hành</th>
+                    <th className="px-5 py-3">Hiển thị</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -106,7 +119,7 @@ export default function RequestTypesPage() {
                           {item.name}
                         </Link>
                         <p className="text-xs text-slate-500">
-                          {item.category}
+                          {categoryLabel(item.category)}
                         </p>
                       </td>
                       <td className="px-5 py-4 font-mono text-xs">
@@ -125,7 +138,7 @@ export default function RequestTypesPage() {
                           `V${item.currentPublishedVersionNo}`
                         ) : (
                           <span className="text-amber-700">
-                            No Published schema
+                            Chưa có schema đã phát hành
                           </span>
                         )}
                       </td>
@@ -133,7 +146,7 @@ export default function RequestTypesPage() {
                         <span
                           className={`rounded-full px-2 py-1 text-xs font-semibold ${item.active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}
                         >
-                          {item.active ? "Yes" : "No"}
+                          {item.active ? "Có" : "Không"}
                         </span>
                       </td>
                     </tr>

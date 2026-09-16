@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { fetchRequestTypes, CatalogGrid, type CatalogItem } from "@/features/request-catalog";
 import { ErrorState } from "@/shared/components/ui/error-state";
+import { PageHeader } from "@/shared/components/ui/page-header";
 
 export default function CatalogPage() {
   const [items, setItems] = useState<CatalogItem[]>([]);
@@ -20,7 +21,7 @@ export default function CatalogPage() {
         setError(
           err instanceof Error
             ? err.message
-            : "Failed to load request catalog items",
+            : "Không thể tải danh mục yêu cầu",
         );
       })
       .finally(() => {
@@ -42,7 +43,7 @@ export default function CatalogPage() {
           setError(
             err instanceof Error
               ? err.message
-              : "Failed to load request catalog items",
+              : "Không thể tải danh mục yêu cầu",
           );
           setIsLoading(false);
         }
@@ -53,19 +54,16 @@ export default function CatalogPage() {
   }, []);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-          Request Catalog
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Browse available service request types and initiate new ticket requests.
-        </p>
-      </div>
+    <div className="space-y-8" data-testid="request-catalog-page">
+      <PageHeader
+        eyebrow="Tự phục vụ"
+        title="Danh mục yêu cầu"
+        description="Chọn nội dung bạn cần hỗ trợ. Hệ thống sẽ mở đúng biểu mẫu cho dịch vụ đó."
+      />
 
       {error ? (
         <ErrorState
-          title="Could not load request catalog"
+          title="Không thể tải danh mục yêu cầu"
           message={error}
           onRetry={loadCatalog}
         />

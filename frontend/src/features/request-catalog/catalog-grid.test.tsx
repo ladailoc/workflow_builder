@@ -36,9 +36,9 @@ describe("CatalogGrid Component", () => {
     expect(screen.getByText("Travel Expense Reimbursement")).toBeInTheDocument();
 
     // Verify categories are rendered
-    expect(screen.getAllByText("IT Equipment").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("IT Access").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Finance").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Thiết bị công nghệ thông tin").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Quyền truy cập công nghệ thông tin").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Tài chính").length).toBeGreaterThan(0);
   });
 
   it("filters items by search input query", () => {
@@ -69,6 +69,6 @@ describe("CatalogGrid Component", () => {
     fireEvent.change(searchInput, { target: { value: "nonexistent query" } });
 
     expect(screen.getByTestId("catalog-empty-state")).toBeInTheDocument();
-    expect(screen.getByText("No request types found")).toBeInTheDocument();
+    expect(screen.getByText("Không tìm thấy loại yêu cầu")).toBeInTheDocument();
   });
 });
