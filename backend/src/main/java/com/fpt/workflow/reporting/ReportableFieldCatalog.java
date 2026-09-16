@@ -11,7 +11,12 @@ import org.springframework.stereotype.Component;
 public class ReportableFieldCatalog {
 
   public List<FieldProjection> fields(WorkflowForm form) {
-    JsonNode fields = form.getSchemaJson().path("fields");
+    return fields(form.getSchemaJson());
+  }
+
+  public List<FieldProjection> fields(JsonNode schema) {
+    JsonNode fields = schema == null ? null : schema.path("fields");
+    if (fields == null) return List.of();
     if (!fields.isArray()) {
       return List.of();
     }

@@ -142,6 +142,7 @@ public class CoreNodeTypeConfiguration {
                 "childWorkflowDefinitionKey", TypeDescriptor.required(CanonicalValueType.STRING),
                 "childWorkflowDefinitionId", TypeDescriptor.nullable(CanonicalValueType.STRING),
                 "childWorkflowKey", TypeDescriptor.nullable(CanonicalValueType.STRING),
+                "childVersionResolution", TypeDescriptor.nullable(CanonicalValueType.STRING),
                 "executionMode", TypeDescriptor.nullable(CanonicalValueType.STRING),
                 "cancellationPolicy", TypeDescriptor.nullable(CanonicalValueType.STRING),
                 "failureStrategy", TypeDescriptor.nullable(CanonicalValueType.STRING),

@@ -25,6 +25,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -77,12 +78,30 @@ public class FormManagementService {
     JsonNode compiled=version.getSchemaJson();version.publish(checksum(compiled),compiled,actors.requireActor().actorId(),clock.now());form.pointToPublished(versionId,clock.now());return version;
   }
   @Transactional(readOnly=true) public List<FormVersion> versions(UUID formId){requireForm(formId);return versions.findAllByFormIdOrderByVersionNoDesc(formId);}
+  @Transactional(readOnly=true)
+  public List<FormCatalogItem> publishedCatalog(){
+    return forms.findAllByLifecycleOrderByNameAsc("ACTIVE").stream().filter(form->form.getCurrentPublishedVersionId()!=null).map(form->versions.findById(form.getCurrentPublishedVersionId()).filter(version->"PUBLISHED".equals(version.getStatus())).map(version->new FormCatalogItem(form.getId(),form.getKey(),form.getName(),form.getDescription(),version.getId(),version.getVersionNo(),version.getChecksum())).orElse(null)).filter(item->item!=null).toList();
+  }
   private FormValidationResult validate(FormVersion version,FormValidationPhase phase){try{return engine.validateSchema(mapper.treeToValue(version.getSchemaJson(),FormSchema.class),phase,contextSchema());}catch(JsonProcessingException|IllegalArgumentException ex){return new FormValidationResult(List.of(new com.fpt.workflow.form.engine.FormValidationIssue("FORM.SCHEMA_INVALID",FormIssueSeverity.ERROR,"$",ex.getMessage())));}}
-  private void syncFields(FormVersion version){try{FormSchema schema=mapper.treeToValue(version.getSchemaJson(),FormSchema.class);fields.deleteAllByFormVersionId(version.getId());fields.flush();fields.saveAll(schema.fields().stream().map(f->FormField.create(f.fieldId(),version.getId(),f.key(),f.label(),f.order(),f.type(),f.sensitive(),null)).toList());}catch(JsonProcessingException ex){throw new IllegalArgumentException("FORM.SCHEMA_INVALID",ex);}}
+  private void syncFields(FormVersion version){
+    try {
+      FormSchema schema = mapper.treeToValue(version.getSchemaJson(), FormSchema.class);
+      Map<String, UUID> existingIds = new HashMap<>();
+      fields.findAllByFormVersionIdOrderByOrdinalAsc(version.getId()).forEach(field -> existingIds.put(field.getFieldKey(), field.getId()));
+      fields.deleteAllByFormVersionId(version.getId());
+      fields.flush();
+      fields.saveAll(schema.fields().stream().map(field -> FormField.create(
+          existingIds.getOrDefault(field.key(), uuids.generate()), version.getId(), field.key(),
+          field.label(), field.order(), field.type(), field.sensitive(), null)).toList());
+    } catch (JsonProcessingException ex) {
+      throw new IllegalArgumentException("FORM.SCHEMA_INVALID", ex);
+    }
+  }
   private ExpressionSchema contextSchema(){return new ExpressionSchema(Map.of("actor.id",TypeDescriptor.required(CanonicalValueType.USER_ID),"category.key",TypeDescriptor.required(CanonicalValueType.STRING)),Set.of());}
   private FormDefinition requireForm(UUID id){return forms.findById(id).orElseThrow(()->new IllegalArgumentException("Form not found: "+id));}
   private FormVersion requireVersion(UUID formId,UUID id){FormVersion v=versions.findById(id).orElseThrow(()->new IllegalArgumentException("FormVersion not found: "+id));if(!v.getFormId().equals(formId))throw new IllegalArgumentException("FormVersion does not belong to Form");return v;}
   private String checksum(JsonNode value){try{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.toString().getBytes(StandardCharsets.UTF_8)));}catch(NoSuchAlgorithmException ex){throw new IllegalStateException(ex);}}
   public record CreateForm(String key,String name,String description,JsonNode schema){}
   public record FormView(FormDefinition form,FormVersion draft){}
+  public record FormCatalogItem(UUID formId,String formKey,String name,String description,UUID formVersionId,int versionNo,String checksum){}
 }

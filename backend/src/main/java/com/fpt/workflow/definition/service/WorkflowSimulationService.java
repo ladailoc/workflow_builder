@@ -1,11 +1,22 @@
 package com.fpt.workflow.definition.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fpt.workflow.definition.domain.EdgeDefinition;
 import com.fpt.workflow.definition.domain.NodeDefinition;
 import com.fpt.workflow.definition.repository.EdgeDefinitionRepository;
 import com.fpt.workflow.definition.repository.NodeDefinitionRepository;
+import com.fpt.workflow.resolver.expression.Expression;
+import com.fpt.workflow.resolver.expression.ExpressionScope;
+import com.fpt.workflow.resolver.expression.NullPolicy;
+import com.fpt.workflow.resolver.expression.SafeExpressionEngine;
+import com.fpt.workflow.resolver.expression.ExpressionSchema;
 import com.fpt.workflow.definition.validation.ValidationCompilation;
 import com.fpt.workflow.definition.validation.WorkflowValidationService;
+import com.fpt.workflow.shared.domain.value.CanonicalValueType;
+import com.fpt.workflow.shared.domain.value.TypeDescriptor;
 import com.fpt.workflow.resolver.participant.ParticipantResolverRegistry;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -33,6 +44,8 @@ public class WorkflowSimulationService {
   private final EdgeDefinitionRepository edgeRepository;
   private final NodeDefinitionRepository nodeRepository;
   private final ParticipantResolverRegistry participantRegistry;
+  private final ObjectMapper objectMapper;
+  private final SafeExpressionEngine expressionEngine;
 
   public WorkflowSimulationService(
       WorkflowValidationService validationService,
@@ -40,10 +53,30 @@ public class WorkflowSimulationService {
       NodeDefinitionRepository nodeDefinitionRepository,
       @org.springframework.beans.factory.annotation.Autowired(required = false)
           ParticipantResolverRegistry participantRegistry) {
+    this(
+        validationService,
+        edgeRepository,
+        nodeDefinitionRepository,
+        participantRegistry,
+        new ObjectMapper().findAndRegisterModules(),
+        new SafeExpressionEngine());
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public WorkflowSimulationService(
+      WorkflowValidationService validationService,
+      EdgeDefinitionRepository edgeRepository,
+      NodeDefinitionRepository nodeDefinitionRepository,
+      @org.springframework.beans.factory.annotation.Autowired(required = false)
+          ParticipantResolverRegistry participantRegistry,
+      ObjectMapper objectMapper,
+      SafeExpressionEngine expressionEngine) {
     this.validationService = validationService;
     this.edgeRepository = edgeRepository;
     this.nodeRepository = nodeDefinitionRepository;
     this.participantRegistry = participantRegistry;
+    this.objectMapper = objectMapper;
+    this.expressionEngine = expressionEngine;
   }
 
   /**
@@ -64,6 +97,7 @@ public class WorkflowSimulationService {
         nodes.stream().collect(Collectors.toMap(NodeDefinition::getId, n -> n));
     List<com.fpt.workflow.definition.domain.EdgeDefinition> edges =
         edgeRepository.findAllByWorkflowVersionIdOrderByPriorityAscIdAsc(workflowVersionId);
+    SimulationContext simulationContext = simulationContext(sample);
 
     // Build outgoing/incoming maps by node ID and port for traversal
     Map<UUID, List<com.fpt.workflow.definition.domain.EdgeDefinition>> outgoing = new HashMap<>();
@@ -157,16 +191,22 @@ public class WorkflowSimulationService {
             new SimulatedSubWorkflow(node.getNodeKey(), childKey, childKey, "STUB_DRY_RUN", "WOULD_CREATE_CHILD_EVENT"));
       }
 
-      // Selected routes: report declared outputPorts and whether a matching edge exists (priority order)
-      List<com.fpt.workflow.definition.domain.EdgeDefinition> out = outgoing.getOrDefault(nodeId, List.of());
-      Set<String> handledPorts = out.stream().map(e -> e.getSourcePort()).collect(Collectors.toSet());
-      if (!out.isEmpty()) {
-        for (var e : out) {
-          transitions.add(
-              new SimulatedTransition(node.getNodeKey(), e.getSourcePort(), nodesById.get(e.getTargetNodeId()) != null
-                  ? nodesById.get(e.getTargetNodeId()).getNodeKey()
-                  : e.getTargetNodeId().toString(), e.getPriority(), true, e.getId()));
-        }
+      // Selected routes: evaluate the same closed expression AST used by runtime routing.
+      List<EdgeDefinition> out = outgoing.getOrDefault(nodeId, List.of());
+      Set<String> handledPorts = out.stream().map(EdgeDefinition::getSourcePort).collect(Collectors.toSet());
+      List<EdgeDefinition> selected = selectRoutes(node, out, simulationContext, warnings);
+      Set<UUID> selectedIds = selected.stream().map(EdgeDefinition::getId).collect(Collectors.toSet());
+      for (EdgeDefinition edge : out) {
+        transitions.add(
+            new SimulatedTransition(
+                node.getNodeKey(),
+                edge.getSourcePort(),
+                nodesById.get(edge.getTargetNodeId()) != null
+                    ? nodesById.get(edge.getTargetNodeId()).getNodeKey()
+                    : edge.getTargetNodeId().toString(),
+                edge.getPriority(),
+                selectedIds.contains(edge.getId()),
+                edge.getId()));
       }
       // Handle unhandled output ports (join fallthrough, etc.): surfaced as warnings rather than routed
       // (compiler already gates publish for missing required routes; simulation never invents an edge).
@@ -176,7 +216,7 @@ public class WorkflowSimulationService {
       }
 
       // Enqueue targets deterministically by priority (lower first, stable by id)
-      out.stream()
+      selected.stream()
           .sorted(java.util.Comparator.comparingInt(com.fpt.workflow.definition.domain.EdgeDefinition::getPriority)
               .thenComparing(e -> e.getId().toString()))
           .forEach(e -> fringe.add(e.getTargetNodeId()));
@@ -196,6 +236,97 @@ public class WorkflowSimulationService {
         subWorkflows,
         List.copyOf(warnings));
   }
+
+  private List<EdgeDefinition> selectRoutes(
+      NodeDefinition node,
+      List<EdgeDefinition> outgoing,
+      SimulationContext context,
+      List<String> warnings) {
+    if (outgoing.isEmpty()) return List.of();
+    boolean hasConditions = outgoing.stream().anyMatch(edge -> edge.getConditionJson() != null);
+    // A definition with only unconditional edges is a fan-out description. Preserve every edge
+    // in that case; conditional edges use the same exclusive/all-matching semantics as runtime.
+    if (!hasConditions) return List.copyOf(outgoing);
+    String configuredMode = node.getConfigJson().path("routingMode").asText(null);
+    boolean allMatching = "ALL_MATCHING".equals(configuredMode);
+    EdgeDefinition fallback = null;
+    List<EdgeDefinition> matches = new ArrayList<>();
+    for (EdgeDefinition edge : outgoing.stream()
+        .sorted(java.util.Comparator.comparingInt(EdgeDefinition::getPriority)
+            .thenComparing(edge -> edge.getId().toString()))
+        .toList()) {
+      if (edge.isDefaultTransition()) {
+        fallback = edge;
+        continue;
+      }
+      if (edge.getConditionJson() == null || evaluate(edge.getConditionJson(), context, warnings, edge)) {
+        if (!allMatching) return List.of(edge);
+        matches.add(edge);
+      }
+    }
+    if (matches.isEmpty() && fallback != null) return List.of(fallback);
+    return List.copyOf(matches);
+  }
+
+  private boolean evaluate(
+      JsonNode conditionJson,
+      SimulationContext context,
+      List<String> warnings,
+      EdgeDefinition edge) {
+    try {
+      Expression expression = objectMapper.treeToValue(conditionJson, Expression.class);
+      var compiled = expressionEngine.compile(expression, ExpressionScope.RUNTIME, context.schema());
+      if (compiled.resultType().type() != CanonicalValueType.BOOLEAN
+          || compiled.resultType().isCollection()) {
+        throw new IllegalStateException("Edge condition must produce BOOLEAN");
+      }
+      return expressionEngine.evaluate(compiled, context.value(), NullPolicy.NULL_IS_FALSE).booleanValue();
+    } catch (com.fasterxml.jackson.core.JsonProcessingException | RuntimeException exception) {
+      warnings.add("Edge '" + edge.getId() + "' could not be evaluated: " + exception.getMessage());
+      return false;
+    }
+  }
+
+  private SimulationContext simulationContext(SampleContext sample) {
+    ObjectNode root = JsonNodeFactory.instance.objectNode();
+    ObjectNode ticket = root.putObject("ticket");
+    ticket.set("data", sample == null || sample.ticketData() == null
+        ? JsonNodeFactory.instance.objectNode()
+        : sample.ticketData().deepCopy());
+    ticket.set("subjects", sample == null || sample.subjects() == null
+        ? JsonNodeFactory.instance.arrayNode()
+        : sample.subjects().deepCopy());
+    Map<String, TypeDescriptor> paths = new HashMap<>();
+    inferPaths("ticket.data", ticket.path("data"), paths);
+    paths.put("ticket.subjects", TypeDescriptor.arrayOf(TypeDescriptor.required(CanonicalValueType.OBJECT)));
+    return new SimulationContext(root, new ExpressionSchema(paths, Set.of()));
+  }
+
+  private void inferPaths(String prefix, JsonNode value, Map<String, TypeDescriptor> paths) {
+    if (value == null || value.isNull() || value.isMissingNode()) return;
+    if (value.isObject()) {
+      value.fields().forEachRemaining(entry -> inferPaths(prefix + "." + entry.getKey(), entry.getValue(), paths));
+      paths.putIfAbsent(prefix, TypeDescriptor.required(CanonicalValueType.OBJECT));
+      return;
+    }
+    if (value.isArray()) {
+      TypeDescriptor item = value.size() == 0
+          ? TypeDescriptor.required(CanonicalValueType.OBJECT)
+          : inferType(value.get(0));
+      paths.put(prefix, TypeDescriptor.arrayOf(item));
+      return;
+    }
+    paths.put(prefix, inferType(value));
+  }
+
+  private TypeDescriptor inferType(JsonNode value) {
+    if (value.isBoolean()) return TypeDescriptor.required(CanonicalValueType.BOOLEAN);
+    if (value.isIntegralNumber()) return TypeDescriptor.required(CanonicalValueType.INTEGER);
+    if (value.isNumber()) return TypeDescriptor.required(CanonicalValueType.NUMBER);
+    return TypeDescriptor.required(CanonicalValueType.STRING);
+  }
+
+  private record SimulationContext(JsonNode value, ExpressionSchema schema) {}
 
   public record SampleContext(JsonNode ticketData, JsonNode subjects) {}
 

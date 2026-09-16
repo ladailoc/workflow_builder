@@ -139,8 +139,8 @@ class DemoWorkflowsIT {
       assertThat(publishedId).as("Published version for " + key).isNotNull();
 
       ValidationCompilation compilation = validationService.compileCurrent(publishedId);
-      assertThat(compilation.valid()).as("Valid: " + key).isTrue();
-      assertThat(compilation.publishable()).as("Publishable: " + key).isTrue();
+      assertThat(compilation.valid()).as("Valid: " + key + " issues=" + compilation.issues()).isTrue();
+      assertThat(compilation.publishable()).as("Publishable: " + key + " issues=" + compilation.issues()).isTrue();
       assertThat(
               compilation.issues().stream()
                   .filter(

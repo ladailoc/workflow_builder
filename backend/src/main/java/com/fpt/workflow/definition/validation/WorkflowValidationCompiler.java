@@ -1845,7 +1845,7 @@ public class WorkflowValidationCompiler {
               null));
       return;
     }
-    if (!"PUBLISHED".equals(formVersion.get().getStatus())) {
+    if (!Set.of("PUBLISHED", "SUPERSEDED").contains(formVersion.get().getStatus())) {
       issues.add(
           new CompilerIssue(
               "TASK_FORM_VERSION_NOT_PUBLISHED",

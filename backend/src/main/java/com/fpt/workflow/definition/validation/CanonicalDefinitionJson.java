@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fpt.workflow.definition.domain.EdgeDefinition;
 import com.fpt.workflow.definition.domain.NodeDefinition;
 import com.fpt.workflow.definition.domain.WorkflowVariable;
+import com.fpt.workflow.definition.domain.WorkflowInputDefinition;
+import com.fpt.workflow.definition.domain.WorkflowStateDefinition;
 import com.fpt.workflow.form.domain.WorkflowForm;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -47,6 +49,14 @@ public class CanonicalDefinitionJson {
     definition.variables().stream()
         .sorted(Comparator.comparing(WorkflowVariable::getKey))
         .forEach(variable -> variables.add(variable(variable)));
+    ArrayNode inputs = root.putArray("inputs");
+    definition.inputs().stream()
+        .sorted(Comparator.comparing(WorkflowInputDefinition::getInputKey))
+        .forEach(input -> inputs.add(input(input)));
+    ArrayNode states = root.putArray("states");
+    definition.states().stream()
+        .sorted(Comparator.comparing(WorkflowStateDefinition::getStateKey))
+        .forEach(state -> states.add(state(state)));
     return (ObjectNode) canonicalize(root);
   }
 
@@ -123,6 +133,34 @@ public class CanonicalDefinitionJson {
     json.set("default", variable.getDefaultJson());
     json.put("mutable", variable.isMutable());
     json.put("sensitive", variable.isSensitive());
+    return json;
+  }
+
+  private ObjectNode input(WorkflowInputDefinition input) {
+    ObjectNode json = objectMapper.createObjectNode();
+    json.put("id", input.getId().toString());
+    json.put("key", input.getInputKey());
+    json.put("semanticTag", input.getSemanticTag());
+    json.set("type", objectMapper.valueToTree(input.getType()));
+    json.put("required", input.isRequired());
+    json.set("default", input.getDefaultJson());
+    json.set("schema", input.getSchemaJson());
+    json.put("sensitive", input.isSensitive());
+    json.put("description", input.getDescription());
+    json.put("ordinal", input.getOrdinal());
+    return json;
+  }
+
+  private ObjectNode state(WorkflowStateDefinition state) {
+    ObjectNode json = objectMapper.createObjectNode();
+    json.put("id", state.getId().toString());
+    json.put("key", state.getStateKey());
+    json.put("name", state.getName());
+    json.put("description", state.getDescription());
+    json.put("group", state.getStateGroup());
+    json.put("terminal", state.isTerminal());
+    json.put("displayOrder", state.getDisplayOrder());
+    json.set("metadata", state.getMetadataJson());
     return json;
   }
 }

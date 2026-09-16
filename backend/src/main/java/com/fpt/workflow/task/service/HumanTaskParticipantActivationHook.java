@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fpt.workflow.definition.domain.NodeDefinition;
 import com.fpt.workflow.definition.repository.WorkflowDefinitionRepository;
 import com.fpt.workflow.definition.repository.WorkflowVersionRepository;
+import com.fpt.workflow.form.domain.FormVersion;
+import com.fpt.workflow.form.repository.FormVersionRepository;
 import com.fpt.workflow.nodetype.NodeCapability;
 import com.fpt.workflow.nodetype.NodeType;
 import com.fpt.workflow.nodetype.NodeTypeManifest;
@@ -88,6 +90,7 @@ public class HumanTaskParticipantActivationHook implements ParticipantActivation
   private final ParticipantResolutionEngine resolutionEngine;
   private final WorkflowVersionRepository workflowVersions;
   private final WorkflowDefinitionRepository workflowDefinitions;
+  private final FormVersionRepository taskFormVersions;
 
   @Autowired
   public HumanTaskParticipantActivationHook(
@@ -105,7 +108,8 @@ public class HumanTaskParticipantActivationHook implements ParticipantActivation
       TaskCandidateRepository candidateRepository,
       @Autowired(required = false) ParticipantResolutionEngine resolutionEngine,
       WorkflowVersionRepository workflowVersions,
-      WorkflowDefinitionRepository workflowDefinitions) {
+      WorkflowDefinitionRepository workflowDefinitions,
+      @Autowired(required = false) FormVersionRepository taskFormVersions) {
     this.taskRepository = taskRepository;
     this.snapshotRepository = snapshotRepository;
     this.registry = registry;
@@ -126,6 +130,43 @@ public class HumanTaskParticipantActivationHook implements ParticipantActivation
                 null);
     this.workflowVersions = workflowVersions;
     this.workflowDefinitions = workflowDefinitions;
+    this.taskFormVersions = taskFormVersions;
+  }
+
+  /** Backwards-compatible constructor retained for existing embedders and unit tests. */
+  public HumanTaskParticipantActivationHook(
+      TaskExecutionRepository taskRepository,
+      ParticipantSnapshotRepository snapshotRepository,
+      NodeTypeRegistry registry,
+      OrganizationHierarchyService hierarchyService,
+      UuidGenerator uuidGenerator,
+      PlatformClock clock,
+      ObjectMapper objectMapper,
+      TaskSlaActivationPort slaActivationService,
+      NodeItemExecutionRepository itemRepository,
+      ParticipantResolverRegistry participantRegistry,
+      TaskAggregationStateRepository aggregationStateRepository,
+      TaskCandidateRepository candidateRepository,
+      ParticipantResolutionEngine resolutionEngine,
+      WorkflowVersionRepository workflowVersions,
+      WorkflowDefinitionRepository workflowDefinitions) {
+    this(
+        taskRepository,
+        snapshotRepository,
+        registry,
+        hierarchyService,
+        uuidGenerator,
+        clock,
+        objectMapper,
+        slaActivationService,
+        itemRepository,
+        participantRegistry,
+        aggregationStateRepository,
+        candidateRepository,
+        resolutionEngine,
+        workflowVersions,
+        workflowDefinitions,
+        null);
   }
 
   public HumanTaskParticipantActivationHook(
@@ -156,6 +197,7 @@ public class HumanTaskParticipantActivationHook implements ParticipantActivation
         aggregationStateRepository,
         candidateRepository,
         resolutionEngine,
+        null,
         null,
         null);
   }
@@ -532,7 +574,7 @@ public class HumanTaskParticipantActivationHook implements ParticipantActivation
             resolvedUserId,
             title,
             description,
-            null,
+            taskFormSchema(node),
             execution.getInputJson() != null
                 ? execution.getInputJson()
                 : JsonNodeFactory.instance.objectNode(),
@@ -568,7 +610,7 @@ public class HumanTaskParticipantActivationHook implements ParticipantActivation
             null,
             title,
             description,
-            null,
+            taskFormSchema(node),
             execution.getInputJson() != null
                 ? execution.getInputJson()
                 : JsonNodeFactory.instance.objectNode(),
@@ -663,7 +705,7 @@ public class HumanTaskParticipantActivationHook implements ParticipantActivation
             null,
             title,
             description,
-            null,
+            taskFormSchema(node),
             execution.getInputJson() != null
                 ? execution.getInputJson()
                 : JsonNodeFactory.instance.objectNode(),
@@ -884,5 +926,35 @@ public class HumanTaskParticipantActivationHook implements ParticipantActivation
         .flatMap(version -> workflowDefinitions.findById(version.getDefinitionId()))
         .map(definition -> definition.getOwnerId())
         .orElse(null);
+  }
+
+  /** Captures the exact immutable task FormVersion pinned by the published node. */
+  private JsonNode taskFormSchema(NodeDefinition node) {
+    JsonNode reference = node.getConfigJson().path("taskFormVersionId");
+    if (!reference.isTextual() || reference.asText().isBlank() || taskFormVersions == null) {
+      return null;
+    }
+    UUID formVersionId;
+    try {
+      formVersionId = UUID.fromString(reference.asText().trim());
+    } catch (IllegalArgumentException invalid) {
+      throw new IllegalStateException("Published task node contains an invalid FormVersion id", invalid);
+    }
+    FormVersion version =
+        taskFormVersions
+            .findById(formVersionId)
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "Pinned task FormVersion was not found: " + formVersionId));
+    if (!java.util.Set.of("PUBLISHED", "SUPERSEDED").contains(version.getStatus())) {
+      throw new IllegalStateException(
+          "Pinned task FormVersion is no longer Published: " + formVersionId);
+    }
+    JsonNode schema =
+        version.getCompiledSchemaJson() != null
+            ? version.getCompiledSchemaJson()
+            : version.getSchemaJson();
+    return schema == null ? null : schema.deepCopy();
   }
 }

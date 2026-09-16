@@ -3,6 +3,8 @@ package com.fpt.workflow.reporting;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fpt.workflow.form.domain.WorkflowForm;
 import com.fpt.workflow.form.domain.WorkflowFormType;
+import com.fpt.workflow.form.domain.FormVersion;
+import com.fpt.workflow.form.repository.FormVersionRepository;
 import com.fpt.workflow.form.repository.WorkflowFormRepository;
 import com.fpt.workflow.security.ActorContext;
 import com.fpt.workflow.security.ActorContextProvider;
@@ -13,6 +15,8 @@ import com.fpt.workflow.shared.transaction.TransactionalQuery;
 import com.fpt.workflow.ticket.domain.Ticket;
 import com.fpt.workflow.ticket.dto.TicketDtos;
 import com.fpt.workflow.ticket.repository.TicketRepository;
+import com.fpt.workflow.ticketcategory.domain.TicketCategoryVersion;
+import com.fpt.workflow.ticketcategory.repository.TicketCategoryVersionRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -23,6 +27,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -34,8 +39,8 @@ public class TicketReportingQueryService {
   private static final int MAX_PAGE_SIZE = 100;
   private static final String CANDIDATE_SQL =
       "SELECT t.id FROM tickets t "
-          + "JOIN ticket_revisions r ON r.ticket_id=t.id AND r.id=t.current_revision_id "
-          + "WHERE r.source_schema_version=? ORDER BY t.created_at DESC,t.id DESC";
+          + "JOIN events e ON e.ticket_id=t.id "
+          + "WHERE e.workflow_version_id=? ORDER BY t.created_at DESC,t.id DESC";
 
   private final JdbcTemplate jdbc;
   private final WorkflowFormRepository forms;
@@ -43,6 +48,30 @@ public class TicketReportingQueryService {
   private final TicketRepository tickets;
   private final VisibilityResolver visibility;
   private final ActorContextProvider actors;
+  private final FormVersionRepository formVersions;
+  private final TicketCategoryVersionRepository categoryVersions;
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public TicketReportingQueryService(
+      JdbcTemplate jdbc,
+      WorkflowFormRepository forms,
+      ReportableFieldCatalog catalog,
+      TicketRepository tickets,
+      VisibilityResolver visibility,
+      ActorContextProvider actors,
+      @org.springframework.beans.factory.annotation.Autowired(required = false)
+          FormVersionRepository formVersions,
+      @org.springframework.beans.factory.annotation.Autowired(required = false)
+          TicketCategoryVersionRepository categoryVersions) {
+    this.jdbc = jdbc;
+    this.forms = forms;
+    this.catalog = catalog;
+    this.tickets = tickets;
+    this.visibility = visibility;
+    this.actors = actors;
+    this.formVersions = formVersions;
+    this.categoryVersions = categoryVersions;
+  }
 
   public TicketReportingQueryService(
       JdbcTemplate jdbc,
@@ -51,20 +80,15 @@ public class TicketReportingQueryService {
       TicketRepository tickets,
       VisibilityResolver visibility,
       ActorContextProvider actors) {
-    this.jdbc = jdbc;
-    this.forms = forms;
-    this.catalog = catalog;
-    this.tickets = tickets;
-    this.visibility = visibility;
-    this.actors = actors;
+    this(jdbc, forms, catalog, tickets, visibility, actors, null, null);
   }
 
   @TransactionalQuery
   @PreAuthorize("isAuthenticated()")
   public SearchPage search(SearchRequest request) {
     validatePage(request);
-    WorkflowForm form = ticketForm(request.workflowVersionId());
-    ReportableFieldCatalog.FieldProjection field = requireQueryableField(form, request);
+    JsonNode schema = ticketFormSchema(request.workflowVersionId());
+    ReportableFieldCatalog.FieldProjection field = requireQueryableField(schema, request);
     Object expected = parse(field.canonicalType(), request.value());
     ActorContext actor = actors.requireActor();
 
@@ -101,13 +125,25 @@ public class TicketReportingQueryService {
   @TransactionalQuery
   @PreAuthorize("isAuthenticated()")
   public List<ReportableFieldCatalog.FieldProjection> fields(UUID workflowVersionId) {
-    return catalog.fields(ticketForm(workflowVersionId));
+    return catalog.fields(ticketFormSchema(workflowVersionId));
   }
 
-  private WorkflowForm ticketForm(UUID workflowVersionId) {
+  private JsonNode ticketFormSchema(UUID workflowVersionId) {
     if (workflowVersionId == null) invalid("workflowVersionId is required");
+    if (formVersions != null && categoryVersions != null) {
+      for (TicketCategoryVersion categoryVersion :
+          categoryVersions.findAllByWorkflowVersionId(workflowVersionId)) {
+        if (!Set.of("PUBLISHED", "SUPERSEDED").contains(categoryVersion.getStatus())) continue;
+        FormVersion formVersion = formVersions.findById(categoryVersion.getFormVersionId()).orElse(null);
+        if (formVersion != null && Set.of("PUBLISHED", "SUPERSEDED").contains(formVersion.getStatus())) {
+          JsonNode schema = formVersion.getCompiledSchemaJson();
+          return schema != null ? schema : formVersion.getSchemaJson();
+        }
+      }
+    }
     return forms.findAllByWorkflowVersionIdOrderByFormKeyAsc(workflowVersionId).stream()
         .filter(form -> form.getFormType() == WorkflowFormType.TICKET_FORM)
+        .map(WorkflowForm::getSchemaJson)
         .findFirst()
         .orElseThrow(
             () ->
@@ -116,12 +152,12 @@ public class TicketReportingQueryService {
   }
 
   private ReportableFieldCatalog.FieldProjection requireQueryableField(
-      WorkflowForm form, SearchRequest request) {
+      JsonNode schema, SearchRequest request) {
     if (request.fieldKey() == null || request.fieldKey().isBlank() || request.operator() == null) {
       throw invalid("fieldKey and operator are required");
     }
     ReportableFieldCatalog.FieldProjection field =
-        catalog.fields(form).stream()
+        catalog.fields(schema).stream()
             .filter(candidate -> candidate.fieldKey().equals(request.fieldKey()))
             .findFirst()
             .orElseThrow(

@@ -105,8 +105,8 @@ public class DefaultVisibilityResolver implements VisibilityResolver {
     if (ticket.getCreatorId().equals(actor.actorId())) {
       return VisibilityDecision.allow(VisibilitySubject.CREATOR);
     }
-    boolean ownsDefinition =
-        requestTypes
+    boolean ownsDefinition = ticket.getRequestTypeId() != null
+        && requestTypes
             .findById(ticket.getRequestTypeId())
             .map(RequestType::getWorkflowDefinitionId)
             .flatMap(definitions::findById)

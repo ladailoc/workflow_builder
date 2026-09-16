@@ -6,12 +6,16 @@ import com.fpt.workflow.definition.domain.EdgeDefinition;
 import com.fpt.workflow.definition.domain.NodeDefinition;
 import com.fpt.workflow.definition.domain.WorkflowDefinition;
 import com.fpt.workflow.definition.domain.WorkflowVariable;
+import com.fpt.workflow.definition.domain.WorkflowInputDefinition;
+import com.fpt.workflow.definition.domain.WorkflowStateDefinition;
 import com.fpt.workflow.definition.domain.WorkflowVersion;
 import com.fpt.workflow.definition.publish.WorkflowPublishService;
 import com.fpt.workflow.definition.repository.EdgeDefinitionRepository;
 import com.fpt.workflow.definition.repository.NodeDefinitionRepository;
 import com.fpt.workflow.definition.repository.WorkflowDefinitionRepository;
 import com.fpt.workflow.definition.repository.WorkflowVariableRepository;
+import com.fpt.workflow.definition.repository.WorkflowInputDefinitionRepository;
+import com.fpt.workflow.definition.repository.WorkflowStateDefinitionRepository;
 import com.fpt.workflow.definition.repository.WorkflowVersionRepository;
 import com.fpt.workflow.form.domain.WorkflowForm;
 import com.fpt.workflow.form.repository.WorkflowFormRepository;
@@ -36,6 +40,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.slf4j.MDC;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /** Rollback is forward-only: clone a known-good artifact and publish a new monotonic version. */
@@ -48,12 +53,45 @@ public class WorkflowRollbackService {
   private final EdgeDefinitionRepository edgeRepository;
   private final WorkflowFormRepository formRepository;
   private final WorkflowVariableRepository variableRepository;
+  private final WorkflowInputDefinitionRepository inputRepository;
+  private final WorkflowStateDefinitionRepository stateRepository;
   private final WorkflowPublishService publishService;
   private final AuditEventRepository auditRepository;
   private final ActorContextProvider actorContextProvider;
   private final UuidGenerator uuids;
   private final PlatformClock clock;
 
+  @Autowired
+  public WorkflowRollbackService(
+      WorkflowDefinitionRepository definitionRepository,
+      WorkflowVersionRepository versionRepository,
+      NodeDefinitionRepository nodeRepository,
+      EdgeDefinitionRepository edgeRepository,
+      WorkflowFormRepository formRepository,
+      WorkflowVariableRepository variableRepository,
+      WorkflowPublishService publishService,
+      AuditEventRepository auditRepository,
+      ActorContextProvider actorContextProvider,
+      UuidGenerator uuids,
+      PlatformClock clock,
+      WorkflowInputDefinitionRepository inputRepository,
+      WorkflowStateDefinitionRepository stateRepository) {
+    this.definitionRepository = definitionRepository;
+    this.versionRepository = versionRepository;
+    this.nodeRepository = nodeRepository;
+    this.edgeRepository = edgeRepository;
+    this.formRepository = formRepository;
+    this.variableRepository = variableRepository;
+    this.publishService = publishService;
+    this.auditRepository = auditRepository;
+    this.actorContextProvider = actorContextProvider;
+    this.uuids = uuids;
+    this.clock = clock;
+    this.inputRepository = inputRepository;
+    this.stateRepository = stateRepository;
+  }
+
+  /** Constructor retained for focused tests and older embedders that only model legacy contracts. */
   public WorkflowRollbackService(
       WorkflowDefinitionRepository definitionRepository,
       WorkflowVersionRepository versionRepository,
@@ -66,17 +104,9 @@ public class WorkflowRollbackService {
       ActorContextProvider actorContextProvider,
       UuidGenerator uuids,
       PlatformClock clock) {
-    this.definitionRepository = definitionRepository;
-    this.versionRepository = versionRepository;
-    this.nodeRepository = nodeRepository;
-    this.edgeRepository = edgeRepository;
-    this.formRepository = formRepository;
-    this.variableRepository = variableRepository;
-    this.publishService = publishService;
-    this.auditRepository = auditRepository;
-    this.actorContextProvider = actorContextProvider;
-    this.uuids = uuids;
-    this.clock = clock;
+    this(definitionRepository, versionRepository, nodeRepository, edgeRepository, formRepository,
+        variableRepository, publishService, auditRepository, actorContextProvider, uuids, clock,
+        null, null);
   }
 
   @TransactionalCommand
@@ -215,6 +245,25 @@ public class WorkflowRollbackService {
                         source.isMutable(),
                         source.isSensitive()))
             .toList());
+    if (inputRepository != null) {
+      inputRepository.saveAllAndFlush(
+          inputRepository.findAllByWorkflowVersionIdOrderByOrdinalAsc(sourceVersionId).stream()
+              .map(source -> WorkflowInputDefinition.create(
+                  uuids.generate(), draftId, source.getInputKey(), source.getSemanticTag(),
+                  source.getType(), source.isRequired(), source.getDefaultJson(),
+                  source.getSchemaJson(), source.isSensitive(), source.getDescription(),
+                  source.getOrdinal()))
+              .toList());
+    }
+    if (stateRepository != null) {
+      stateRepository.saveAllAndFlush(
+          stateRepository.findAllByWorkflowVersionIdOrderByDisplayOrderAsc(sourceVersionId).stream()
+              .map(source -> WorkflowStateDefinition.create(
+                  uuids.generate(), draftId, source.getStateKey(), source.getName(),
+                  source.getDescription(), source.getStateGroup(), source.isTerminal(),
+                  source.getDisplayOrder(), source.getMetadataJson()))
+              .toList());
+    }
   }
 
   private UUID requiredClone(Map<UUID, UUID> nodeIds, UUID sourceId) {

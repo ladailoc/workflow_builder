@@ -433,6 +433,54 @@ class WorkflowManagementApiIT {
         .andExpect(jsonPath("$.status").value("PUBLISHED"));
   }
 
+  @Test
+  void rejectsMalformedGraphNodeAsUnprocessableEntityWithoutChangingTheDraft() throws Exception {
+    JsonNode definition = createDefinition();
+    UUID workflowId = UUID.fromString(definition.path("id").asText());
+    JsonNode draft =
+        body(
+            mockMvc
+                .perform(
+                    owner(
+                        post("/api/v1/workflows/{id}/draft", workflowId)
+                            .header("X-Command-Id", UUID.randomUUID())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}")))
+                .andExpect(status().isCreated())
+                .andReturn());
+    UUID versionId = UUID.fromString(draft.path("id").asText());
+
+    var graphDocument = objectMapper.createObjectNode();
+    graphDocument.set(
+        "nodes",
+        objectMapper
+            .createArrayNode()
+            .add(node("start", "", "START", "Start")));
+    graphDocument.set("edges", objectMapper.createArrayNode());
+    var graph = objectMapper.createObjectNode().put("expectedRevision", 0);
+    graph.set("graph", graphDocument);
+
+    mockMvc
+        .perform(
+            owner(
+                put(
+                        "/api/v1/workflows/{id}/versions/{versionId}/graph",
+                        workflowId,
+                        versionId)
+                    .header("X-Command-Id", UUID.randomUUID())
+                    .header("If-Match", draft.path("lockVersion").asLong())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(graph))))
+        .andExpect(status().isUnprocessableEntity())
+        .andExpect(jsonPath("$.code").value("WORKFLOW_GRAPH_NODE_KEY_REQUIRED"));
+
+    mockMvc
+        .perform(owner(get("/api/v1/workflows/{id}/versions/{versionId}", workflowId, versionId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.version.revision").value(0))
+        .andExpect(jsonPath("$.nodes.length()").value(0));
+  }
+
   private JsonNode createDefinition() throws Exception {
     return body(
         mockMvc

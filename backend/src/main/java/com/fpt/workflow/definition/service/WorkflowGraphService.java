@@ -21,6 +21,7 @@ import com.fpt.workflow.shared.domain.ExpectedVersion;
 import com.fpt.workflow.shared.domain.OptimisticVersionGuard;
 import com.fpt.workflow.shared.transaction.TransactionalCommand;
 import com.fpt.workflow.shared.transaction.TransactionalQuery;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -28,11 +29,15 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
 @Service
 public class WorkflowGraphService {
+
+  private static final Pattern GRAPH_KEY_PATTERN =
+      Pattern.compile("[A-Za-z][A-Za-z0-9._-]{0,127}");
 
   private final WorkflowVersionRepository workflowVersionRepository;
   private final NodeDefinitionRepository nodeDefinitionRepository;
@@ -221,10 +226,15 @@ public class WorkflowGraphService {
     Map<String, WorkflowGraphDtos.GraphNode> requestedNodes = new LinkedHashMap<>();
     Set<String> nodeKeys = new HashSet<>();
     for (WorkflowGraphDtos.GraphNode node : request.nodes()) {
+      if (node == null) {
+        throw new UnprocessableCommandException(
+            "WORKFLOW_GRAPH_NODE_INVALID", "Graph nodes must not be null");
+      }
       if (node.clientRef() == null || node.clientRef().isBlank()) {
         throw new UnprocessableCommandException(
             "WORKFLOW_GRAPH_CLIENT_REF_REQUIRED", "Every graph node requires a clientRef");
       }
+      validateGraphNode(node);
       if (requestedNodes.putIfAbsent(node.clientRef(), node) != null) {
         throw new UnprocessableCommandException(
             "WORKFLOW_GRAPH_CLIENT_REF_DUPLICATE", "Graph node clientRef must be unique");
@@ -239,17 +249,30 @@ public class WorkflowGraphService {
 
     Set<String> edgeRefs = new HashSet<>();
     for (WorkflowGraphDtos.GraphEdge edge : request.edges()) {
+      if (edge == null) {
+        throw new UnprocessableCommandException(
+            "WORKFLOW_GRAPH_EDGE_INVALID", "Graph edges must not be null");
+      }
       if (edge.clientRef() == null
           || edge.clientRef().isBlank()
           || !edgeRefs.add(edge.clientRef())) {
         throw new UnprocessableCommandException(
             "WORKFLOW_EDGE_CLIENT_REF_INVALID", "Graph edge clientRef must be present and unique");
       }
+      if (edge.sourceClientRef() == null
+          || edge.sourceClientRef().isBlank()
+          || edge.targetClientRef() == null
+          || edge.targetClientRef().isBlank()) {
+        throw new UnprocessableCommandException(
+            "WORKFLOW_EDGE_NODE_REF_REQUIRED",
+            "Every edge requires a sourceClientRef and targetClientRef");
+      }
       WorkflowGraphDtos.GraphNode source = requestedNodes.get(edge.sourceClientRef());
       if (source == null || !requestedNodes.containsKey(edge.targetClientRef())) {
         throw new UnprocessableCommandException(
             "WORKFLOW_EDGE_NODE_MISSING", "Every edge endpoint must reference a submitted node");
       }
+      validateGraphEdge(edge);
       NodeTypeManifest sourceManifest = manifest(source.nodeType());
       if (!sourceManifest.outputPorts().contains(edge.sourcePort())) {
         throw new UnprocessableCommandException(
@@ -258,49 +281,60 @@ public class WorkflowGraphService {
       }
     }
 
+    Map<String, NodeDefinition> nodesByClientRef = new LinkedHashMap<>();
+    for (WorkflowGraphDtos.GraphNode requested : request.nodes()) {
+      try {
+        nodesByClientRef.put(
+            requested.clientRef(),
+            NodeDefinition.create(
+                uuidGenerator.generate(),
+                workflowVersionId,
+                requested.nodeKey(),
+                requested.nodeType(),
+                requested.name(),
+                requested.description(),
+                requested.configSchemaVersion(),
+                requested.configJson(),
+                requested.inputSchemaJson(),
+                requested.outputSchemaJson(),
+                requested.positionJson()));
+      } catch (IllegalArgumentException | NullPointerException exception) {
+        throw new UnprocessableCommandException(
+            "WORKFLOW_GRAPH_NODE_INVALID", "Graph node contains an invalid value");
+      }
+    }
+
+    List<EdgeDefinition> requestedEdges = new ArrayList<>();
+    for (WorkflowGraphDtos.GraphEdge requested : request.edges()) {
+      try {
+        requestedEdges.add(
+            EdgeDefinition.create(
+                uuidGenerator.generate(),
+                workflowVersionId,
+                nodesByClientRef.get(requested.sourceClientRef()).getId(),
+                requested.sourcePort(),
+                nodesByClientRef.get(requested.targetClientRef()).getId(),
+                requested.conditionJson(),
+                requested.priority(),
+                requested.defaultTransition(),
+                requested.transitionType(),
+                requested.label(),
+                requested.configJson()));
+      } catch (IllegalArgumentException | NullPointerException exception) {
+        throw new UnprocessableCommandException(
+            "WORKFLOW_GRAPH_EDGE_INVALID", "Graph edge contains an invalid value");
+      }
+    }
+
     edgeDefinitionRepository.deleteAllByWorkflowVersionId(workflowVersionId);
     edgeDefinitionRepository.flush();
     nodeDefinitionRepository.deleteAllByWorkflowVersionId(workflowVersionId);
     nodeDefinitionRepository.flush();
 
-    Map<String, NodeDefinition> persistedByClientRef = new LinkedHashMap<>();
-    for (WorkflowGraphDtos.GraphNode requested : request.nodes()) {
-      NodeDefinition node =
-          NodeDefinition.create(
-              uuidGenerator.generate(),
-              workflowVersionId,
-              requested.nodeKey(),
-              requested.nodeType(),
-              requested.name(),
-              requested.description(),
-              requested.configSchemaVersion(),
-              requested.configJson(),
-              requested.inputSchemaJson(),
-              requested.outputSchemaJson(),
-              requested.positionJson());
-      persistedByClientRef.put(requested.clientRef(), node);
-    }
     List<NodeDefinition> savedNodes =
-        nodeDefinitionRepository.saveAllAndFlush(persistedByClientRef.values());
+        nodeDefinitionRepository.saveAllAndFlush(nodesByClientRef.values());
 
-    List<EdgeDefinition> savedEdges =
-        edgeDefinitionRepository.saveAllAndFlush(
-            request.edges().stream()
-                .map(
-                    edge ->
-                        EdgeDefinition.create(
-                            uuidGenerator.generate(),
-                            workflowVersionId,
-                            persistedByClientRef.get(edge.sourceClientRef()).getId(),
-                            edge.sourcePort(),
-                            persistedByClientRef.get(edge.targetClientRef()).getId(),
-                            edge.conditionJson(),
-                            edge.priority(),
-                            edge.defaultTransition(),
-                            edge.transitionType(),
-                            edge.label(),
-                            edge.configJson()))
-                .toList());
+    List<EdgeDefinition> savedEdges = edgeDefinitionRepository.saveAllAndFlush(requestedEdges);
     WorkflowVersion savedVersion = workflowVersionRepository.saveAndFlush(version);
     return new WorkflowGraphDtos.GraphView(
         savedNodes.stream().map(WorkflowGraphDtos.NodeView::from).toList(),
@@ -389,6 +423,67 @@ public class WorkflowGraphService {
           field + " must reference a node in the edge WorkflowVersion");
     }
     return node;
+  }
+
+  private void validateGraphNode(WorkflowGraphDtos.GraphNode node) {
+    if (node.nodeKey() == null || node.nodeKey().isBlank()) {
+      throw new UnprocessableCommandException(
+          "WORKFLOW_GRAPH_NODE_KEY_REQUIRED", "Every graph node requires a nodeKey");
+    }
+    if (!GRAPH_KEY_PATTERN.matcher(node.nodeKey()).matches()) {
+      throw new UnprocessableCommandException(
+          "WORKFLOW_GRAPH_NODE_KEY_INVALID",
+          "Graph node nodeKey must start with a letter and contain only letters, numbers, '.', '_' or '-'");
+    }
+    if (node.name() == null || node.name().isBlank()) {
+      throw new UnprocessableCommandException(
+          "WORKFLOW_GRAPH_NODE_NAME_REQUIRED", "Every graph node requires a name");
+    }
+    if (node.configSchemaVersion() < 1) {
+      throw new UnprocessableCommandException(
+          "WORKFLOW_GRAPH_CONFIG_SCHEMA_VERSION_INVALID",
+          "Graph node configSchemaVersion must be positive");
+    }
+    requireGraphObject(node.configJson(), "configJson");
+    requireNullableGraphObject(node.inputSchemaJson(), "inputSchemaJson");
+    requireNullableGraphObject(node.outputSchemaJson(), "outputSchemaJson");
+    requireGraphObject(node.positionJson(), "positionJson");
+  }
+
+  private void validateGraphEdge(WorkflowGraphDtos.GraphEdge edge) {
+    if (edge.sourcePort() == null || edge.sourcePort().isBlank()) {
+      throw new UnprocessableCommandException(
+          "WORKFLOW_GRAPH_SOURCE_PORT_REQUIRED", "Every graph edge requires a sourcePort");
+    }
+    if (!GRAPH_KEY_PATTERN.matcher(edge.sourcePort()).matches()) {
+      throw new UnprocessableCommandException(
+          "WORKFLOW_GRAPH_SOURCE_PORT_INVALID", "Graph edge sourcePort is invalid");
+    }
+    if (edge.priority() < 0) {
+      throw new UnprocessableCommandException(
+          "WORKFLOW_GRAPH_PRIORITY_INVALID", "Graph edge priority must not be negative");
+    }
+    if (edge.transitionType() == null) {
+      throw new UnprocessableCommandException(
+          "WORKFLOW_GRAPH_TRANSITION_TYPE_REQUIRED",
+          "Every graph edge requires a transitionType");
+    }
+    requireNullableGraphObject(edge.conditionJson(), "conditionJson");
+    requireGraphObject(edge.configJson(), "configJson");
+  }
+
+  private void requireGraphObject(JsonNode value, String field) {
+    if (value == null || !value.isObject()) {
+      throw new UnprocessableCommandException(
+          "WORKFLOW_GRAPH_JSON_OBJECT_REQUIRED", field + " must be a JSON object");
+    }
+  }
+
+  private void requireNullableGraphObject(JsonNode value, String field) {
+    if (value != null && !value.isObject()) {
+      throw new UnprocessableCommandException(
+          "WORKFLOW_GRAPH_JSON_OBJECT_INVALID", field + " must be a JSON object when provided");
+    }
   }
 
   private void validateNodeManifest(

@@ -102,8 +102,8 @@ public class PlatformSemanticDefaults {
     JsonNode source =
         effective.hasNonNull("aggregation")
             ? effective.path("aggregation")
-            : effective.hasNonNull("task") ? effective.path("task") : effective;
-    if (!source.isObject()) {
+            : effective.hasNonNull("task") ? effective.path("task") : null;
+    if (source == null || !source.isObject()) {
       return;
     }
     ObjectNode target = (ObjectNode) source;

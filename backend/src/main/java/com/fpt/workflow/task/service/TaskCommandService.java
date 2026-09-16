@@ -60,6 +60,7 @@ public class TaskCommandService {
   private final TaskSlaActivationPort slaActivationService;
   private final TaskAggregationService taskAggregationService;
   private final TaskCandidateRepository candidateRepository;
+  private final TaskFormValidationService taskFormValidationService;
 
   @Autowired
   public TaskCommandService(
@@ -76,7 +77,8 @@ public class TaskCommandService {
       NodeItemExecutionRepository itemExecutionRepository,
       TaskSlaActivationPort slaActivationService,
       TaskAggregationService taskAggregationService,
-      @Autowired(required = false) TaskCandidateRepository candidateRepository) {
+      @Autowired(required = false) TaskCandidateRepository candidateRepository,
+      @Autowired(required = false) TaskFormValidationService taskFormValidationService) {
     this.taskRepository = taskRepository;
     this.decisionRepository = decisionRepository;
     this.executionRepository = executionRepository;
@@ -91,6 +93,7 @@ public class TaskCommandService {
     this.slaActivationService = slaActivationService;
     this.taskAggregationService = taskAggregationService;
     this.candidateRepository = candidateRepository;
+    this.taskFormValidationService = taskFormValidationService;
   }
 
   public TaskCommandService(
@@ -121,6 +124,41 @@ public class TaskCommandService {
         itemExecutionRepository,
         slaActivationService,
         taskAggregationService,
+        null,
+        null);
+  }
+
+  /** Backwards-compatible constructor retained for focused unit tests and embedders. */
+  public TaskCommandService(
+      TaskExecutionRepository taskRepository,
+      TaskDecisionRepository decisionRepository,
+      NodeExecutionRepository executionRepository,
+      RoutingService routingService,
+      EventLifecycleService eventLifecycleService,
+      AuditEventRepository auditRepository,
+      ActorContextProvider actorProvider,
+      UuidGenerator uuidGenerator,
+      PlatformClock clock,
+      MultiInstanceService multiInstanceService,
+      NodeItemExecutionRepository itemExecutionRepository,
+      TaskSlaActivationPort slaActivationService,
+      TaskAggregationService taskAggregationService,
+      TaskCandidateRepository candidateRepository) {
+    this(
+        taskRepository,
+        decisionRepository,
+        executionRepository,
+        routingService,
+        eventLifecycleService,
+        auditRepository,
+        actorProvider,
+        uuidGenerator,
+        clock,
+        multiInstanceService,
+        itemExecutionRepository,
+        slaActivationService,
+        taskAggregationService,
+        candidateRepository,
         null);
   }
 
@@ -272,6 +310,9 @@ public class TaskCommandService {
         && !task.getAssigneeId().equals(actor.actorId())) {
       throw new AccessDeniedException(
           "Actor " + actor.actorId() + " is not authorized to decide task " + taskId);
+    }
+    if (taskFormValidationService != null) {
+      taskFormValidationService.validate(task, formData, actor);
     }
     Instant now = clock.now();
 

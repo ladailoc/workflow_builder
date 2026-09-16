@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fpt.workflow.definition.domain.EdgeDefinition;
 import com.fpt.workflow.definition.domain.NodeDefinition;
 import com.fpt.workflow.definition.domain.WorkflowVariable;
+import com.fpt.workflow.definition.domain.WorkflowInputDefinition;
+import com.fpt.workflow.definition.domain.WorkflowStateDefinition;
 import com.fpt.workflow.definition.validation.ValidationDefinition;
 import com.fpt.workflow.definition.validation.WorkflowValidationService;
 import com.fpt.workflow.form.domain.WorkflowForm;
@@ -62,7 +64,9 @@ public class WorkflowSemanticDiffService {
         changes(participantPolicies(from.nodes()), participantPolicies(to.nodes())),
         changes(slaPolicies(from.nodes()), slaPolicies(to.nodes())),
         changes(connectorActionVersions(from.nodes()), connectorActionVersions(to.nodes())),
-        changes(variables(from.variables()), variables(to.variables())));
+        changes(variables(from.variables()), variables(to.variables())),
+        changes(inputs(from.inputs()), inputs(to.inputs())),
+        changes(states(from.states()), states(to.states())));
   }
 
   private Map<UUID, String> nodeKeys(List<NodeDefinition> nodes) {
@@ -185,6 +189,38 @@ public class WorkflowSemanticDiffService {
                 LinkedHashMap::new));
   }
 
+  private Map<String, JsonNode> inputs(List<WorkflowInputDefinition> inputs) {
+    return inputs.stream().collect(Collectors.toMap(
+        WorkflowInputDefinition::getInputKey,
+        input -> {
+          ObjectNode value = objectMapper.createObjectNode();
+          value.put("semanticTag", input.getSemanticTag());
+          value.set("type", objectMapper.valueToTree(input.getType()));
+          value.put("required", input.isRequired());
+          value.set("default", input.getDefaultJson());
+          value.set("schema", input.getSchemaJson());
+          value.put("sensitive", input.isSensitive());
+          value.put("description", input.getDescription());
+          value.put("ordinal", input.getOrdinal());
+          return value;
+        }, (left, right) -> right, LinkedHashMap::new));
+  }
+
+  private Map<String, JsonNode> states(List<WorkflowStateDefinition> states) {
+    return states.stream().collect(Collectors.toMap(
+        WorkflowStateDefinition::getStateKey,
+        state -> {
+          ObjectNode value = objectMapper.createObjectNode();
+          value.put("name", state.getName());
+          value.put("description", state.getDescription());
+          value.put("group", state.getStateGroup());
+          value.put("terminal", state.isTerminal());
+          value.put("displayOrder", state.getDisplayOrder());
+          value.set("metadata", state.getMetadataJson());
+          return value;
+        }, (left, right) -> right, LinkedHashMap::new));
+  }
+
   private List<SemanticChange> changes(Map<String, JsonNode> before, Map<String, JsonNode> after) {
     Set<String> keys = new TreeSet<>();
     keys.addAll(before.keySet());
@@ -228,7 +264,23 @@ public class WorkflowSemanticDiffService {
       List<SemanticChange> participantPolicies,
       List<SemanticChange> slaPolicies,
       List<SemanticChange> connectorActionVersions,
-      List<SemanticChange> variables) {
+      List<SemanticChange> variables,
+      List<SemanticChange> inputs,
+      List<SemanticChange> states) {
+    public SemanticDiff(
+        UUID fromVersionId,
+        UUID toVersionId,
+        List<SemanticChange> nodes,
+        List<SemanticChange> edges,
+        List<SemanticChange> forms,
+        List<SemanticChange> participantPolicies,
+        List<SemanticChange> slaPolicies,
+        List<SemanticChange> connectorActionVersions,
+        List<SemanticChange> variables) {
+      this(fromVersionId, toVersionId, nodes, edges, forms, participantPolicies, slaPolicies,
+          connectorActionVersions, variables, List.of(), List.of());
+    }
+
     public boolean hasChanges() {
       return !nodes.isEmpty()
           || !edges.isEmpty()
@@ -236,7 +288,9 @@ public class WorkflowSemanticDiffService {
           || !participantPolicies.isEmpty()
           || !slaPolicies.isEmpty()
           || !connectorActionVersions.isEmpty()
-          || !variables.isEmpty();
+          || !variables.isEmpty()
+          || !inputs.isEmpty()
+          || !states.isEmpty();
     }
   }
 }

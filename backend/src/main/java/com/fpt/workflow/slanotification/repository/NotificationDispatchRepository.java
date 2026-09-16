@@ -8,6 +8,8 @@ import org.springframework.data.repository.query.Param;
 public interface NotificationDispatchRepository extends JpaRepository<NotificationDispatch, UUID> {
   Optional<NotificationDispatch> findByDedupKey(String dedupKey);
 
+  List<NotificationDispatch> findAllByRecipientUserIdOrderByCreatedAtDesc(UUID recipientUserId);
+
   List<NotificationDispatch> findAllByStatusOrderByUpdatedAtAsc(
       com.fpt.workflow.slanotification.domain.NotificationDispatchStatus status);
 
