@@ -26,7 +26,7 @@ public class TicketCategoryTicketService {
   public TicketCategoryTicketService(TicketCategoryService categories,TicketCategoryVersionRepository versions,FormVersionRepository forms,FormSubmissionService submissions,FormSubmissionRepository submissionRepository,CategoryMappingService mapping,EventTriggerService triggers,EventWorkflowInputSnapshotRepository snapshots,WorkflowJobTransactions jobs,OutboxTransactions outbox,ActorContextProvider actors,UuidGenerator uuids,PlatformClock clock,JdbcTemplate jdbc){this.categories=categories;this.versions=versions;this.forms=forms;this.submissions=submissions;this.submissionRepository=submissionRepository;this.mapping=mapping;this.triggers=triggers;this.snapshots=snapshots;this.jobs=jobs;this.outbox=outbox;this.actors=actors;this.uuids=uuids;this.clock=clock;this.jdbc=jdbc;}
   @Transactional @PreAuthorize("isAuthenticated()")
   public TicketCategoryDtos.CreatedTicket create(String categoryKey,TicketCategoryDtos.CreateTicket request,String commandId){
-    var contract=categories.resolvePublishedForCreate(categoryKey);
+    var contract=categories.resolvePublishedForCreate(categoryKey,request.tenantId());
     if(!contract.categoryChecksum().equals(request.categoryChecksum())||!contract.formVersionId().equals(request.formVersionId())||!contract.formChecksum().equals(request.formChecksum())||!contract.mappingChecksum().equals(request.mappingChecksum()))throw new CommandConflictException("CATEGORY_CREATE_CONTRACT_CHANGED","The Published Category/Form/Mapping contract changed; reload the form");
     var categoryVersion=versions.findById(contract.categoryVersionId()).orElseThrow();var formVersion=forms.findById(contract.formVersionId()).orElseThrow();ActorContext actor=actors.requireActor();Instant now=clock.now();
     var submission=submissions.validateAndPersist(formVersion,request.formData(),actor,now);
@@ -38,7 +38,7 @@ public class TicketCategoryTicketService {
     var event=triggers.createRoot(ticketId,contract.workflowVersionId(),revisionId,null,null,"CATEGORY_TICKET_CREATE",commandId,JsonNodeFactory.instance.objectNode(),actor.actorId(),now).event();
     // Create-time mapped inputs are the revision-1 current pointer. §7.5 history rows are only
     // appended by an explicit revision remap; the runtime reads revision 1 from this row.
-    snapshots.saveAndFlush(EventWorkflowInputSnapshot.create(event.getId(),categoryVersion.getId(),submission.getId(),inputs,categoryVersion.getMappingChecksum(),now));
+    snapshots.saveAndFlush(EventWorkflowInputSnapshot.create(event.getId(),categoryVersion.getId(),contract.workflowVersionId(),submission.getId(),inputs,categoryVersion.getMappingChecksum(),now));
     jdbc.update("INSERT INTO ticket_state_history(id,ticket_id,event_id,state_key,entered_at,metadata_json) VALUES (?,?,?,?,?,'{}'::jsonb)",uuids.generate(),ticketId,event.getId(),initialState,Timestamp.from(now));
     UUID cycleId=uuids.generate(),correlationId=uuids.generate();
     jobs.enqueue("EVENT_START","EVENT",event.getId(),JsonNodeFactory.instance.objectNode().put("eventId",event.getId().toString()).put("cycleId",cycleId.toString()).put("correlationId",correlationId.toString()).put("commandId",commandId),5,now,"event-start:"+event.getId());

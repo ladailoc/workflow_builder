@@ -249,9 +249,11 @@ FROM form_versions fv WHERE fv.form_id = f.id AND fv.status = 'PUBLISHED';
 INSERT INTO form_fields(id, form_version_id, field_key, label, ordinal, type_json, sensitive,
                         requirement_json, visibility_json, editability_json, validation_json,
                         semantic_tag, participant_capable, business_subject, filterable, reportable, metadata_json)
-SELECT (md5('form-field:' || wf.id::text || ':' || ((field.value::jsonb)->>'fieldId')))::uuid,
+SELECT (md5('form-field:' || wf.id::text || ':' || COALESCE((field.value::jsonb)->>'key',(field.value::jsonb)->>'fieldId')))::uuid,
        (md5('form-version:' || wf.id::text))::uuid,
-       (field.value::jsonb)->>'fieldId', COALESCE((field.value::jsonb)->>'label', (field.value::jsonb)->>'fieldId'), field.ordinality - 1,
+       -- The legacy field's identity is "key" (e.g. leaveType); "fieldId" is an opaque UUID and
+       -- must never become field_key, or ck_form_fields_key/ck_workflow_inputs_key are violated.
+       (field.value::jsonb)->>'key', COALESCE((field.value::jsonb)->>'label', (field.value::jsonb)->>'key'), field.ordinality - 1,
        COALESCE((field.value::jsonb)->'type', '{"type":"STRING","nullable":true}'::jsonb),
        COALESCE(((field.value::jsonb)->>'sensitive')::boolean, false),
        COALESCE((field.value::jsonb)->'requirement', '{"mode":"NEVER"}'::jsonb),
@@ -266,13 +268,14 @@ SELECT (md5('form-field:' || wf.id::text || ':' || ((field.value::jsonb)->>'fiel
        COALESCE((field.value::jsonb)->'metadata', '{}'::jsonb)
 FROM workflow_forms wf
 CROSS JOIN LATERAL jsonb_array_elements(COALESCE(wf.schema_json->'fields','[]'::jsonb)) WITH ORDINALITY AS field(value, ordinality)
-WHERE wf.form_type = 'TICKET_FORM' AND (field.value::jsonb) ? 'fieldId'
+WHERE wf.form_type = 'TICKET_FORM' AND (field.value::jsonb) ? 'key'
+  AND (field.value::jsonb)->>'key' ~ '^[A-Za-z][A-Za-z0-9._-]{0,127}$'
 ON CONFLICT (form_version_id, field_key) DO NOTHING;
 
 INSERT INTO workflow_inputs(id, workflow_version_id, input_key, semantic_tag, type_json, required,
                             default_json, sensitive, description, ordinal)
-SELECT (md5('workflow-input:' || wf.workflow_version_id::text || ':' || ((field.value::jsonb)->>'fieldId')))::uuid,
-       wf.workflow_version_id, (field.value::jsonb)->>'fieldId',
+SELECT (md5('workflow-input:' || wf.workflow_version_id::text || ':' || COALESCE((field.value::jsonb)->>'key',(field.value::jsonb)->>'fieldId')))::uuid,
+       wf.workflow_version_id, (field.value::jsonb)->>'key',
        (field.value::jsonb)->'semanticMetadata'->>'businessConcept',
        COALESCE((field.value::jsonb)->'type', '{"type":"STRING","nullable":true}'::jsonb),
        COALESCE((field.value::jsonb)->'requirement'->>'mode' = 'ALWAYS', false),
@@ -280,7 +283,8 @@ SELECT (md5('workflow-input:' || wf.workflow_version_id::text || ':' || ((field.
        (field.value::jsonb)->>'description', field.ordinality - 1
 FROM workflow_forms wf
 CROSS JOIN LATERAL jsonb_array_elements(COALESCE(wf.schema_json->'fields','[]'::jsonb)) WITH ORDINALITY AS field(value, ordinality)
-WHERE wf.form_type = 'TICKET_FORM' AND (field.value::jsonb) ? 'fieldId'
+WHERE wf.form_type = 'TICKET_FORM' AND (field.value::jsonb) ? 'key'
+  AND (field.value::jsonb)->>'key' ~ '^[A-Za-z][A-Za-z0-9._-]{0,127}$'
 ON CONFLICT (workflow_version_id, input_key) DO NOTHING;
 
 INSERT INTO ticket_categories(id, key, name, description, category_group, lifecycle, created_by, created_at, updated_at)

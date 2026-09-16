@@ -12,7 +12,7 @@ public class TicketCategoryController {
   private final TicketCategoryService categories;private final TicketCategoryCreateCommandFacade creates;
   public TicketCategoryController(TicketCategoryService categories,TicketCategoryCreateCommandFacade creates){this.categories=categories;this.creates=creates;}
   @GetMapping public List<TicketCategoryService.CatalogItem> list(@RequestParam(defaultValue="true") boolean active){return categories.listCreatable();}
-  @GetMapping("/{categoryKey}/create-contract") public TicketCategoryService.CreateContract contract(@PathVariable String categoryKey){return categories.resolvePublishedForCreate(categoryKey);}
+  @GetMapping("/{categoryKey}/create-contract") public TicketCategoryService.CreateContract contract(@PathVariable String categoryKey,@RequestParam(required=false) UUID tenantId){return categories.resolvePublishedForCreate(categoryKey,tenantId);}
   @PostMapping("/{categoryKey}/tickets") @ResponseStatus(HttpStatus.CREATED)
   public TicketCategoryDtos.CreatedTicket create(@PathVariable String categoryKey,@RequestHeader("X-Command-Id") UUID commandId,@RequestBody TicketCategoryDtos.CreateTicket request){return creates.create(categoryKey,new CommandId(commandId),request);}
 }

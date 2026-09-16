@@ -61,6 +61,7 @@ public class EventContextBuilder {
   private final EventWorkflowInputSnapshotRepository inputSnapshotRepository;
   private final WorkflowInputDefinitionRepository workflowInputRepository;
   private final FormSubmissionRepository formSubmissionRepository;
+  private CategoryFormSchemaSource categoryFormSchemaSource;
 
   public EventContextBuilder(
       EventRepository eventRepository,
@@ -134,6 +135,12 @@ public class EventContextBuilder {
     this.inputRevisionRepository = inputRevisionRepository;
   }
 
+  /** Optional because legacy constructor based tests and contexts do not have category bindings. */
+  @org.springframework.beans.factory.annotation.Autowired(required = false)
+  public void setCategoryFormSchemaSource(CategoryFormSchemaSource categoryFormSchemaSource) {
+    this.categoryFormSchemaSource = categoryFormSchemaSource;
+  }
+
   @Transactional(readOnly = true)
   public EventContext build(UUID eventId) {
     return build(eventId, RuntimeScope.event());
@@ -198,6 +205,7 @@ public class EventContextBuilder {
     addPlatformTypes(paths, ticket, event, scope);
     variables.forEach(variable -> paths.put("variables." + variable.getKey(), variable.getType()));
     addTicketFormTypes(event.getWorkflowVersionId(), paths);
+    if (inputSnapshot != null) addCategoryFormTypes(inputSnapshot.getCategoryVersionId(), paths);
     if (inputSnapshot != null && workflowInputRepository != null) {
       workflowInputRepository.findAllByWorkflowVersionIdOrderByOrdinalAsc(event.getWorkflowVersionId())
           .forEach(input -> paths.put("inputs." + input.getInputKey(), input.getType()));
@@ -208,7 +216,11 @@ public class EventContextBuilder {
     scope.itemTypes().forEach((key, type) -> paths.put("item." + key, type));
     scope.taskTypes().forEach((key, type) -> paths.put("task." + key, type));
 
-    List<SensitiveValueMetadata> sensitive = sensitiveMetadata(event, variables);
+    List<SensitiveValueMetadata> sensitive =
+        sensitiveMetadata(
+            event,
+            variables,
+            inputSnapshot == null ? null : inputSnapshot.getCategoryVersionId());
     if (inputSnapshot != null && workflowInputRepository != null) {
       List<SensitiveValueMetadata> withInputs = new ArrayList<>(sensitive);
       workflowInputRepository.findAllByWorkflowVersionIdOrderByOrdinalAsc(event.getWorkflowVersionId())
@@ -425,6 +437,25 @@ public class EventContextBuilder {
             });
   }
 
+  private void addCategoryFormTypes(UUID categoryVersionId, Map<String, TypeDescriptor> paths) {
+    FormSchema schema = loadCategoryForm(categoryVersionId);
+    if (schema == null) return;
+    schema
+        .fields()
+        .forEach(
+            field -> {
+              paths.put("ticket.data." + field.key(), field.type());
+              paths.put("ticket.revision.data." + field.key(), field.type());
+              paths.put("ticket.current.data." + field.key(), field.type());
+            });
+  }
+
+  private FormSchema loadCategoryForm(UUID categoryVersionId) {
+    return categoryVersionId == null || categoryFormSchemaSource == null
+        ? null
+        : categoryFormSchemaSource.load(categoryVersionId);
+  }
+
   private void addNodeTypes(
       List<NodeDefinition> nodes, Map<String, TypeDescriptor> paths, Set<String> repeating) {
     for (NodeDefinition node : nodes) {
@@ -452,6 +483,11 @@ public class EventContextBuilder {
 
   private List<SensitiveValueMetadata> sensitiveMetadata(
       Event event, List<WorkflowVariable> variables) {
+    return sensitiveMetadata(event, variables, null);
+  }
+
+  private List<SensitiveValueMetadata> sensitiveMetadata(
+      Event event, List<WorkflowVariable> variables, UUID categoryVersionId) {
     List<SensitiveValueMetadata> sensitive = new ArrayList<>();
     variables.stream()
         .filter(WorkflowVariable::isSensitive)
@@ -492,6 +528,23 @@ public class EventContextBuilder {
                     "Published ticket form cannot be decoded", exception);
               }
             });
+    FormSchema categorySchema = loadCategoryForm(categoryVersionId);
+    if (categorySchema != null) {
+      categorySchema.fields().stream()
+          .filter(field -> field.sensitive())
+          .forEach(
+              field -> {
+                sensitive.add(
+                    new SensitiveValueMetadata(
+                        "ticket.data." + field.key(), "FORM_FIELD", field.fieldId()));
+                sensitive.add(
+                    new SensitiveValueMetadata(
+                        "ticket.revision.data." + field.key(), "FORM_FIELD", field.fieldId()));
+                sensitive.add(
+                    new SensitiveValueMetadata(
+                        "ticket.current.data." + field.key(), "FORM_FIELD", field.fieldId()));
+              });
+    }
     return List.copyOf(sensitive);
   }
 }

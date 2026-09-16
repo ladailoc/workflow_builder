@@ -1,0 +1,13 @@
+package com.fpt.workflow.tenant.repository;
+
+import com.fpt.workflow.tenant.domain.TenantMembership;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface TenantMembershipRepository extends JpaRepository<TenantMembership, UUID> {
+  Optional<TenantMembership> findByTenantIdAndUserId(UUID tenantId, UUID userId);
+  List<TenantMembership> findAllByUserIdAndStatusOrderByTenantId(UUID userId, String status);
+  List<TenantMembership> findAllByTenantIdAndStatus(UUID tenantId, String status);
+}

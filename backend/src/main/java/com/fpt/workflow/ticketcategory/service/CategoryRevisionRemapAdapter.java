@@ -54,13 +54,14 @@ public class CategoryRevisionRemapAdapter implements RevisionInputRemapPort {
     var categoryVersion=categoryVersions.findById(categoryVersionId)
         .orElseThrow(()->new UnprocessableCommandException("CATEGORY_VERSION_NOT_FOUND","Event CategoryVersion was not found"));
     FormVersion formVersion=forms.findById(categoryVersion.getFormVersionId())
-        .filter(v->"PUBLISHED".equals(v.getStatus()))
+        .filter(v->"PUBLISHED".equals(v.getStatus()) || "SUPERSEDED".equals(v.getStatus()))
         .orElseThrow(()->new UnprocessableCommandException("CATEGORY_FORM_NOT_PUBLISHED","Pinned FormVersion is not Published"));
-    // The Event stays bound to its exact WorkflowVersion; a mismatch is an invariant break.
-    if(!categoryVersion.getWorkflowVersionId().equals(workflowVersionId))
-      throw new UnprocessableCommandException("CATEGORY_WORKFLOW_MISMATCH","Event is not bound to the CategoryVersion WorkflowVersion");
     var prior=snapshots.findById(eventId)
         .orElseThrow(()->new UnprocessableCommandException("EVENT_INPUT_SNAPSHOT_MISSING","Event has no Category input snapshot"));
+    // CategoryVersion stores the default workflow. The immutable Event snapshot records the
+    // effective workflow, so tenant override events can be remapped against their own contract.
+    if(prior.getWorkflowVersionId()!=null && !prior.getWorkflowVersionId().equals(workflowVersionId))
+      throw new UnprocessableCommandException("CATEGORY_WORKFLOW_MISMATCH","Event is not bound to the requested WorkflowVersion");
     var submission=submissions.validateAndPersistRevision(formVersion,businessData,new ActorContext(actorId,actorId.toString(),Set.of(),Set.of()),ticketId,now);
     ObjectNode inputs=mapping.resolveInputs(categoryVersionId,workflowVersionId,formVersion.getId(),
         businessData,actorId,mapping.categoryKeyOf(categoryVersionId));

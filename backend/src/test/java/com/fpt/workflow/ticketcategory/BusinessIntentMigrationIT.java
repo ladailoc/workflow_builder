@@ -13,9 +13,11 @@ class BusinessIntentMigrationIT {
   @Test void upgradesV41ToV42AndCreatesCategoryKeyBindingModel()throws Exception{
     Flyway.configure().dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()).locations("classpath:db/migration").target(MigrationVersion.fromVersion("41")).load().migrate();
     Flyway current=Flyway.configure().dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()).locations("classpath:db/migration").load();
-    assertThat(current.migrate().migrationsExecuted).isEqualTo(1);
-    assertThat(currentVersion()).isEqualTo("42");
-    assertThat(tableExists("forms")).isTrue();assertThat(tableExists("ticket_categories")).isTrue();assertThat(tableExists("ticket_category_mappings")).isTrue();assertThat(tableExists("event_workflow_input_snapshots")).isTrue();assertThat(tableExists("ticket_state_history")).isTrue();
+    assertThat(current.migrate().migrationsExecuted).isEqualTo(4);
+    assertThat(currentVersion()).isEqualTo("45");
+    assertThat(tableExists("forms")).isTrue();assertThat(tableExists("ticket_categories")).isTrue();assertThat(tableExists("ticket_category_mappings")).isTrue();assertThat(tableExists("event_workflow_input_snapshots")).isTrue();assertThat(tableExists("ticket_state_history")).isTrue();assertThat(tableExists("tenants")).isTrue();assertThat(tableExists("tenant_memberships")).isTrue();assertThat(tableExists("ticket_category_workflow_bindings")).isTrue();
+    assertThat(tableExists("event_workflow_input_revisions")).isTrue();
+    assertThat(columnExists("revision_requests","input_revision")).isTrue();
     assertThat(columnExists("tickets","ticket_category_version_id")).isTrue();assertThat(uniqueKeyExists("ticket_categories","ticket_categories_key_key")).isTrue();
   }
   private String currentVersion()throws Exception{try(var c=DriverManager.getConnection(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword());var s=c.createStatement();var r=s.executeQuery("select version from flyway_schema_history where success order by installed_rank desc limit 1")){r.next();return r.getString(1);}}
