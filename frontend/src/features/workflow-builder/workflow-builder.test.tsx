@@ -149,7 +149,9 @@ describe("WorkflowBuilder Component", () => {
 
     fireEvent.click(screen.getByTestId("collapse-node-catalog"));
     expect(screen.getByTestId("expand-node-catalog")).toBeInTheDocument();
-    expect(screen.queryByTestId("collapse-node-catalog")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("collapse-node-catalog"),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("expand-node-catalog"));
     expect(screen.getByTestId("collapse-node-catalog")).toBeInTheDocument();
@@ -302,6 +304,66 @@ describe("WorkflowBuilder Component", () => {
     // The validation report can be dismissed after reviewing an issue.
     fireEvent.click(screen.getByTestId("close-validation-panel"));
     expect(screen.queryByTestId("validation-panel")).not.toBeInTheDocument();
+  });
+
+  it("does not show stale server start/end errors for the current graph", async () => {
+    const onValidate = vi.fn().mockResolvedValue([
+      {
+        id: "server-no-start",
+        code: "NO_START",
+        severity: "ERROR",
+        message: "Exactly one START is required",
+      },
+      {
+        id: "server-no-end",
+        code: "NO_END",
+        severity: "ERROR",
+        message: "At least one END is required",
+      },
+    ]);
+
+    render(
+      <WorkflowBuilder
+        initialVersion={TEST_DRAFT_VERSION}
+        onValidate={onValidate}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("toolbar-validate-button"));
+    });
+
+    expect(onValidate).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByText("Exactly one START is required"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("At least one END is required"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("validates unsaved canvas changes locally instead of persisted data", async () => {
+    const onValidate = vi.fn().mockResolvedValue([]);
+
+    render(
+      <WorkflowBuilder
+        initialVersion={TEST_DRAFT_VERSION}
+        onValidate={onValidate}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("add-node-approval"));
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("toolbar-validate-button"));
+    });
+
+    expect(onValidate).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(
+        "Node 'Phê duyệt' is unreachable (no incoming transition).",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("shows save API errors instead of creating an unhandled rejection", async () => {

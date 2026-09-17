@@ -65,6 +65,65 @@ interface WorkflowBuilderProps {
   onOpenHistory?: () => void;
 }
 
+function graphSignature(nodes: BuilderNode[], edges: BuilderEdge[]): string {
+  return JSON.stringify({ nodes, edges });
+}
+
+function mergeValidationIssues(
+  localIssues: ValidationIssue[],
+  serverIssues: ValidationIssue[],
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+): ValidationIssue[] {
+  const localHas = (code: string, nodeId?: string) =>
+    localIssues.some(
+      (issue) =>
+        issue.code === code &&
+        (nodeId === undefined || issue.nodeId === nodeId),
+    );
+
+  const starts = nodes.filter((node) => node.data.nodeType === "START");
+  const ends = nodes.filter((node) => node.data.nodeType === "END");
+
+  const isAlreadyCoveredByCurrentGraph = (issue: ValidationIssue) => {
+    switch (issue.code) {
+      case "NO_START":
+        return starts.length > 0 || localHas("ERR_NO_START");
+      case "MULTIPLE_START":
+        return starts.length <= 1 || localHas("ERR_MULTI_START");
+      case "NO_END":
+        return ends.length > 0 || localHas("ERR_NO_END");
+      case "START_HAS_INCOMING": {
+        const start = starts.find((node) => node.id === issue.nodeId);
+        return (
+          start === undefined ||
+          !edges.some((edge) => edge.target === start.id) ||
+          localHas("ERR_START_INCOMING", issue.nodeId)
+        );
+      }
+      case "END_HAS_OUTGOING": {
+        const end = ends.find((node) => node.id === issue.nodeId);
+        return (
+          end === undefined ||
+          !edges.some((edge) => edge.source === end.id) ||
+          localHas("ERR_END_OUTGOING", issue.nodeId)
+        );
+      }
+      case "UNREACHABLE_NODE":
+        return localHas("WARN_UNREACHABLE_NODE", issue.nodeId);
+      case "NONTERMINAL_DEAD_END":
+        return localHas("WARN_DEAD_END", issue.nodeId);
+      default:
+        return false;
+    }
+  };
+
+  return [
+    ...localIssues,
+    ...serverIssues.filter((issue) => !isAlreadyCoveredByCurrentGraph(issue)),
+  ];
+}
+
 const nodeTypes: NodeTypes = {
   workflowNode: CustomWorkflowNode,
 };
@@ -106,6 +165,9 @@ export function WorkflowBuilder({
   // Nodes & Edges state
   const [nodes, setNodes] = useState<BuilderNode[]>(initialVersion.nodes);
   const [edges, setEdges] = useState<BuilderEdge[]>(initialVersion.edges);
+  const savedGraphSignature = useRef(
+    graphSignature(initialVersion.nodes, initialVersion.edges),
+  );
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
   const reactFlowInstance = useRef<ReactFlowInstance<
@@ -495,14 +557,21 @@ export function WorkflowBuilder({
 
   // Toolbar actions
   const handleValidate = async () => {
-    if (onValidate) {
-      const issues = await onValidate();
-      setValidationIssues(issues);
-      setValidationPanelOpen(true);
-      return;
+    const localIssues = validateWorkflowGraph(nodes, edges);
+    const hasUnsavedGraphChanges =
+      graphSignature(nodes, edges) !== savedGraphSignature.current;
+
+    // The API validates the persisted version. While editing, that version can
+    // be behind the canvas, so showing its structural result would report
+    // false NO_START/NO_END errors for nodes that are already visible here.
+    if (onValidate && !hasUnsavedGraphChanges) {
+      const serverIssues = await onValidate();
+      setValidationIssues(
+        mergeValidationIssues(localIssues, serverIssues, nodes, edges),
+      );
+    } else {
+      setValidationIssues(localIssues);
     }
-    const issues = validateWorkflowGraph(nodes, edges);
-    setValidationIssues(issues);
     setValidationPanelOpen(true);
   };
 
@@ -513,6 +582,7 @@ export function WorkflowBuilder({
       if (onSave) {
         await onSave(nodes, edges, requestFormSchema);
       }
+      savedGraphSignature.current = graphSignature(nodes, edges);
       setSaveSuccessMsg("Đã lưu bản nháp thành công.");
       setTimeout(() => setSaveSuccessMsg(null), 3000);
       onSaveSuccess?.();
