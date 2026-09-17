@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { ApiRequestError } from "@/shared/api/client";
 import type {
   BuilderEdge,
   BuilderNode,
@@ -15,9 +16,31 @@ interface PublishModalProps {
   version: WorkflowVersionDto;
   nodes: BuilderNode[];
   edges: BuilderEdge[];
-  onConfirmPublish: () => Promise<void>;
+  onConfirmPublish: (acknowledgedWarnings?: readonly string[]) => Promise<void>;
+  onValidate?: () => Promise<ValidationIssue[]>;
   onClose: () => void;
   onSelectIssue?: (nodeId?: string, field?: string) => void;
+}
+
+function publishGraphSignature(
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+): string {
+  return JSON.stringify({
+    nodes: nodes.map((node) => ({
+      id: node.id,
+      position: node.position,
+      data: node.data,
+    })),
+    edges: edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      sourceHandle: edge.sourceHandle,
+      targetHandle: edge.targetHandle,
+      data: edge.data,
+    })),
+  });
 }
 
 export function PublishModal({
@@ -26,38 +49,139 @@ export function PublishModal({
   nodes,
   edges,
   onConfirmPublish,
+  onValidate,
   onClose,
   onSelectIssue,
 }: PublishModalProps) {
+  const [serverIssues, setServerIssues] = useState<ValidationIssue[]>([]);
+  const [acknowledgedWarningCodes, setAcknowledgedWarningCodes] = useState<
+    string[]
+  >([]);
+  const [acknowledgedGraphSignature, setAcknowledgedGraphSignature] = useState<
+    string | null
+  >(null);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishSuccess, setPublishSuccess] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [serverValidationSignature, setServerValidationSignature] = useState<
+    string | null
+  >(null);
+
+  const graphSignature = useMemo(
+    () => publishGraphSignature(nodes, edges),
+    [nodes, edges],
+  );
+  const activeServerIssues = useMemo(
+    () => (serverValidationSignature === graphSignature ? serverIssues : []),
+    [graphSignature, serverIssues, serverValidationSignature],
+  );
+
   // Enforce validation right before publish
   const validationIssues: ValidationIssue[] = useMemo(
-    () => validateWorkflowGraph(nodes, edges),
-    [nodes, edges],
+    () => [...validateWorkflowGraph(nodes, edges), ...activeServerIssues],
+    [nodes, edges, activeServerIssues],
   );
 
   const errorIssues = validationIssues.filter((i) => i.severity === "ERROR");
   const warningIssues = validationIssues.filter(
     (i) => i.severity === "WARNING",
   );
-  const isBlocked = errorIssues.length > 0;
+  const acknowledgementIssues = activeServerIssues.filter(
+    (issue) => issue.severity === "WARNING" && issue.acknowledgementRequired,
+  );
+  const acknowledgementCodes = Array.from(
+    new Set(
+      acknowledgementIssues
+        .map((issue) => issue.code)
+        .filter((code): code is string => Boolean(code)),
+    ),
+  );
+  const hasValidationErrors = errorIssues.length > 0;
+  const hasAcknowledgedWarnings =
+    acknowledgementCodes.length === 0 ||
+    (acknowledgedGraphSignature === graphSignature &&
+      acknowledgementCodes.every((code) =>
+        acknowledgedWarningCodes.includes(code),
+      ));
+  const needsWarningAcknowledgement =
+    acknowledgementCodes.length > 0 && !hasAcknowledgedWarnings;
+  const isBlocked = hasValidationErrors || needsWarningAcknowledgement;
 
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [publishSuccess, setPublishSuccess] = useState(false);
+  function getPublishErrorMessage(error: unknown): string {
+    if (error instanceof ApiRequestError) {
+      switch (error.code) {
+        case "WORKFLOW_VALIDATION_FAILED":
+          return "Quy trình chưa đạt điều kiện phát hành. Hãy kiểm tra và sửa các lỗi được đánh dấu.";
+        case "WORKFLOW_VALIDATION_ACK_REQUIRED":
+          return "Quy trình còn cảnh báo cần được xác nhận trước khi phát hành.";
+        case "WORKFLOW_DRAFT_REVISION_CONFLICT":
+          return "Bản nháp đã thay đổi ở nơi khác. Hãy tải lại trang rồi thử lại.";
+        default:
+          return "Không thể phát hành phiên bản này. Hãy kiểm tra lại quy trình và thử lại.";
+      }
+    }
+    if (error instanceof Error && error.message) return error.message;
+    return "Không thể phát hành phiên bản này. Hãy thử lại.";
+  }
 
   if (!isOpen) return null;
 
   const handlePublish = async () => {
     if (isBlocked || isPublishing) return;
     setIsPublishing(true);
+    setPublishError(null);
     try {
-      await onConfirmPublish();
+      let latestAcknowledgementCodes: string[] = [];
+      if (onValidate) {
+        const latestIssues = await onValidate();
+        const latestErrors = latestIssues.filter(
+          (issue) => issue.severity === "ERROR",
+        );
+        latestAcknowledgementCodes = Array.from(
+          new Set(
+            latestIssues
+              .filter(
+                (issue) =>
+                  issue.severity === "WARNING" && issue.acknowledgementRequired,
+              )
+              .map((issue) => issue.code)
+              .filter((code): code is string => Boolean(code)),
+          ),
+        );
+        setServerIssues(latestIssues);
+        setServerValidationSignature(graphSignature);
+        setAcknowledgedWarningCodes((current) =>
+          current.filter((code) => latestAcknowledgementCodes.includes(code)),
+        );
+
+        const latestWarningsAcknowledged =
+          latestAcknowledgementCodes.length === 0 ||
+          (acknowledgedGraphSignature === graphSignature &&
+            latestAcknowledgementCodes.every((code) =>
+              acknowledgedWarningCodes.includes(code),
+            ));
+        if (latestErrors.length > 0 || !latestWarningsAcknowledged) return;
+      }
+
+      await onConfirmPublish(
+        latestAcknowledgementCodes.length > 0
+          ? latestAcknowledgementCodes
+          : undefined,
+      );
       setPublishSuccess(true);
       setTimeout(() => {
         onClose();
       }, 1500);
+    } catch (error) {
+      setPublishError(getPublishErrorMessage(error));
     } finally {
       setIsPublishing(false);
     }
+  };
+
+  const handleWarningAcknowledgementChange = (checked: boolean) => {
+    setAcknowledgedWarningCodes(checked ? acknowledgementCodes : []);
+    setAcknowledgedGraphSignature(checked ? graphSignature : null);
   };
 
   return (
@@ -100,7 +224,7 @@ export function PublishModal({
         ) : (
           <>
             {/* Publication Pre-Validation Gate */}
-            {isBlocked ? (
+            {hasValidationErrors ? (
               <div
                 data-testid="publish-blocked-alert"
                 className="space-y-2 rounded-lg border border-rose-300 bg-rose-50 p-3.5 text-xs text-rose-900"
@@ -150,6 +274,54 @@ export function PublishModal({
                   )}
                 </div>
               </div>
+            ) : needsWarningAcknowledgement ? (
+              <div
+                data-testid="publish-warning-ack-alert"
+                className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3.5 text-xs text-amber-950"
+              >
+                <div className="flex items-center gap-2 font-bold text-amber-900">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-200 font-mono text-[10px] text-amber-900">
+                    !
+                  </span>
+                  <span>
+                    Còn {acknowledgementIssues.length} cảnh báo cần xác nhận
+                  </span>
+                </div>
+                <div className="max-h-36 space-y-1.5 overflow-y-auto pt-1">
+                  {acknowledgementIssues.map((issue) => {
+                    const presentation = getValidationIssuePresentation(issue);
+                    return (
+                      <div
+                        key={issue.id}
+                        className="rounded border border-amber-200 bg-white p-2 text-[11px]"
+                      >
+                        <span className="block font-medium text-slate-800">
+                          {presentation.message}
+                        </span>
+                        <span className="mt-0.5 block text-[10px] text-slate-500">
+                          <span className="font-semibold">Gợi ý:</span>{" "}
+                          {presentation.suggestion}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <label className="flex cursor-pointer items-start gap-2 rounded border border-amber-200 bg-white p-2 font-medium text-amber-900">
+                  <input
+                    type="checkbox"
+                    data-testid="publish-warning-ack-checkbox"
+                    checked={hasAcknowledgedWarnings}
+                    onChange={(event) =>
+                      handleWarningAcknowledgementChange(event.target.checked)
+                    }
+                    className="mt-0.5 accent-amber-600"
+                  />
+                  <span>
+                    Tôi đã xem và xác nhận các cảnh báo trên để tiếp tục phát
+                    hành.
+                  </span>
+                </label>
+              </div>
             ) : (
               <div
                 data-testid="publish-validation-clean"
@@ -161,6 +333,16 @@ export function PublishModal({
                 <span>
                   Tất cả quy tắc kiểm tra sơ đồ đều đạt, không có lỗi.
                 </span>
+              </div>
+            )}
+
+            {publishError && (
+              <div
+                role="alert"
+                data-testid="publish-error-alert"
+                className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-xs font-medium text-rose-900"
+              >
+                {publishError}
               </div>
             )}
 

@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  act,
+  waitFor,
+} from "@testing-library/react";
 import { ValidationPanel } from "./components/validation-panel";
 import { SimulationModal } from "./components/simulation-modal";
 import { PublishModal } from "./components/publish-modal";
@@ -251,6 +257,120 @@ describe("Prompt 57: Validate / Simulate / Diff / Publish & Rollback Frontend", 
         fireEvent.click(publishBtn);
       });
       expect(confirmSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("runs server validation before publishing and blocks unhandled output ports", async () => {
+      const confirmSpy = vi.fn();
+      const validateSpy = vi.fn().mockResolvedValue([
+        {
+          id: "server-port-1",
+          code: "UNHANDLED_PORT",
+          nodeId: "node_approval",
+          nodeLabel: "Manager Approval",
+          severity: "ERROR",
+          message: "Active output port has no route",
+        },
+      ]);
+
+      render(
+        <PublishModal
+          isOpen={true}
+          version={currentDraftVersion}
+          nodes={validNodes}
+          edges={validEdges}
+          onValidate={validateSpy}
+          onConfirmPublish={confirmSpy}
+          onClose={vi.fn()}
+        />,
+      );
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("confirm-publish-btn"));
+      });
+
+      expect(validateSpy).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("publish-blocked-alert")).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "Bước “Manager Approval” còn một nhánh đầu ra chưa được xử lý.",
+        ),
+      ).toBeInTheDocument();
+      expect(confirmSpy).not.toHaveBeenCalled();
+    });
+
+    it("requires acknowledgement for server warnings and sends their codes", async () => {
+      const confirmSpy = vi.fn().mockResolvedValue(undefined);
+      const validateSpy = vi.fn().mockResolvedValue([
+        {
+          id: "server-warning-1",
+          code: "MULTI_INSTANCE_CANCEL_REMAINING_ACK_REQUIRED",
+          nodeId: "node_approval",
+          nodeLabel: "Manager Approval",
+          severity: "WARNING",
+          acknowledgementRequired: true,
+          message: "Remaining tasks require acknowledgement",
+        },
+      ]);
+
+      render(
+        <PublishModal
+          isOpen={true}
+          version={currentDraftVersion}
+          nodes={validNodes}
+          edges={validEdges}
+          onValidate={validateSpy}
+          onConfirmPublish={confirmSpy}
+          onClose={vi.fn()}
+        />,
+      );
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("confirm-publish-btn"));
+      });
+
+      expect(
+        screen.getByTestId("publish-warning-ack-alert"),
+      ).toBeInTheDocument();
+      const publishButton = screen.getByTestId("confirm-publish-btn");
+      expect(publishButton).toBeDisabled();
+
+      fireEvent.click(screen.getByTestId("publish-warning-ack-checkbox"));
+      expect(publishButton).not.toBeDisabled();
+      await act(async () => {
+        fireEvent.click(publishButton);
+      });
+
+      await waitFor(() =>
+        expect(confirmSpy).toHaveBeenCalledWith([
+          "MULTI_INSTANCE_CANCEL_REMAINING_ACK_REQUIRED",
+        ]),
+      );
+    });
+
+    it("keeps the modal open with a friendly message when publish returns 422", async () => {
+      const confirmSpy = vi
+        .fn()
+        .mockRejectedValue(new Error("publish failed unexpectedly"));
+
+      render(
+        <PublishModal
+          isOpen={true}
+          version={currentDraftVersion}
+          nodes={validNodes}
+          edges={validEdges}
+          onConfirmPublish={confirmSpy}
+          onClose={vi.fn()}
+        />,
+      );
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("confirm-publish-btn"));
+      });
+
+      expect(screen.getByTestId("publish-error-alert")).toHaveTextContent(
+        "publish failed unexpectedly",
+      );
+      expect(screen.getByTestId("publish-modal")).toBeInTheDocument();
     });
   });
 

@@ -60,7 +60,10 @@ interface WorkflowBuilderProps {
   ) => Promise<void>;
   onSaveSuccess?: () => void;
   onValidate?: () => Promise<ValidationIssue[]>;
-  onPublish?: (versionId: string) => Promise<string | void>;
+  onPublish?: (
+    versionId: string,
+    acknowledgedWarnings?: readonly string[],
+  ) => Promise<string | void>;
   onPublishSuccess?: (publishedVersionId?: string) => void;
   onCloneAsNewDraft?: (sourceVersion: WorkflowVersionDto) => void;
   onOpenHistory?: () => void;
@@ -214,9 +217,13 @@ export function WorkflowBuilder({
     WorkflowVersionDto | undefined
   >(historicalVersions[0]);
 
-  const handleConfirmPublish = async () => {
+  const handleConfirmPublish = async (
+    acknowledgedWarnings?: readonly string[],
+  ) => {
     const publishedVersionId = onPublish
-      ? await onPublish(currentVersion.id)
+      ? acknowledgedWarnings === undefined
+        ? await onPublish(currentVersion.id)
+        : await onPublish(currentVersion.id, acknowledgedWarnings)
       : undefined;
     setStatus("PUBLISHED");
     setCurrentVersion((prev) => ({ ...prev, status: "PUBLISHED" }));
@@ -802,6 +809,7 @@ export function WorkflowBuilder({
           nodes={nodes}
           edges={edges}
           onConfirmPublish={handleConfirmPublish}
+          onValidate={onValidate}
           onClose={() => setPublishModalOpen(false)}
           onSelectIssue={handleSelectValidationIssue}
         />

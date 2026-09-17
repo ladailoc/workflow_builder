@@ -44,6 +44,7 @@ export interface ValidationIssue {
   nodeLabel?: string;
   field?: string;
   severity: "ERROR" | "WARNING";
+  acknowledgementRequired?: boolean;
   message: string;
 }
 

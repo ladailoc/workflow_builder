@@ -159,6 +159,7 @@ export function publishWorkflow(
   versionId: string,
   lockVersion: number,
   expectedRevision: number,
+  acknowledgedWarnings: readonly string[] = [],
 ): Promise<{
   workflowVersionId: string;
   versionNo: number;
@@ -167,7 +168,7 @@ export function publishWorkflow(
 }> {
   return apiPost(
     `/api/v1/workflows/${encodeURIComponent(workflowId)}/versions/${encodeURIComponent(versionId)}/publish`,
-    { expectedRevision },
+    { expectedRevision, acknowledgedWarnings },
     {
       headers: {
         "X-Command-Id": commandId(),

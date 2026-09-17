@@ -154,15 +154,18 @@ export default function VersionBuilderPage() {
                     : undefined,
                 field: issue.fieldPath,
                 severity: issue.severity === "ERROR" ? "ERROR" : "WARNING",
+                acknowledgementRequired:
+                  issue.severity === "ACK_REQUIRED_WARNING",
                 message: issue.message,
               }));
             }}
-            onPublish={async () => {
+            onPublish={async (_publishedVersionId, acknowledgedWarnings) => {
               const published = await publishWorkflow(
                 workflowId,
                 versionId,
                 lockVersion,
                 revision,
+                acknowledgedWarnings,
               );
               setVersion((current) =>
                 current ? { ...current, status: "PUBLISHED" } : current,
