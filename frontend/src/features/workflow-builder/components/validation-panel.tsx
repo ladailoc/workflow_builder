@@ -1,6 +1,7 @@
 "use client";
 
 import type { ValidationIssue } from "../types";
+import { getValidationIssuePresentation } from "../validation-copy";
 
 interface ValidationPanelProps {
   issues: ValidationIssue[];
@@ -27,7 +28,7 @@ export function ValidationPanel({
     >
       <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-2.5">
         <div className="flex items-center gap-3">
-          <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+          <h3 className="text-xs font-bold tracking-wider text-slate-900 uppercase">
             Vấn đề kiểm tra quy trình
           </h3>
           <div className="flex items-center gap-1.5">
@@ -56,55 +57,78 @@ export function ValidationPanel({
         </button>
       </div>
 
-      <div className="max-h-52 overflow-y-auto divide-y divide-slate-100 p-2">
+      <div className="max-h-52 divide-y divide-slate-100 overflow-y-auto p-2">
         {issues.length === 0 ? (
-          <div className="p-4 text-center text-xs text-emerald-600 font-medium">
+          <div className="p-4 text-center text-xs font-medium text-emerald-600">
             ✓ Sơ đồ đã vượt qua kiểm tra, không có lỗi hoặc cảnh báo.
           </div>
         ) : (
-          issues.map((issue) => (
-            <button
-              key={issue.id}
-              type="button"
-              data-testid={`validation-issue-${issue.id}`}
-              onClick={() => onSelectIssue(issue.nodeId, issue.field)}
-              className="flex w-full items-start gap-2.5 rounded-lg p-2 text-left hover:bg-slate-50 transition-colors"
-            >
-              {issue.severity === "ERROR" ? (
-                <span className="mt-0.5 shrink-0 rounded bg-rose-100 px-1.5 py-0.2 text-[9px] font-bold text-rose-700 uppercase">
-                  Lỗi
-                </span>
-              ) : (
-                <span className="mt-0.5 shrink-0 rounded bg-amber-100 px-1.5 py-0.2 text-[9px] font-bold text-amber-800 uppercase">
-                  Cảnh báo
-                </span>
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 mb-0.5">
-                  {issue.code && (
-                    <span
-                      data-testid="validation-issue-code"
-                      className="rounded bg-slate-100 px-1 py-0.2 font-mono text-[9px] font-bold text-slate-600"
-                    >
-                      {issue.code}
+          issues.map((issue) => {
+            const presentation = getValidationIssuePresentation(issue);
+            const hasTechnicalDetails = Boolean(
+              issue.code || issue.nodeId || issue.edgeId || issue.field,
+            );
+
+            return (
+              <div key={issue.id} className="p-2">
+                <button
+                  type="button"
+                  data-testid={`validation-issue-${issue.id}`}
+                  onClick={() => onSelectIssue(issue.nodeId, issue.field)}
+                  className="flex w-full items-start gap-2.5 rounded-lg p-2 text-left transition-colors hover:bg-slate-50"
+                >
+                  {issue.severity === "ERROR" ? (
+                    <span className="mt-0.5 shrink-0 rounded bg-rose-100 px-1.5 py-0.5 text-[9px] font-bold text-rose-700 uppercase">
+                      Lỗi
+                    </span>
+                  ) : (
+                    <span className="mt-0.5 shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-800 uppercase">
+                      Cảnh báo
                     </span>
                   )}
-                  <p className="text-xs font-semibold text-slate-800">
-                    {issue.message}
-                  </p>
-                </div>
-                {(issue.nodeId || issue.edgeId) && (
-                  <p className="text-[10px] font-mono text-slate-400">
-                    {issue.nodeId ? `Bước: ${issue.nodeId}` : `Liên kết: ${issue.edgeId}`} {" "}
-                    {issue.field ? `• Trường: ${issue.field}` : ""}
-                  </p>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-semibold text-slate-800">
+                      {presentation.message}
+                    </span>
+                    <span className="mt-1 block text-[11px] font-medium text-slate-500">
+                      <span className="font-semibold text-slate-600">
+                        Cách sửa:
+                      </span>{" "}
+                      {presentation.suggestion}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-[11px] font-medium text-blue-600">
+                    Đi tới bước →
+                  </span>
+                </button>
+                {hasTechnicalDetails && (
+                  <details className="mt-1 ml-8 text-[10px] text-slate-400">
+                    <summary className="cursor-pointer select-none hover:text-slate-600">
+                      Chi tiết kỹ thuật
+                    </summary>
+                    <div
+                      data-testid="validation-issue-technical-details"
+                      className="mt-1 space-y-0.5 rounded bg-slate-50 px-2 py-1 font-mono"
+                    >
+                      {issue.code && (
+                        <div>
+                          Mã:{" "}
+                          <span data-testid="validation-issue-code">
+                            {issue.code}
+                          </span>
+                        </div>
+                      )}
+                      {issue.nodeId && <div>Bước nội bộ: {issue.nodeId}</div>}
+                      {issue.edgeId && (
+                        <div>Liên kết nội bộ: {issue.edgeId}</div>
+                      )}
+                      {issue.field && <div>Trường nội bộ: {issue.field}</div>}
+                    </div>
+                  </details>
                 )}
               </div>
-              <span className="text-[11px] text-blue-600 font-medium shrink-0">
-                Xem →
-              </span>
-            </button>
-          ))
+            );
+          })
         )}
       </div>
     </div>

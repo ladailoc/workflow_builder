@@ -11,10 +11,7 @@ export type BuilderNodeType =
   | "NOTIFICATION";
 
 export type WorkflowVersionStatus =
-  | "DRAFT"
-  | "PUBLISHED"
-  | "SUPERSEDED"
-  | "ARCHIVED";
+  "DRAFT" | "PUBLISHED" | "SUPERSEDED" | "ARCHIVED";
 
 import type { Node, Edge } from "@xyflow/react";
 
@@ -44,6 +41,7 @@ export interface ValidationIssue {
   code?: string;
   nodeId?: string;
   edgeId?: string;
+  nodeLabel?: string;
   field?: string;
   severity: "ERROR" | "WARNING";
   message: string;

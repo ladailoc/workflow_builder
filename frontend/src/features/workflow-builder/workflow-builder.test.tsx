@@ -288,7 +288,7 @@ describe("WorkflowBuilder Component", () => {
     // Validation panel opens
     expect(screen.getByTestId("validation-panel")).toBeInTheDocument();
     expect(
-      screen.getByText("Workflow must contain exactly one Start node."),
+      screen.getByText("Quy trình chưa có bước Bắt đầu."),
     ).toBeInTheDocument();
 
     // Clicking the unreachable node issue focuses the node
@@ -360,9 +360,7 @@ describe("WorkflowBuilder Component", () => {
 
     expect(onValidate).not.toHaveBeenCalled();
     expect(
-      screen.getByText(
-        "Node 'Phê duyệt' is unreachable (no incoming transition).",
-      ),
+      screen.getByText("Bước “Phê duyệt” chưa được nối từ bước trước."),
     ).toBeInTheDocument();
   });
 

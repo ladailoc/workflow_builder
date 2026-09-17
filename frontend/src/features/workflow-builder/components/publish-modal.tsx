@@ -1,8 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { BuilderEdge, BuilderNode, ValidationIssue, WorkflowVersionDto } from "../types";
+import type {
+  BuilderEdge,
+  BuilderNode,
+  ValidationIssue,
+  WorkflowVersionDto,
+} from "../types";
 import { validateWorkflowGraph } from "../validator";
+import { getValidationIssuePresentation } from "../validation-copy";
 
 interface PublishModalProps {
   isOpen: boolean;
@@ -30,7 +36,9 @@ export function PublishModal({
   );
 
   const errorIssues = validationIssues.filter((i) => i.severity === "ERROR");
-  const warningIssues = validationIssues.filter((i) => i.severity === "WARNING");
+  const warningIssues = validationIssues.filter(
+    (i) => i.severity === "WARNING",
+  );
   const isBlocked = errorIssues.length > 0;
 
   const [isPublishing, setIsPublishing] = useState(false);
@@ -57,9 +65,9 @@ export function PublishModal({
       role="dialog"
       aria-modal="true"
       data-testid="publish-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs"
     >
-      <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl space-y-4 animate-scale-in">
+      <div className="animate-scale-in w-full max-w-lg space-y-4 rounded-xl bg-white p-6 shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 pb-3">
           <div>
@@ -81,11 +89,12 @@ export function PublishModal({
         {publishSuccess ? (
           <div
             data-testid="publish-success-message"
-            className="rounded-lg bg-emerald-50 border border-emerald-200 p-4 text-center text-xs font-semibold text-emerald-800 space-y-1"
+            className="space-y-1 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-center text-xs font-semibold text-emerald-800"
           >
             <p className="text-sm font-bold">✓ Phát hành thành công!</p>
             <p className="text-[11px] text-emerald-700">
-              Phiên bản #{version.versionNo} đã được phát hành và đang hoạt động.
+              Phiên bản #{version.versionNo} đã được phát hành và đang hoạt
+              động.
             </p>
           </div>
         ) : (
@@ -94,71 +103,100 @@ export function PublishModal({
             {isBlocked ? (
               <div
                 data-testid="publish-blocked-alert"
-                className="rounded-lg border border-rose-300 bg-rose-50 p-3.5 space-y-2 text-xs text-rose-900"
+                className="space-y-2 rounded-lg border border-rose-300 bg-rose-50 p-3.5 text-xs text-rose-900"
               >
                 <div className="flex items-center gap-2 font-bold text-rose-800">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-rose-200 text-rose-800 font-mono text-[10px]">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-rose-200 font-mono text-[10px] text-rose-800">
                     !
                   </span>
-                  <span>Không thể phát hành: phát hiện {errorIssues.length} lỗi</span>
+                  <span>
+                    Không thể phát hành: phát hiện {errorIssues.length} lỗi
+                  </span>
                 </div>
-                <div className="max-h-36 overflow-y-auto space-y-1.5 pt-1">
-                  {errorIssues.map((err) => (
-                    <div
-                      key={err.id}
-                      data-testid={`publish-error-item-${err.id}`}
-                      className="rounded border border-rose-200 bg-white p-2 text-[11px] flex items-center justify-between"
-                    >
-                      <span className="font-medium text-slate-800">{err.message}</span>
-                      {err.nodeId && onSelectIssue && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onSelectIssue(err.nodeId, err.field);
-                            onClose();
-                          }}
-                          className="text-blue-600 hover:underline shrink-0 ml-2"
+                <div className="max-h-36 space-y-1.5 overflow-y-auto pt-1">
+                  {errorIssues.map((err) =>
+                    (() => {
+                      const presentation = getValidationIssuePresentation(err);
+                      return (
+                        <div
+                          key={err.id}
+                          data-testid={`publish-error-item-${err.id}`}
+                          className="flex items-start justify-between gap-3 rounded border border-rose-200 bg-white p-2 text-[11px]"
                         >
-                          Xem lỗi →
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                          <span>
+                            <span className="block font-medium text-slate-800">
+                              {presentation.message}
+                            </span>
+                            <span className="mt-0.5 block text-[10px] text-slate-500">
+                              <span className="font-semibold">Cách sửa:</span>{" "}
+                              {presentation.suggestion}
+                            </span>
+                          </span>
+                          {err.nodeId && onSelectIssue && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onSelectIssue(err.nodeId, err.field);
+                                onClose();
+                              }}
+                              className="shrink-0 text-blue-600 hover:underline"
+                            >
+                              Đi tới bước →
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })(),
+                  )}
                 </div>
               </div>
             ) : (
               <div
                 data-testid="publish-validation-clean"
-                className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-xs text-emerald-900 flex items-center gap-2"
+                className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-xs text-emerald-900"
               >
-                <span className="font-bold text-emerald-700">✓ Đã vượt qua kiểm tra:</span>
-                <span>Tất cả quy tắc kiểm tra sơ đồ đều đạt, không có lỗi.</span>
+                <span className="font-bold text-emerald-700">
+                  ✓ Đã vượt qua kiểm tra:
+                </span>
+                <span>
+                  Tất cả quy tắc kiểm tra sơ đồ đều đạt, không có lỗi.
+                </span>
               </div>
             )}
 
             {/* Publication Summary */}
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs">
-              <span className="font-bold text-slate-800 block">
+            <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
+              <span className="block font-bold text-slate-800">
                 Tóm tắt phát hành
               </span>
               <div className="grid grid-cols-3 gap-2">
-                <div className="rounded bg-white p-2 border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] text-slate-500 block">Bước</span>
-                  <span className="font-bold text-slate-800">{nodes.length}</span>
+                <div className="rounded border border-slate-200 bg-white p-2 shadow-2xs">
+                  <span className="block text-[10px] text-slate-500">Bước</span>
+                  <span className="font-bold text-slate-800">
+                    {nodes.length}
+                  </span>
                 </div>
-                <div className="rounded bg-white p-2 border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] text-slate-500 block">Chuyển tiếp</span>
-                  <span className="font-bold text-slate-800">{edges.length}</span>
+                <div className="rounded border border-slate-200 bg-white p-2 shadow-2xs">
+                  <span className="block text-[10px] text-slate-500">
+                    Chuyển tiếp
+                  </span>
+                  <span className="font-bold text-slate-800">
+                    {edges.length}
+                  </span>
                 </div>
-                <div className="rounded bg-white p-2 border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] text-slate-500 block">Cảnh báo</span>
-                  <span className="font-bold text-amber-600">{warningIssues.length}</span>
+                <div className="rounded border border-slate-200 bg-white p-2 shadow-2xs">
+                  <span className="block text-[10px] text-slate-500">
+                    Cảnh báo
+                  </span>
+                  <span className="font-bold text-amber-600">
+                    {warningIssues.length}
+                  </span>
                 </div>
               </div>
             </div>
 
             {/* Actions */}
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-2">
               <button
                 type="button"
                 data-testid="cancel-publish-btn"
@@ -172,7 +210,7 @@ export function PublishModal({
                 data-testid="confirm-publish-btn"
                 disabled={isBlocked || isPublishing}
                 onClick={handlePublish}
-                className="rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
+                className="rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {isPublishing ? "Đang phát hành…" : "Xác nhận & phát hành"}
               </button>

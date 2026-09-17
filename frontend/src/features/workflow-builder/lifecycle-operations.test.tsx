@@ -126,13 +126,26 @@ describe("Prompt 57: Validate / Simulate / Diff / Publish & Rollback Frontend", 
       );
 
       expect(screen.getByTestId("validation-panel")).toBeInTheDocument();
-      expect(screen.getByTestId("validation-error-count")).toHaveTextContent("1 lỗi");
-      expect(screen.getByTestId("validation-warning-count")).toHaveTextContent("1 cảnh báo");
+      expect(screen.getByTestId("validation-error-count")).toHaveTextContent(
+        "1 lỗi",
+      );
+      expect(screen.getByTestId("validation-warning-count")).toHaveTextContent(
+        "1 cảnh báo",
+      );
+      expect(
+        screen.getByText("Quy trình chưa có bước Bắt đầu."),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "Nối bước này với một bước trước đó hoặc xóa nếu không dùng.",
+        ),
+      ).toBeInTheDocument();
 
       // Verify stable issue codes
       const codes = screen.getAllByTestId("validation-issue-code");
       expect(codes[0]).toHaveTextContent("ERR_NO_START");
       expect(codes[1]).toHaveTextContent("WARN_UNREACHABLE_NODE");
+      expect(codes[0].parentElement?.parentElement).not.toHaveAttribute("open");
 
       // Click focus button
       fireEvent.click(screen.getByTestId("validation-issue-err-1"));
@@ -153,20 +166,30 @@ describe("Prompt 57: Validate / Simulate / Diff / Publish & Rollback Frontend", 
       );
 
       expect(screen.getByTestId("simulation-modal")).toBeInTheDocument();
-      expect(screen.getByText("Không tác động dữ liệu thật")).toBeInTheDocument();
+      expect(
+        screen.getByText("Không tác động dữ liệu thật"),
+      ).toBeInTheDocument();
 
       // Run simulation
       fireEvent.click(screen.getByTestId("btn-run-simulation"));
 
       // Verify simulated steps rendered
-      expect(screen.getByTestId("simulation-step-0")).toHaveTextContent("Start");
-      expect(screen.getByTestId("simulation-step-1")).toHaveTextContent("Manager Approval");
+      expect(screen.getByTestId("simulation-step-0")).toHaveTextContent(
+        "Start",
+      );
+      expect(screen.getByTestId("simulation-step-1")).toHaveTextContent(
+        "Manager Approval",
+      );
 
       // Verify participant resolved preview
-      expect(screen.getByTestId("sim-participant-preview")).toHaveTextContent("Bob Director");
+      expect(screen.getByTestId("sim-participant-preview")).toHaveTextContent(
+        "Bob Director",
+      );
 
       // Verify multi-instance fan-out count (3 items in mock context)
-      expect(screen.getByTestId("sim-fanout-count")).toHaveTextContent("tạo 3 công việc song song");
+      expect(screen.getByTestId("sim-fanout-count")).toHaveTextContent(
+        "tạo 3 công việc song song",
+      );
 
       // Test step backward and forward
       fireEvent.click(screen.getByTestId("btn-step-backward"));
@@ -218,7 +241,9 @@ describe("Prompt 57: Validate / Simulate / Diff / Publish & Rollback Frontend", 
         />,
       );
 
-      expect(screen.getByTestId("publish-validation-clean")).toBeInTheDocument();
+      expect(
+        screen.getByTestId("publish-validation-clean"),
+      ).toBeInTheDocument();
       const publishBtn = screen.getByTestId("confirm-publish-btn");
       expect(publishBtn).not.toBeDisabled();
 
@@ -245,10 +270,14 @@ describe("Prompt 57: Validate / Simulate / Diff / Publish & Rollback Frontend", 
       );
 
       expect(screen.getByTestId("version-history-drawer")).toBeInTheDocument();
-      expect(screen.queryByTestId("rollback-policy-callout")).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("rollback-policy-callout"),
+      ).not.toBeInTheDocument();
 
       // Verify clone button for historical version #2
-      const cloneBtn = screen.getByTestId(`clone-version-btn-${historicalV2.id}`);
+      const cloneBtn = screen.getByTestId(
+        `clone-version-btn-${historicalV2.id}`,
+      );
       expect(cloneBtn).toBeInTheDocument();
 
       // Trigger rollback clone
@@ -271,8 +300,12 @@ describe("Prompt 57: Validate / Simulate / Diff / Publish & Rollback Frontend", 
 
       expect(screen.getByTestId("version-diff-modal")).toBeInTheDocument();
       // Draft has 3 nodes, V2 had 2 nodes -> 1 added node (Manager Approval)
-      expect(screen.getByTestId("diff-nodes-added-count")).toHaveTextContent("+1");
-      expect(screen.getByTestId("diff-section-added-nodes")).toHaveTextContent("Manager Approval");
+      expect(screen.getByTestId("diff-nodes-added-count")).toHaveTextContent(
+        "+1",
+      );
+      expect(screen.getByTestId("diff-section-added-nodes")).toHaveTextContent(
+        "Manager Approval",
+      );
     });
   });
 });

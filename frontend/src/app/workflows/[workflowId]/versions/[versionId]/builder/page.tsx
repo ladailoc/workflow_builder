@@ -59,7 +59,9 @@ export default function VersionBuilderPage() {
       .catch((reason: unknown) => {
         if (!ignore)
           setError(
-            reason instanceof Error ? reason.message : "Không thể mở trình xây dựng",
+            reason instanceof Error
+              ? reason.message
+              : "Không thể mở trình xây dựng",
           );
       });
     return () => {
@@ -133,7 +135,10 @@ export default function VersionBuilderPage() {
               setRevision(formResult.draft.revision);
             }}
             onSaveSuccess={() => {
-              window.setTimeout(() => router.push(`/workflows/${workflowId}`), 900);
+              window.setTimeout(
+                () => router.push(`/workflows/${workflowId}`),
+                900,
+              );
             }}
             onValidate={async () => {
               const result = await validateWorkflow(workflowId, versionId);
@@ -142,6 +147,11 @@ export default function VersionBuilderPage() {
                 code: issue.code,
                 nodeId:
                   issue.resourceType === "NODE" ? issue.resourceId : undefined,
+                nodeLabel:
+                  issue.resourceType === "NODE"
+                    ? version.nodes.find((node) => node.id === issue.resourceId)
+                        ?.data.label
+                    : undefined,
                 field: issue.fieldPath,
                 severity: issue.severity === "ERROR" ? "ERROR" : "WARNING",
                 message: issue.message,
@@ -162,7 +172,10 @@ export default function VersionBuilderPage() {
             onPublishSuccess={(publishedVersionId) => {
               if (!publishedVersionId) return;
               window.setTimeout(
-                () => router.push(`/workflows/${workflowId}/versions/${publishedVersionId}`),
+                () =>
+                  router.push(
+                    `/workflows/${workflowId}/versions/${publishedVersionId}`,
+                  ),
                 1700,
               );
             }}
