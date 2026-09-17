@@ -211,9 +211,9 @@ export function EdgeEditorModal({
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
                 <p className="font-semibold">Nhánh Yêu cầu bổ sung</p>
                 <p className="mt-0.5">
-                  Chọn bước phê duyệt hoặc kiểm tra cần quay lại. Hệ thống sẽ
-                  tạo vòng lặp có giới hạn để người dùng bổ sung thông tin rồi
-                  xử lý lại.
+                  {transitionType === "NORMAL"
+                    ? "Đổi loại chuyển tiếp sang REWORK để nhánh này quay lại bước xử lý trước."
+                    : "Chọn bước phê duyệt hoặc kiểm tra cần quay lại. Hệ thống sẽ tạo vòng lặp có giới hạn để người dùng bổ sung thông tin rồi xử lý lại."}
                 </p>
               </div>
             )}
