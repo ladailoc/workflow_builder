@@ -59,8 +59,10 @@ export default function WorkflowDetailPage() {
       })
       .catch((reason: unknown) => {
         if (!ignore)
-            setError(
-            reason instanceof Error ? reason.message : "Không tìm thấy quy trình",
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : "Không tìm thấy quy trình",
           );
       });
     return () => {
@@ -76,7 +78,9 @@ export default function WorkflowDetailPage() {
       load();
     } catch (reason) {
       setError(
-        reason instanceof Error ? reason.message : "Thao tác quy trình thất bại",
+        reason instanceof Error
+          ? reason.message
+          : "Thao tác quy trình thất bại",
       );
     } finally {
       setBusy(false);
@@ -96,7 +100,7 @@ export default function WorkflowDetailPage() {
           onRetry={load}
         />
       ) : detail ? (
-        <div className="space-y-6" data-testid="workflow-detail-page">
+        <div className="space-y-4" data-testid="workflow-detail-page">
           <AdminPageHeader
             title={detail.workflow.name}
             description={
@@ -114,14 +118,14 @@ export default function WorkflowDetailPage() {
             </p>
           )}
 
-          <section className="grid gap-4 md:grid-cols-4">
+          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Info label="Khóa ổn định" value={detail.workflow.key} mono />
             <Info
               label="Đã phát hành"
               value={
                 detail.workflow.currentPublishedVersionNo
                   ? `V${detail.workflow.currentPublishedVersionNo}`
-                  : "Chưa có phiên bản đã phát hành"
+                  : "—"
               }
             />
             <Info
@@ -150,129 +154,128 @@ export default function WorkflowDetailPage() {
               text="Không thể bắt đầu yêu cầu mới hoặc tạo bản nháp; lịch sử vẫn được giữ lại."
             />
           )}
-          {!detail.workflow.currentPublishedVersionId && (
-            <Guidance
-              title="Chưa có phiên bản đã phát hành"
-              text="Định nghĩa này có thể được cấu hình, nhưng chưa thể bắt đầu xử lý yêu cầu."
-            />
-          )}
-
-          <div className="flex flex-wrap gap-2">
-            {!detail.workflow.activeDraftVersionId &&
-              detail.workflow.lifecycle !== "ARCHIVED" && (
-                <button
-                  disabled={busy}
-                  onClick={() =>
-                    run(async () => {
-                      const draft = await createWorkflowDraft(
-                        workflowId,
-                        detail.workflow.currentPublishedVersionId ?? undefined,
-                      );
-                      router.push(
-                        `/workflows/${workflowId}/versions/${draft.id}/builder`,
-                      );
-                    })
-                  }
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  Tạo bản nháp
-                </button>
-              )}
-            {detail.workflow.activeDraftVersionId && (
-              <Link
-                href={`/workflows/${workflowId}/versions/${detail.workflow.activeDraftVersionId}/builder`}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
-              >
-                Mở bản nháp
-              </Link>
-            )}
-            {canManageLifecycle && detail.workflow.lifecycle === "ACTIVE" && (
-              <button
-                disabled={busy}
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      "Tạm dừng quy trình này? Các yêu cầu mới sẽ không thể bắt đầu.",
-                    )
-                  )
-                    void run(() =>
-                      changeWorkflowLifecycle(
-                        workflowId,
-                        "suspend",
-                        detail.workflow.lockVersion,
-                        "Suspended from Workflow Management",
-                      ),
-                    );
-                }}
-                className="rounded-lg border border-orange-300 px-4 py-2 text-sm font-semibold text-orange-700"
-              >
-                Tạm dừng
-              </button>
-            )}
-            {canManageLifecycle &&
-              detail.workflow.lifecycle === "SUSPENDED" && (
-                <button
-                  disabled={busy}
-                  onClick={() =>
-                    void run(() =>
-                      changeWorkflowLifecycle(
-                        workflowId,
-                        "reactivate",
-                        detail.workflow.lockVersion,
-                        "Reactivated from Workflow Management",
-                      ),
-                    )
-                  }
-                  className="rounded-lg border border-emerald-300 px-4 py-2 text-sm font-semibold text-emerald-700"
-                >
-                  Kích hoạt lại
-                </button>
-              )}
-            {canManageLifecycle && detail.workflow.lifecycle !== "ARCHIVED" && (
-              <button
-                disabled={busy || Boolean(detail.workflow.activeDraftVersionId)}
-                title={
-                  detail.workflow.activeDraftVersionId
-                    ? "Hãy xóa bản nháp hiện tại trước khi lưu trữ"
-                    : undefined
-                }
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      "Lưu trữ quy trình này? Quy trình sẽ không nhận yêu cầu mới.",
-                    )
-                  )
-                    void run(() =>
-                      changeWorkflowLifecycle(
-                        workflowId,
-                        "archive",
-                        detail.workflow.lockVersion,
-                        "Archived from Workflow Management",
-                      ),
-                    );
-                }}
-                className="rounded-lg border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 disabled:opacity-40"
-              >
-                Lưu trữ
-              </button>
-            )}
-          </div>
-
           <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 px-5 py-4">
-              <h2 className="font-semibold text-slate-900">Lịch sử phiên bản</h2>
-              <p className="text-xs text-slate-500">
-                Các phiên bản đã phát hành, bị thay thế hoặc lưu trữ không thể chỉnh sửa.
-              </p>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+              <div>
+                <h2 className="font-semibold text-slate-900">Lịch sử phiên bản</h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Quản lý bản nháp và các phiên bản đã lưu.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {!detail.workflow.activeDraftVersionId &&
+                  detail.workflow.lifecycle !== "ARCHIVED" && (
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        run(async () => {
+                          const draft = await createWorkflowDraft(
+                            workflowId,
+                            detail.workflow.currentPublishedVersionId ??
+                              undefined,
+                          );
+                          router.push(
+                            `/workflows/${workflowId}/versions/${draft.id}/builder`,
+                          );
+                        })
+                      }
+                      className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      Tạo bản nháp
+                    </button>
+                  )}
+                {detail.workflow.activeDraftVersionId && (
+                  <Link
+                    href={`/workflows/${workflowId}/versions/${detail.workflow.activeDraftVersionId}/builder`}
+                    className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+                  >
+                    Mở bản nháp
+                  </Link>
+                )}
+                {canManageLifecycle &&
+                  detail.workflow.lifecycle === "ACTIVE" && (
+                    <button
+                      disabled={busy}
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            "Tạm dừng quy trình này? Các yêu cầu mới sẽ không thể bắt đầu.",
+                          )
+                        )
+                          void run(() =>
+                            changeWorkflowLifecycle(
+                              workflowId,
+                              "suspend",
+                              detail.workflow.lockVersion,
+                              "Suspended from Workflow Management",
+                            ),
+                          );
+                      }}
+                      className="rounded-lg border border-orange-300 px-3 py-2 text-sm font-semibold text-orange-700 transition hover:bg-orange-50 disabled:opacity-50"
+                    >
+                      Tạm dừng
+                    </button>
+                  )}
+                {canManageLifecycle &&
+                  detail.workflow.lifecycle === "SUSPENDED" && (
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        void run(() =>
+                          changeWorkflowLifecycle(
+                            workflowId,
+                            "reactivate",
+                            detail.workflow.lockVersion,
+                            "Reactivated from Workflow Management",
+                          ),
+                        )
+                      }
+                      className="rounded-lg border border-emerald-300 px-3 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-50"
+                    >
+                      Kích hoạt lại
+                    </button>
+                  )}
+                {canManageLifecycle &&
+                  detail.workflow.lifecycle !== "ARCHIVED" && (
+                    <button
+                      disabled={
+                        busy || Boolean(detail.workflow.activeDraftVersionId)
+                      }
+                      title={
+                        detail.workflow.activeDraftVersionId
+                          ? "Hãy xóa bản nháp hiện tại trước khi lưu trữ"
+                          : undefined
+                      }
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            "Lưu trữ quy trình này? Quy trình sẽ không nhận yêu cầu mới.",
+                          )
+                        )
+                          void run(() =>
+                            changeWorkflowLifecycle(
+                              workflowId,
+                              "archive",
+                              detail.workflow.lockVersion,
+                              "Archived from Workflow Management",
+                            ),
+                          );
+                      }}
+                      className="rounded-lg border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-40"
+                    >
+                      Lưu trữ
+                    </button>
+                  )}
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                 <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
                   <tr>
-                    <th className="px-5 py-3">Phiên bản</th>
-                    <th className="px-5 py-3">Trạng thái</th>
-                    <th className="px-5 py-3">Tạo / phát hành</th>
-                    <th className="px-5 py-3">Thao tác</th>
+                    <th className="px-4 py-2.5">Phiên bản</th>
+                    <th className="px-4 py-2.5">Trạng thái</th>
+                    <th className="px-4 py-2.5">Tạo / phát hành</th>
+                    <th className="px-4 py-2.5">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -281,18 +284,18 @@ export default function WorkflowDetailPage() {
                       key={version.id}
                       data-testid={`version-row-${version.id}`}
                     >
-                      <td className="px-5 py-4 font-semibold">
+                      <td className="px-4 py-3 font-semibold">
                         V{version.versionNo}
                       </td>
-                      <td className="px-5 py-4">
+                      <td className="px-4 py-3">
                         <LifecycleBadge value={version.status} />
                       </td>
-                      <td className="px-5 py-4 text-xs text-slate-500">
+                      <td className="px-4 py-3 text-xs text-slate-500">
                         {new Date(
                           version.publishedAt ?? version.createdAt,
                         ).toLocaleString("vi-VN")}
                       </td>
-                      <td className="px-5 py-4">
+                      <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-2">
                           <Link
                             href={`/workflows/${workflowId}/versions/${version.id}`}

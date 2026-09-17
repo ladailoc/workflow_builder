@@ -135,6 +135,35 @@ describe("Workflow and Request Type management pages", () => {
     expect(managementMocks.fetchVersionDiff).toHaveBeenCalled();
   });
 
+  it("keeps an unpublished workflow detail page compact without the warning banner", async () => {
+    const detail = workflowFixture();
+    detail.workflow.currentPublishedVersionId = null;
+    detail.workflow.currentPublishedVersionNo = null;
+    detail.workflow.activeDraftVersionId = null;
+    detail.workflow.activeDraftVersionNo = null;
+    detail.versions = [];
+    managementMocks.fetchWorkflow.mockResolvedValue(detail);
+
+    render(
+      <AuthSessionProvider initialSession={ownerSession}>
+        <WorkflowDetailPage />
+      </AuthSessionProvider>,
+    );
+
+    expect(
+      await screen.findByTestId("workflow-detail-page"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Chưa có phiên bản đã phát hành"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Định nghĩa này có thể được cấu hình, nhưng chưa thể bắt đầu xử lý yêu cầu.",
+      ),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
+  });
+
   it("confirms lifecycle changes and clones an immutable version as a new Draft", async () => {
     const workflow = workflowFixture();
     managementMocks.fetchWorkflow.mockResolvedValue(workflow);
