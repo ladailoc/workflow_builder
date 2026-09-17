@@ -11,13 +11,13 @@ import { findFieldDependencies } from "../utils/field-dependency";
 import { FieldDependencyModal } from "./field-dependency-modal";
 
 const FIELD_TYPES: { value: FormFieldType; label: string }[] = [
-  { value: "STRING", label: "Văn bản" },
-  { value: "INTEGER", label: "Số nguyên" },
-  { value: "DECIMAL", label: "Số thập phân / Tiền tệ" },
-  { value: "BOOLEAN", label: "Có / Không" },
-  { value: "DATE", label: "Ngày" },
-  { value: "ENUM", label: "Danh sách chọn" },
-  { value: "FILE", label: "Tệp đính kèm" },
+  { value: "STRING", label: "STRING — Văn bản" },
+  { value: "INTEGER", label: "INTEGER — Số nguyên" },
+  { value: "DECIMAL", label: "DECIMAL — Số thập phân / Tiền tệ" },
+  { value: "BOOLEAN", label: "BOOLEAN — Có / Không" },
+  { value: "DATE", label: "DATE — Ngày" },
+  { value: "ENUM", label: "ENUM — Danh sách chọn" },
+  { value: "FILE", label: "FILE — Tệp đính kèm" },
 ];
 
 interface FormBuilderProps {
@@ -139,9 +139,7 @@ export function FormBuilder({
       return;
     }
     if (!/^[a-zA-Z0-9_]+$/.test(trimmedKey)) {
-      setFormError(
-        "Khóa chỉ được chứa chữ cái, chữ số và dấu gạch dưới.",
-      );
+      setFormError("Khóa chỉ được chứa chữ cái, chữ số và dấu gạch dưới.");
       return;
     }
     if (!trimmedLabel) {
@@ -438,7 +436,7 @@ export function FormBuilder({
               htmlFor={`${formHtmlId}-fieldDesc`}
               className="mb-0.5 block text-[11px] font-semibold text-slate-700"
             >
-                Hướng dẫn
+              Hướng dẫn
             </label>
             <input
               id={`${formHtmlId}-fieldDesc`}

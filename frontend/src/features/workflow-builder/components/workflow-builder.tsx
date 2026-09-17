@@ -721,6 +721,7 @@ export function WorkflowBuilder({
         {/* Right: Properties Panel */}
         <PropertiesPanel
           selectedNode={selectedNode}
+          requestForm={requestFormSchema}
           onUpdateNode={handleUpdateNode}
           onDeleteNode={handleDeleteNode}
           onClose={() => setSelectedNodeId(null)}

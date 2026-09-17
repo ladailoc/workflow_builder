@@ -6,16 +6,19 @@ import type { BuilderNode } from "../types";
 import type { FormSchema } from "../form-types";
 import { ParticipantBuilder } from "./participant-builder";
 import { FormBuilder } from "./form-builder";
+import { ConditionExpressionEditor } from "./condition-expression-editor";
 
 interface DynamicNodePropertiesProps {
   node: BuilderNode;
   onUpdateConfig: (config: Record<string, unknown>) => void;
+  requestForm?: FormSchema;
   readOnly?: boolean;
 }
 
 export function DynamicNodeProperties({
   node,
   onUpdateConfig,
+  requestForm,
   readOnly = false,
 }: DynamicNodePropertiesProps) {
   const manifest = getNodeManifest(node.data.nodeType);
@@ -63,7 +66,7 @@ export function DynamicNodeProperties({
       {unknownProps.length > 0 && (
         <div
           data-testid="unknown-properties-alert"
-          className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-xs text-rose-900 space-y-2"
+          className="space-y-2 rounded-lg border border-rose-300 bg-rose-50 p-3 text-xs text-rose-900"
         >
           <div className="flex items-center justify-between">
             <span className="font-bold">Vi phạm schema nghiêm ngặt</span>
@@ -91,7 +94,8 @@ export function DynamicNodeProperties({
       )}
 
       {/* Node-Specific Dynamic Form Sections */}
-      {(node.data.nodeType === "APPROVAL" || node.data.nodeType === "REVIEW") && (
+      {(node.data.nodeType === "APPROVAL" ||
+        node.data.nodeType === "REVIEW") && (
         <ApprovalPropertiesSection
           config={config}
           readOnly={readOnly}
@@ -132,7 +136,7 @@ export function DynamicNodeProperties({
           config={config}
           readOnly={readOnly}
           onChange={handleConfigChange}
-          formHtmlId={formHtmlId}
+          requestForm={requestForm}
         />
       )}
 
@@ -181,7 +185,7 @@ function ApprovalPropertiesSection({
   return (
     <div className="space-y-3" data-testid="approval-properties-panel">
       {/* Sub-Tabs */}
-      <div className="flex flex-wrap border-b border-slate-200 gap-1 pb-1">
+      <div className="flex flex-wrap gap-1 border-b border-slate-200 pb-1">
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -204,7 +208,7 @@ function ApprovalPropertiesSection({
           <div>
             <label
               htmlFor={`${formHtmlId}-titleSnapshot`}
-              className="text-xs font-semibold text-slate-700 block mb-1"
+              className="mb-1 block text-xs font-semibold text-slate-700"
             >
               Tiêu đề công việc
             </label>
@@ -222,7 +226,7 @@ function ApprovalPropertiesSection({
           <div>
             <label
               htmlFor={`${formHtmlId}-priority`}
-              className="text-xs font-semibold text-slate-700 block mb-1"
+              className="mb-1 block text-xs font-semibold text-slate-700"
             >
               Mức ưu tiên (0 - 100)
             </label>
@@ -247,7 +251,8 @@ function ApprovalPropertiesSection({
         <div className="space-y-3 pt-1">
           <ParticipantBuilder
             value={
-              typeof config.participant === "object" && config.participant !== null
+              typeof config.participant === "object" &&
+              config.participant !== null
                 ? (config.participant as Record<string, unknown>)
                 : {}
             }
@@ -259,10 +264,10 @@ function ApprovalPropertiesSection({
 
       {activeTab === "taskGen" && (
         <div className="space-y-3 pt-1">
-          <span className="text-xs font-semibold text-slate-700 block">
+          <span className="block text-xs font-semibold text-slate-700">
             Cách tạo công việc
           </span>
-          <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700">
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-700">
             <input
               type="checkbox"
               data-testid="check-multi-instance"
@@ -291,7 +296,7 @@ function ApprovalPropertiesSection({
           <div>
             <label
               htmlFor={`${formHtmlId}-formKey`}
-              className="text-xs font-semibold text-slate-700 block mb-1"
+              className="mb-1 block text-xs font-semibold text-slate-700"
             >
               Khóa biểu mẫu công việc
             </label>
@@ -308,9 +313,7 @@ function ApprovalPropertiesSection({
           </div>
           <div className="border-t border-slate-200 pt-3">
             <FormBuilder
-              schema={
-                (config.stepFormSchema as FormSchema) || { fields: [] }
-              }
+              schema={(config.stepFormSchema as FormSchema) || { fields: [] }}
               onChange={(newSchema) => onChange("stepFormSchema", newSchema)}
               readOnly={readOnly}
               title="Schema biểu mẫu của bước"
@@ -321,7 +324,7 @@ function ApprovalPropertiesSection({
 
       {activeTab === "decision" && (
         <div className="space-y-3 pt-1">
-          <span className="text-xs font-semibold text-slate-700 block mb-1">
+          <span className="mb-1 block text-xs font-semibold text-slate-700">
             Các thao tác quyết định được phép
           </span>
           <div className="space-y-1.5" data-testid="allowed-actions-group">
@@ -332,7 +335,10 @@ function ApprovalPropertiesSection({
               const checked = currentArr.includes(act);
 
               return (
-                <label key={act} className="flex items-center gap-2 text-xs text-slate-700">
+                <label
+                  key={act}
+                  className="flex items-center gap-2 text-xs text-slate-700"
+                >
                   <input
                     type="checkbox"
                     disabled={readOnly}
@@ -357,7 +363,7 @@ function ApprovalPropertiesSection({
         <div className="space-y-3 pt-1">
           <label
             htmlFor={`${formHtmlId}-slaMinutes`}
-            className="text-xs font-semibold text-slate-700 block mb-1"
+            className="mb-1 block text-xs font-semibold text-slate-700"
           >
             Thời hạn SLA (phút)
           </label>
@@ -368,7 +374,10 @@ function ApprovalPropertiesSection({
             disabled={readOnly}
             value={
               typeof config.sla === "object" && config.sla !== null
-                ? Number((config.sla as Record<string, unknown>).durationMinutes ?? 1440)
+                ? Number(
+                    (config.sla as Record<string, unknown>).durationMinutes ??
+                      1440,
+                  )
                 : 1440
             }
             onChange={(e) => {
@@ -384,7 +393,7 @@ function ApprovalPropertiesSection({
         <div className="space-y-3 pt-1">
           <label
             htmlFor={`${formHtmlId}-failurePolicy`}
-            className="text-xs font-semibold text-slate-700 block mb-1"
+            className="mb-1 block text-xs font-semibold text-slate-700"
           >
             Cách xử lý khi lỗi
           </label>
@@ -429,7 +438,7 @@ function SystemActionPropertiesSection({
 
   return (
     <div className="space-y-3" data-testid="system-action-properties-panel">
-      <div className="flex border-b border-slate-200 gap-1 pb-1">
+      <div className="flex gap-1 border-b border-slate-200 pb-1">
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -452,7 +461,7 @@ function SystemActionPropertiesSection({
           <div>
             <label
               htmlFor={`${formHtmlId}-connectorKey`}
-              className="text-xs font-semibold text-slate-700 block mb-1"
+              className="mb-1 block text-xs font-semibold text-slate-700"
             >
               Khóa kết nối *
             </label>
@@ -470,7 +479,7 @@ function SystemActionPropertiesSection({
           <div>
             <label
               htmlFor={`${formHtmlId}-credentialRef`}
-              className="text-xs font-semibold text-slate-700 block mb-1"
+              className="mb-1 block text-xs font-semibold text-slate-700"
             >
               Tham chiếu thông tin xác thực
             </label>
@@ -482,7 +491,7 @@ function SystemActionPropertiesSection({
               value={String(config.credentialRef ?? "")}
               placeholder="Ví dụ: vault:secret/slack-token"
               onChange={(e) => onChange("credentialRef", e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100 font-mono text-[11px]"
+              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-xs text-[11px] disabled:bg-slate-100"
             />
           </div>
         </div>
@@ -493,7 +502,7 @@ function SystemActionPropertiesSection({
           <div>
             <label
               htmlFor={`${formHtmlId}-actionKey`}
-              className="text-xs font-semibold text-slate-700 block mb-1"
+              className="mb-1 block text-xs font-semibold text-slate-700"
             >
               Khóa thao tác *
             </label>
@@ -511,7 +520,7 @@ function SystemActionPropertiesSection({
           <div>
             <label
               htmlFor={`${formHtmlId}-actionVersion`}
-              className="text-xs font-semibold text-slate-700 block mb-1"
+              className="mb-1 block text-xs font-semibold text-slate-700"
             >
               Phiên bản thao tác *
             </label>
@@ -535,7 +544,7 @@ function SystemActionPropertiesSection({
         <div className="space-y-3 pt-1">
           <label
             htmlFor={`${formHtmlId}-maxAttempts`}
-            className="text-xs font-semibold text-slate-700 block mb-1"
+            className="mb-1 block text-xs font-semibold text-slate-700"
           >
             Số lần thử lại tối đa
           </label>
@@ -546,8 +555,12 @@ function SystemActionPropertiesSection({
             data-testid="input-max-attempts"
             disabled={readOnly}
             value={
-              typeof config.retryPolicy === "object" && config.retryPolicy !== null
-                ? Number((config.retryPolicy as Record<string, unknown>).maxAttempts ?? 3)
+              typeof config.retryPolicy === "object" &&
+              config.retryPolicy !== null
+                ? Number(
+                    (config.retryPolicy as Record<string, unknown>)
+                      .maxAttempts ?? 3,
+                  )
                 : 3
             }
             onChange={(e) => {
@@ -563,7 +576,7 @@ function SystemActionPropertiesSection({
         <div className="space-y-3 pt-1">
           <label
             htmlFor={`${formHtmlId}-failureAction`}
-            className="text-xs font-semibold text-slate-700 block mb-1"
+            className="mb-1 block text-xs font-semibold text-slate-700"
           >
             Thao tác khi định tuyến lỗi
           </label>
@@ -576,7 +589,9 @@ function SystemActionPropertiesSection({
             className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100"
           >
             <option value="ROUTE_ERROR_PORT">Chuyển đến cổng ERROR</option>
-            <option value="FAIL_EVENT">Làm sự kiện thất bại ngay lập tức</option>
+            <option value="FAIL_EVENT">
+              Làm sự kiện thất bại ngay lập tức
+            </option>
           </select>
         </div>
       )}
@@ -607,7 +622,7 @@ function JoinPropertiesSection({
 
   return (
     <div className="space-y-3" data-testid="join-properties-panel">
-      <div className="flex border-b border-slate-200 gap-1 pb-1">
+      <div className="flex gap-1 border-b border-slate-200 pb-1">
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -629,7 +644,7 @@ function JoinPropertiesSection({
         <div className="space-y-3 pt-1">
           <label
             htmlFor={`${formHtmlId}-joinPolicy`}
-            className="text-xs font-semibold text-slate-700 block mb-1"
+            className="mb-1 block text-xs font-semibold text-slate-700"
           >
             Quy tắc hợp nhất các nhánh
           </label>
@@ -651,7 +666,7 @@ function JoinPropertiesSection({
         <div className="space-y-3 pt-1">
           <label
             htmlFor={`${formHtmlId}-joinScopeId`}
-            className="text-xs font-semibold text-slate-700 block mb-1"
+            className="mb-1 block text-xs font-semibold text-slate-700"
           >
             Mã phạm vi hợp nhất
           </label>
@@ -663,7 +678,7 @@ function JoinPropertiesSection({
             value={String(config.joinScopeId ?? "")}
             placeholder="UUID phạm vi hoặc tham chiếu nhánh"
             onChange={(e) => onChange("joinScopeId", e.target.value)}
-            className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100 font-mono text-[11px]"
+            className="w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-xs text-[11px] disabled:bg-slate-100"
           />
         </div>
       )}
@@ -672,7 +687,7 @@ function JoinPropertiesSection({
         <div className="space-y-3 pt-1">
           <label
             htmlFor={`${formHtmlId}-remainingBranchPolicy`}
-            className="text-xs font-semibold text-slate-700 block mb-1"
+            className="mb-1 block text-xs font-semibold text-slate-700"
           >
             Quy tắc nhánh còn lại
           </label>
@@ -685,7 +700,9 @@ function JoinPropertiesSection({
             className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100"
           >
             <option value="CANCEL_REMAINING">Hủy các nhánh còn lại</option>
-            <option value="AWAIT_COMPLETION">Âm thầm chờ tất cả nhánh hoàn tất</option>
+            <option value="AWAIT_COMPLETION">
+              Âm thầm chờ tất cả nhánh hoàn tất
+            </option>
           </select>
         </div>
       )}
@@ -717,7 +734,7 @@ function SubWorkflowPropertiesSection({
 
   return (
     <div className="space-y-3" data-testid="subworkflow-properties-panel">
-      <div className="flex border-b border-slate-200 gap-1 pb-1">
+      <div className="flex gap-1 border-b border-slate-200 pb-1">
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -739,7 +756,7 @@ function SubWorkflowPropertiesSection({
         <div className="space-y-3 pt-1">
           <label
             htmlFor={`${formHtmlId}-childDefKey`}
-            className="text-xs font-semibold text-slate-700 block mb-1"
+            className="mb-1 block text-xs font-semibold text-slate-700"
           >
             Khóa định nghĩa quy trình con *
           </label>
@@ -749,9 +766,11 @@ function SubWorkflowPropertiesSection({
             data-testid="input-childWorkflowDefinitionKey"
             disabled={readOnly}
             value={String(config.childWorkflowDefinitionKey ?? "")}
-              placeholder="Ví dụ: employee_onboarding"
-            onChange={(e) => onChange("childWorkflowDefinitionKey", e.target.value)}
-            className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100 font-mono"
+            placeholder="Ví dụ: employee_onboarding"
+            onChange={(e) =>
+              onChange("childWorkflowDefinitionKey", e.target.value)
+            }
+            className="w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-xs disabled:bg-slate-100"
           />
         </div>
       )}
@@ -760,7 +779,7 @@ function SubWorkflowPropertiesSection({
         <div className="space-y-3 pt-1">
           <label
             htmlFor={`${formHtmlId}-execMode`}
-            className="text-xs font-semibold text-slate-700 block mb-1"
+            className="mb-1 block text-xs font-semibold text-slate-700"
           >
             Cách thực thi
           </label>
@@ -780,7 +799,7 @@ function SubWorkflowPropertiesSection({
 
       {activeTab === "mapping" && (
         <div className="space-y-3 pt-1">
-          <span className="text-xs font-semibold text-slate-700 block">
+          <span className="block text-xs font-semibold text-slate-700">
             Liên kết biến cha ↔ con
           </span>
         </div>
@@ -790,7 +809,7 @@ function SubWorkflowPropertiesSection({
         <div className="space-y-3 pt-1">
           <label
             htmlFor={`${formHtmlId}-cancelPolicy`}
-            className="text-xs font-semibold text-slate-700 block mb-1"
+            className="mb-1 block text-xs font-semibold text-slate-700"
           >
             Cách lan truyền thao tác hủy
           </label>
@@ -802,8 +821,12 @@ function SubWorkflowPropertiesSection({
             onChange={(e) => onChange("cancellationPolicy", e.target.value)}
             className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100"
           >
-            <option value="PROPAGATE">PROPAGATE (Hủy con khi cha kết thúc)</option>
-            <option value="DETACH">DETACH (Cho phép con hoàn tất độc lập)</option>
+            <option value="PROPAGATE">
+              PROPAGATE (Hủy con khi cha kết thúc)
+            </option>
+            <option value="DETACH">
+              DETACH (Cho phép con hoàn tất độc lập)
+            </option>
           </select>
         </div>
       )}
@@ -818,41 +841,33 @@ function ConditionPropertiesSection({
   config,
   readOnly,
   onChange,
-  formHtmlId,
+  requestForm,
 }: {
   config: Record<string, unknown>;
   readOnly: boolean;
   onChange: (key: string, value: unknown) => void;
-  formHtmlId: string;
+  requestForm?: FormSchema;
 }) {
   return (
     <div className="space-y-3 pt-1" data-testid="condition-properties-panel">
-      <label
-        htmlFor={`${formHtmlId}-conditionExpr`}
-        className="text-xs font-semibold text-slate-700 block mb-1"
-      >
-        Biểu thức điều kiện (JSON AST)
-      </label>
-      <textarea
-        id={`${formHtmlId}-conditionExpr`}
-        rows={4}
-        data-testid="input-condition-expression"
-        disabled={readOnly}
+      <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+        <p className="text-xs font-semibold text-amber-900">
+          Tạo điều kiện định tuyến
+        </p>
+        <p className="mt-1 text-[11px] text-amber-800">
+          Chọn trường biểu mẫu, toán tử và giá trị. Hệ thống sẽ tự tạo biểu thức
+          an toàn.
+        </p>
+      </div>
+      <ConditionExpressionEditor
         value={
           typeof config.expression === "object" && config.expression !== null
-            ? JSON.stringify(config.expression, null, 2)
-            : String(config.expression ?? "")
+            ? (config.expression as Record<string, unknown>)
+            : undefined
         }
-        placeholder='{ "kind": "OPERATOR", "operator": "GT", "operands": [...] }'
-        onChange={(e) => {
-          try {
-            const parsed = JSON.parse(e.target.value);
-            onChange("expression", parsed);
-          } catch {
-            onChange("expression", e.target.value);
-          }
-        }}
-        className="w-full rounded-lg border border-slate-300 p-2 font-mono text-[11px] disabled:bg-slate-100"
+        onChange={(compiled) => onChange("expression", compiled)}
+        availableFields={requestForm?.fields}
+        readOnly={readOnly}
       />
     </div>
   );
@@ -876,7 +891,7 @@ function GenericNodePropertiesSection({
     <div className="space-y-3 pt-1">
       <label
         htmlFor={`${formHtmlId}-outcome`}
-        className="text-xs font-semibold text-slate-700 block mb-1"
+        className="mb-1 block text-xs font-semibold text-slate-700"
       >
         Giá trị kết quả
       </label>

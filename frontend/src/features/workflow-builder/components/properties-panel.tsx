@@ -2,17 +2,16 @@
 
 import { useId } from "react";
 import { DynamicNodeProperties } from "./dynamic-node-properties";
-import {
-  formatPortLabel,
-  getNodeDisplayName,
-} from "../manifest";
+import { formatPortLabel, getNodeDisplayName } from "../manifest";
 import type { BuilderNode } from "../types";
+import type { FormSchema } from "../form-types";
 
 interface PropertiesPanelProps {
   selectedNode: BuilderNode | null;
   onUpdateNode: (nodeId: string, updates: Partial<BuilderNode["data"]>) => void;
   onDeleteNode: (nodeId: string) => void;
   onClose?: () => void;
+  requestForm?: FormSchema;
   readOnly?: boolean;
 }
 
@@ -21,6 +20,7 @@ export function PropertiesPanel({
   onUpdateNode,
   onDeleteNode,
   onClose,
+  requestForm,
   readOnly = false,
 }: PropertiesPanelProps) {
   const nodeKeyId = useId();
@@ -47,8 +47,10 @@ export function PropertiesPanel({
       >
         <div className="flex items-start justify-between gap-3 border-b border-slate-200 p-5">
           <div>
-            <h2 className="text-sm font-bold text-slate-900">Thuộc tính bước</h2>
-            <span className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-blue-700">
+            <h2 className="text-sm font-bold text-slate-900">
+              Thuộc tính bước
+            </h2>
+            <span className="mt-1 inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 uppercase">
               {getNodeDisplayName(data.nodeType, data.label)}
             </span>
           </div>
@@ -91,82 +93,83 @@ export function PropertiesPanel({
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
-        {/* Node Key */}
-        <div className="space-y-1">
-          <label
-            htmlFor={nodeKeyId}
-            className="text-xs font-semibold text-slate-700"
-          >
-            Khóa bước
-          </label>
-          <input
-            id={nodeKeyId}
-            type="text"
-            data-testid="prop-node-key"
-            disabled={readOnly}
-            value={data.key}
-            onChange={(e) =>
-              onUpdateNode(selectedNode.id, { key: e.target.value })
-            }
-            className="w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-xs text-slate-800 focus:border-blue-500 focus:outline-none disabled:bg-slate-100"
-          />
-        </div>
+          {/* Node Key */}
+          <div className="space-y-1">
+            <label
+              htmlFor={nodeKeyId}
+              className="text-xs font-semibold text-slate-700"
+            >
+              Khóa bước
+            </label>
+            <input
+              id={nodeKeyId}
+              type="text"
+              data-testid="prop-node-key"
+              disabled={readOnly}
+              value={data.key}
+              onChange={(e) =>
+                onUpdateNode(selectedNode.id, { key: e.target.value })
+              }
+              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-xs text-slate-800 focus:border-blue-500 focus:outline-none disabled:bg-slate-100"
+            />
+          </div>
 
-        {/* Node Label */}
-        <div className="space-y-1">
-          <label
-            htmlFor={nodeLabelId}
-            className="text-xs font-semibold text-slate-700"
-          >
-            Nhãn hiển thị
-          </label>
-          <input
-            id={nodeLabelId}
-            type="text"
-            data-testid="prop-node-label"
-            disabled={readOnly}
-            value={getNodeDisplayName(data.nodeType, data.label)}
-            onChange={(e) =>
-              onUpdateNode(selectedNode.id, { label: e.target.value })
-            }
-            className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-800 focus:border-blue-500 focus:outline-none disabled:bg-slate-100"
-          />
-        </div>
+          {/* Node Label */}
+          <div className="space-y-1">
+            <label
+              htmlFor={nodeLabelId}
+              className="text-xs font-semibold text-slate-700"
+            >
+              Nhãn hiển thị
+            </label>
+            <input
+              id={nodeLabelId}
+              type="text"
+              data-testid="prop-node-label"
+              disabled={readOnly}
+              value={getNodeDisplayName(data.nodeType, data.label)}
+              onChange={(e) =>
+                onUpdateNode(selectedNode.id, { label: e.target.value })
+              }
+              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-800 focus:border-blue-500 focus:outline-none disabled:bg-slate-100"
+            />
+          </div>
 
-        {/* Output Ports Overview */}
-        <div className="space-y-1 border-t border-slate-100 pt-3">
-          <span className="text-xs font-semibold text-slate-700">
-            Các cổng đầu ra
-          </span>
-          {data.outputPorts.length === 0 ? (
-            <p className="text-[11px] text-slate-400 italic">
-              Không có cổng đầu ra (bước kết thúc).
-            </p>
-          ) : (
-            <div className="mt-1 flex flex-wrap gap-1">
-              {data.outputPorts.map((port) => (
-                <span
-                  key={port}
-                  data-testid={`port-badge-${port}`}
-                  className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-[10px] font-semibold text-slate-700"
-                >
-                  {formatPortLabel(port)}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
+          {/* Output Ports Overview */}
+          <div className="space-y-1 border-t border-slate-100 pt-3">
+            <span className="text-xs font-semibold text-slate-700">
+              Các cổng đầu ra
+            </span>
+            {data.outputPorts.length === 0 ? (
+              <p className="text-[11px] text-slate-400 italic">
+                Không có cổng đầu ra (bước kết thúc).
+              </p>
+            ) : (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {data.outputPorts.map((port) => (
+                  <span
+                    key={port}
+                    data-testid={`port-badge-${port}`}
+                    className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-[10px] font-semibold text-slate-700"
+                  >
+                    {formatPortLabel(port)}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
 
-        {/* Dynamic Schema-Driven Configuration Panel */}
-        <div className="border-t border-slate-100 pt-3">
-          <DynamicNodeProperties
-            node={selectedNode}
-            readOnly={readOnly}
-            onUpdateConfig={(newConfig) =>
-              onUpdateNode(selectedNode.id, { config: newConfig })
-            }
-          />
-        </div>
+          {/* Dynamic Schema-Driven Configuration Panel */}
+          <div className="border-t border-slate-100 pt-3">
+            <DynamicNodeProperties
+              node={selectedNode}
+              requestForm={requestForm}
+              readOnly={readOnly}
+              onUpdateConfig={(newConfig) =>
+                onUpdateNode(selectedNode.id, { config: newConfig })
+              }
+            />
+          </div>
         </div>
       </aside>
     </div>

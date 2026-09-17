@@ -12,18 +12,19 @@ import {
   decompileConditionExpression,
   type AstOperator,
 } from "../utils/condition-compiler";
+import type { FormFieldDefinition } from "../form-types";
 
 const OPERATORS: { value: ConditionOperator; label: string }[] = [
-  { value: "EQ", label: "==" },
-  { value: "NEQ", label: "!=" },
-  { value: "GT", label: ">" },
-  { value: "GTE", label: ">=" },
-  { value: "LT", label: "<" },
-  { value: "LTE", label: "<=" },
-  { value: "IN", label: "IN (list)" },
-  { value: "CONTAINS", label: "CONTAINS" },
-  { value: "IS_NULL", label: "IS NULL" },
-  { value: "NOT_NULL", label: "NOT NULL" },
+  { value: "EQ", label: "Bằng (==)" },
+  { value: "NEQ", label: "Khác (!=)" },
+  { value: "GT", label: "Lớn hơn (>)" },
+  { value: "GTE", label: "Lớn hơn hoặc bằng (>=)" },
+  { value: "LT", label: "Nhỏ hơn (<)" },
+  { value: "LTE", label: "Nhỏ hơn hoặc bằng (<=)" },
+  { value: "IN", label: "Nằm trong danh sách" },
+  { value: "CONTAINS", label: "Có chứa" },
+  { value: "IS_NULL", label: "Để trống" },
+  { value: "NOT_NULL", label: "Có giá trị" },
 ];
 
 const CONTEXT_PREFIXES = [
@@ -40,29 +41,76 @@ interface ConditionExpressionEditorProps {
   value?: Record<string, unknown> | string;
   onChange: (compiled: AstOperator) => void;
   readOnly?: boolean;
+  availableFields?: FormFieldDefinition[];
 }
 
 let uniqueId = 100;
+
+function defaultClauseForField(
+  field: FormFieldDefinition | undefined,
+  id: string,
+): AtomicConditionClause {
+  if (!field) {
+    return {
+      id,
+      field: "payload.amount",
+      operator: "GT",
+      value: "0",
+    };
+  }
+
+  const value =
+    field.type === "BOOLEAN"
+      ? "true"
+      : field.type === "ENUM"
+        ? (field.options?.[0] ?? "")
+        : field.type === "INTEGER" || field.type === "DECIMAL"
+          ? "0"
+          : "";
+  const operator =
+    field.type === "FILE"
+      ? "NOT_NULL"
+      : field.type === "STRING" ||
+          field.type === "ENUM" ||
+          field.type === "BOOLEAN"
+        ? "EQ"
+        : field.type === "DATE"
+          ? "EQ"
+          : "GT";
+
+  return {
+    id,
+    field: `payload.${field.key}`,
+    operator,
+    value,
+  };
+}
 
 export function ConditionExpressionEditor({
   value,
   onChange,
   readOnly = false,
+  availableFields = [],
 }: ConditionExpressionEditorProps) {
   const [rootGroup, setRootGroup] = useState<UiConditionGroup>(() => {
     if (typeof value === "object" && value !== null) {
       return decompileConditionExpression(value);
     }
+    if (typeof value === "string" && value.trim()) {
+      try {
+        const parsed = JSON.parse(value) as unknown;
+        if (typeof parsed === "object" && parsed !== null) {
+          return decompileConditionExpression(parsed as Record<string, unknown>);
+        }
+      } catch {
+        // Keep the guided default when a legacy expression is not valid JSON.
+      }
+    }
     return {
       id: `root_${uniqueId++}`,
       logical: "AND",
       clauses: [
-        {
-          id: `clause_${uniqueId++}`,
-          field: "payload.totalAmount",
-          operator: "GT",
-          value: "5000",
-        },
+        defaultClauseForField(availableFields[0], `clause_${uniqueId++}`),
       ],
     };
   });
@@ -78,11 +126,9 @@ export function ConditionExpressionEditor({
   return (
     <div className="space-y-3" data-testid="condition-expression-editor">
       <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
-        <span className="text-xs font-bold text-slate-800">
-          Trình tạo biểu thức điều kiện
-        </span>
-        <span className="font-mono text-[10px] text-slate-500">
-          Công cụ AST an toàn
+        <span className="text-xs font-bold text-slate-800">Tạo điều kiện</span>
+        <span className="text-[10px] text-slate-500">
+          Chọn trường, toán tử và giá trị
         </span>
       </div>
 
@@ -92,6 +138,7 @@ export function ConditionExpressionEditor({
         readOnly={readOnly}
         isRoot
         formHtmlId={formHtmlId}
+        availableFields={availableFields}
       />
     </div>
   );
@@ -103,13 +150,28 @@ function RenderGroup({
   readOnly,
   isRoot = false,
   formHtmlId,
+  availableFields = [],
 }: {
   group: UiConditionGroup;
   onChange: (updated: UiConditionGroup) => void;
   readOnly: boolean;
   isRoot?: boolean;
   formHtmlId: string;
+  availableFields?: FormFieldDefinition[];
 }) {
+  const schemaFieldOptions = availableFields.map((field) => ({
+    value: `payload.${field.key}`,
+    label: `${field.label} · ${field.type}`,
+  }));
+  const schemaFieldValues = new Set(
+    schemaFieldOptions.map((field) => field.value),
+  );
+  const fieldOptions = [
+    ...schemaFieldOptions,
+    ...CONTEXT_PREFIXES.filter((field) => !schemaFieldValues.has(field)).map(
+      (field) => ({ value: field, label: field }),
+    ),
+  ];
   const setLogical = (logical: LogicalOperator) => {
     if (readOnly) return;
     onChange({ ...group, logical });
@@ -119,12 +181,7 @@ function RenderGroup({
     if (readOnly) return;
     const nextClauses = [
       ...group.clauses,
-      {
-        id: `clause_${uniqueId++}`,
-        field: "payload.amount",
-        operator: "GT" as ConditionOperator,
-        value: "0",
-      },
+      defaultClauseForField(availableFields[0], `clause_${uniqueId++}`),
     ];
     onChange({ ...group, clauses: nextClauses });
   };
@@ -137,12 +194,7 @@ function RenderGroup({
         id: `group_${uniqueId++}`,
         logical: "OR" as LogicalOperator,
         clauses: [
-          {
-            id: `clause_${uniqueId++}`,
-            field: "event.priority",
-            operator: "GTE" as ConditionOperator,
-            value: "80",
-          },
+          defaultClauseForField(availableFields[0], `clause_${uniqueId++}`),
         ],
       },
     ];
@@ -168,16 +220,18 @@ function RenderGroup({
   return (
     <div
       data-testid={`condition-group-${group.id}`}
-      className={`rounded-lg border p-3 space-y-3 ${
+      className={`space-y-3 rounded-lg border p-3 ${
         isRoot
           ? "border-slate-300 bg-slate-50/50"
-          : "border-blue-200 bg-blue-50/30 ml-3"
+          : "ml-3 border-blue-200 bg-blue-50/30"
       }`}
     >
       {/* Logical Operator Selector */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-bold text-slate-700">Điều kiện:</span>
+          <span className="text-[11px] font-bold text-slate-700">
+            Điều kiện:
+          </span>
           <div className="flex rounded border border-slate-300 bg-white p-0.5">
             {(["AND", "OR", "NOT"] as LogicalOperator[]).map((op) => (
               <button
@@ -209,7 +263,7 @@ function RenderGroup({
               type="button"
               data-testid="btn-add-clause"
               onClick={handleAddClause}
-              className="rounded bg-white border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs"
+              className="rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 shadow-2xs hover:bg-slate-50"
             >
               + Thêm mệnh đề
             </button>
@@ -217,7 +271,7 @@ function RenderGroup({
               type="button"
               data-testid="btn-add-subgroup"
               onClick={handleAddSubGroup}
-              className="rounded bg-white border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs"
+              className="rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 shadow-2xs hover:bg-slate-50"
             >
               + Thêm nhóm
             </button>
@@ -236,6 +290,7 @@ function RenderGroup({
                   onChange={(upd) => handleUpdateClause(idx, upd)}
                   readOnly={readOnly}
                   formHtmlId={`${formHtmlId}-sub-${idx}`}
+                  availableFields={availableFields}
                 />
                 {!readOnly && (
                   <button
@@ -254,6 +309,9 @@ function RenderGroup({
           const atomic = clause as AtomicConditionClause;
           const isNullOp =
             atomic.operator === "IS_NULL" || atomic.operator === "NOT_NULL";
+          const selectedField = availableFields.find(
+            (field) => `payload.${field.key}` === atomic.field,
+          );
 
           return (
             <div
@@ -261,28 +319,65 @@ function RenderGroup({
               data-testid={`condition-clause-row-${idx}`}
               className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-2xs"
             >
-              {/* Field with context variable hints */}
+              {/* Field selector backed by the request form schema */}
               <div className="flex-1">
-                <input
-                  type="text"
-                  data-testid={`input-clause-field-${idx}`}
-                  disabled={readOnly}
-                  value={atomic.field}
-                  onChange={(e) =>
-                    handleUpdateClause(idx, {
-                      ...atomic,
-                      field: e.target.value,
-                    })
-                  }
-                  list={`context-vars-${atomic.id}`}
-                  placeholder="payload.* hoặc event.*"
-                  className="w-full rounded border border-slate-300 px-2 py-1 font-mono text-xs text-slate-800 disabled:bg-slate-100"
-                />
-                <datalist id={`context-vars-${atomic.id}`}>
-                  {CONTEXT_PREFIXES.map((p) => (
-                    <option key={p} value={p} />
-                  ))}
-                </datalist>
+                {availableFields.length > 0 ? (
+                  <select
+                    data-testid={`select-clause-field-${idx}`}
+                    disabled={readOnly}
+                    value={atomic.field}
+                    onChange={(e) => {
+                      const nextField = availableFields.find(
+                        (field) => `payload.${field.key}` === e.target.value,
+                      );
+                      const defaults = defaultClauseForField(
+                        nextField,
+                        atomic.id,
+                      );
+                      handleUpdateClause(idx, {
+                        ...atomic,
+                        field: e.target.value,
+                        operator: nextField
+                          ? defaults.operator
+                          : atomic.operator,
+                        value: nextField ? defaults.value : atomic.value,
+                      });
+                    }}
+                    className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 disabled:bg-slate-100"
+                  >
+                    {!fieldOptions.some(
+                      (option) => option.value === atomic.field,
+                    ) && <option value={atomic.field}>{atomic.field}</option>}
+                    {fieldOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      data-testid={`input-clause-field-${idx}`}
+                      disabled={readOnly}
+                      value={atomic.field}
+                      onChange={(e) =>
+                        handleUpdateClause(idx, {
+                          ...atomic,
+                          field: e.target.value,
+                        })
+                      }
+                      list={`context-vars-${atomic.id}`}
+                      placeholder="payload.* hoặc event.*"
+                      className="w-full rounded border border-slate-300 px-2 py-1 font-mono text-xs text-slate-800 disabled:bg-slate-100"
+                    />
+                    <datalist id={`context-vars-${atomic.id}`}>
+                      {CONTEXT_PREFIXES.map((p) => (
+                        <option key={p} value={p} />
+                      ))}
+                    </datalist>
+                  </>
+                )}
               </div>
 
               {/* Operator */}
@@ -305,23 +400,73 @@ function RenderGroup({
                 ))}
               </select>
 
-              {/* Value (hidden if IS_NULL / NOT_NULL) */}
+              {/* Value control adapts to the selected field type */}
               {!isNullOp && (
                 <div className="flex-1">
-                  <input
-                    type="text"
-                    data-testid={`input-clause-value-${idx}`}
-                    disabled={readOnly}
-                    value={atomic.value}
-                    onChange={(e) =>
-                      handleUpdateClause(idx, {
-                        ...atomic,
-                        value: e.target.value,
-                      })
-                    }
-                    placeholder="Giá trị hoặc danh sách [1, 2]"
-                    className="w-full rounded border border-slate-300 px-2 py-1 font-mono text-xs text-slate-800 disabled:bg-slate-100"
-                  />
+                  {selectedField?.type === "BOOLEAN" ? (
+                    <select
+                      data-testid={`input-clause-value-${idx}`}
+                      disabled={readOnly}
+                      value={atomic.value}
+                      onChange={(e) =>
+                        handleUpdateClause(idx, {
+                          ...atomic,
+                          value: e.target.value,
+                        })
+                      }
+                      className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 disabled:bg-slate-100"
+                    >
+                      <option value="true">Đúng (true)</option>
+                      <option value="false">Sai (false)</option>
+                    </select>
+                  ) : selectedField?.type === "ENUM" &&
+                    selectedField.options &&
+                    selectedField.options.length > 0 &&
+                    atomic.operator !== "IN" ? (
+                    <select
+                      data-testid={`input-clause-value-${idx}`}
+                      disabled={readOnly}
+                      value={atomic.value}
+                      onChange={(e) =>
+                        handleUpdateClause(idx, {
+                          ...atomic,
+                          value: e.target.value,
+                        })
+                      }
+                      className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 disabled:bg-slate-100"
+                    >
+                      {selectedField.options.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type={
+                        selectedField?.type === "DATE"
+                          ? "date"
+                          : selectedField?.type === "INTEGER" ||
+                              selectedField?.type === "DECIMAL"
+                            ? "number"
+                            : "text"
+                      }
+                      step={
+                        selectedField?.type === "DECIMAL" ? "any" : undefined
+                      }
+                      data-testid={`input-clause-value-${idx}`}
+                      disabled={readOnly}
+                      value={atomic.value}
+                      onChange={(e) =>
+                        handleUpdateClause(idx, {
+                          ...atomic,
+                          value: e.target.value,
+                        })
+                      }
+                      placeholder="Giá trị hoặc danh sách [1, 2]"
+                      className="w-full rounded border border-slate-300 px-2 py-1 text-xs text-slate-800 disabled:bg-slate-100"
+                    />
+                  )}
                 </div>
               )}
 

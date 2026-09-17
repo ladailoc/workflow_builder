@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { DynamicNodeProperties } from "./components/dynamic-node-properties";
+import { FormBuilder } from "./components/form-builder";
 import type { BuilderNode } from "./types";
 
 describe("DynamicNodeProperties Component", () => {
@@ -83,8 +84,12 @@ describe("DynamicNodeProperties Component", () => {
       />,
     );
 
-    expect(screen.getByTestId("system-action-tab-connector")).toBeInTheDocument();
-    expect(screen.getByTestId("system-action-tab-actionVersion")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("system-action-tab-connector"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("system-action-tab-actionVersion"),
+    ).toBeInTheDocument();
     expect(screen.getByTestId("system-action-tab-retry")).toBeInTheDocument();
 
     expect(screen.getByTestId("input-connectorKey")).toHaveValue("slack");
@@ -113,9 +118,7 @@ describe("DynamicNodeProperties Component", () => {
       },
     };
 
-    render(
-      <DynamicNodeProperties node={joinNode} onUpdateConfig={vi.fn()} />,
-    );
+    render(<DynamicNodeProperties node={joinNode} onUpdateConfig={vi.fn()} />);
 
     expect(screen.getByTestId("select-join-policy")).toHaveValue("ALL");
 
@@ -174,5 +177,84 @@ describe("DynamicNodeProperties Component", () => {
       childWorkflowDefinitionKey: "employee_onboarding",
       executionMode: "WAIT_FOR_COMPLETION",
     });
+  });
+
+  it("builds condition expressions from form fields instead of raw JSON", () => {
+    const conditionNode: BuilderNode = {
+      id: "node-condition-1",
+      type: "workflowNode",
+      position: { x: 100, y: 100 },
+      data: {
+        key: "check_amount",
+        label: "Check amount",
+        nodeType: "CONDITION",
+        outputPorts: ["TRUE", "FALSE"],
+        config: {},
+      },
+    };
+    const updateSpy = vi.fn();
+
+    render(
+      <DynamicNodeProperties
+        node={conditionNode}
+        onUpdateConfig={updateSpy}
+        requestForm={{
+          fields: [
+            {
+              key: "amount",
+              label: "Tổng tiền",
+              type: "INTEGER",
+              required: true,
+            },
+            {
+              key: "approved",
+              label: "Đã duyệt",
+              type: "BOOLEAN",
+              required: false,
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Tạo điều kiện")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("input-condition-expression"),
+    ).not.toBeInTheDocument();
+
+    const fieldSelect = screen.getByTestId("select-clause-field-0");
+    expect(fieldSelect).toHaveValue("payload.amount");
+    expect(
+      screen.getByRole("option", { name: "Tổng tiền · INTEGER" }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(fieldSelect, { target: { value: "payload.approved" } });
+    const valueSelect = screen.getByTestId("input-clause-value-0");
+    expect(valueSelect.tagName).toBe("SELECT");
+    fireEvent.change(valueSelect, { target: { value: "false" } });
+
+    expect(updateSpy).toHaveBeenLastCalledWith({
+      expression: expect.objectContaining({
+        operator: "AND",
+        operands: expect.arrayContaining([
+          expect.objectContaining({
+            operator: "EQ",
+            operands: expect.arrayContaining([
+              { path: "payload.approved" },
+              { value: false, type: "BOOLEAN" },
+            ]),
+          }),
+        ]),
+      }),
+    });
+  });
+
+  it("shows canonical uppercase data types while adding a form field", () => {
+    render(<FormBuilder onChange={vi.fn()} />);
+    fireEvent.click(screen.getByTestId("add-form-field-btn"));
+
+    expect(screen.getByRole("option", { name: /STRING/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /INTEGER/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /BOOLEAN/ })).toBeInTheDocument();
   });
 });
