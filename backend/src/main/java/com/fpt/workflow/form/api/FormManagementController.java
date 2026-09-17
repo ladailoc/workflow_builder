@@ -18,4 +18,5 @@ public class FormManagementController {
   @PostMapping("/{id}/versions/{versionId}/validate") public FormValidationResult validate(@PathVariable UUID id,@PathVariable UUID versionId){return service.validate(id,versionId);}
   @PostMapping("/{id}/versions/{versionId}/publish") public FormVersion publish(@PathVariable UUID id,@PathVariable UUID versionId,@RequestHeader("If-Match") long expectedRevision){return service.publish(id,versionId,expectedRevision);}
   @GetMapping("/{id}/versions") public List<FormVersion> versions(@PathVariable UUID id){return service.versions(id);}
+  @GetMapping("/{id}/versions/{versionId}/fields") public List<com.fpt.workflow.form.domain.FormField> fields(@PathVariable UUID id,@PathVariable UUID versionId){return service.fields(id,versionId);}
 }

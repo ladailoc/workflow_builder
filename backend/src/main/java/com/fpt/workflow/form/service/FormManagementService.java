@@ -79,6 +79,11 @@ public class FormManagementService {
   }
   @Transactional(readOnly=true) public List<FormVersion> versions(UUID formId){requireForm(formId);return versions.findAllByFormIdOrderByVersionNoDesc(formId);}
   @Transactional(readOnly=true)
+  public List<FormField> fields(UUID formId, UUID versionId) {
+    requireVersion(formId, versionId);
+    return fields.findAllByFormVersionIdOrderByOrdinalAsc(versionId);
+  }
+  @Transactional(readOnly=true)
   public List<FormCatalogItem> publishedCatalog(){
     return forms.findAllByLifecycleOrderByNameAsc("ACTIVE").stream().filter(form->form.getCurrentPublishedVersionId()!=null).map(form->versions.findById(form.getCurrentPublishedVersionId()).filter(version->"PUBLISHED".equals(version.getStatus())).map(version->new FormCatalogItem(form.getId(),form.getKey(),form.getName(),form.getDescription(),version.getId(),version.getVersionNo(),version.getChecksum())).orElse(null)).filter(item->item!=null).toList();
   }

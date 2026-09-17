@@ -3,6 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { AuthRouteGuard } from "@/features/auth";
 import { fetchWorkflows } from "@/features/workflow-management/api";
+import {
+  suggestAutomaticMappings,
+  type AutoMatchReason,
+  type MappingSource,
+  type MappingTarget,
+  type MappingTypeDescriptor,
+} from "@/features/ticket-category-mapping/auto-mapping";
 import { apiDelete, apiGet, apiPost, apiPut } from "@/shared/api/client";
 import { PageHeader } from "@/shared/components/ui/page-header";
 import { StatusBadge } from "@/shared/components/ui/status-badge";
@@ -21,6 +28,7 @@ interface MappingDraft {
   onMissing: string;
   transformJson: unknown;
   ordinal: number;
+  autoMatch?: AutoMatchReason | null;
 }
 
 interface CatalogIntent {
@@ -38,6 +46,25 @@ interface FormOption {
   description?: string | null;
   formVersionId: string;
   versionNo: number;
+}
+
+interface WorkflowInputOption extends MappingTarget {
+  required: boolean;
+  description?: string | null;
+}
+
+interface FormFieldOption extends MappingSource {
+  description?: string | null;
+  required: boolean;
+}
+
+interface FormFieldApiItem {
+  id: string;
+  fieldKey: string;
+  label: string;
+  type: string | { type?: string; itemType?: unknown };
+  ordinal: number;
+  semanticTag?: string | null;
 }
 
 interface WorkflowOption {
@@ -101,6 +128,7 @@ const newMapping = (ordinal: number): MappingDraft => ({
   onMissing: "ERROR",
   transformJson: null,
   ordinal,
+  autoMatch: null,
 });
 
 function friendlyError(error: unknown, fallback: string): string {
@@ -122,6 +150,120 @@ function friendlyError(error: unknown, fallback: string): string {
   return messages[code] ?? (error instanceof Error ? error.message : fallback);
 }
 
+function normalizeMappingType(value: unknown): string | MappingTypeDescriptor {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    const descriptor = value as { type?: unknown; itemType?: unknown };
+    return {
+      type: typeof descriptor.type === "string" ? descriptor.type : "STRING",
+      itemType:
+        descriptor.itemType && typeof descriptor.itemType === "object"
+          ? normalizeMappingType(descriptor.itemType)
+          : undefined,
+    };
+  }
+  return "STRING";
+}
+
+function applyAutomaticMappings(
+  current: MappingDraft[],
+  targets: WorkflowInputOption[],
+  sources: FormFieldOption[],
+): MappingDraft[] {
+  if (targets.length === 0) return current;
+
+  const targetIds = new Set(targets.map((target) => target.id));
+  const sourceIds = new Set(sources.map((source) => source.id));
+  const existingByTarget = new Map<string, MappingDraft>();
+  current.forEach((mapping) => {
+    if (!targetIds.has(mapping.targetWorkflowInputId)) return;
+    if (existingByTarget.has(mapping.targetWorkflowInputId)) return;
+    if (
+      mapping.sourceType === "FORM_FIELD" &&
+      mapping.sourceFormFieldId &&
+      !sourceIds.has(mapping.sourceFormFieldId)
+    ) {
+      existingByTarget.set(mapping.targetWorkflowInputId, {
+        ...mapping,
+        sourceFormFieldId: "",
+        autoMatch: null,
+      });
+      return;
+    }
+    existingByTarget.set(mapping.targetWorkflowInputId, mapping);
+  });
+
+  const reservedSources = new Set(
+    [...existingByTarget.values()]
+      .filter(
+        (mapping) =>
+          mapping.sourceType === "FORM_FIELD" && mapping.sourceFormFieldId,
+      )
+      .map((mapping) => mapping.sourceFormFieldId),
+  );
+  const availableSources = sources.filter(
+    (source) => !reservedSources.has(source.id),
+  );
+  const suggestions = suggestAutomaticMappings(
+    targets.filter((target) => !existingByTarget.has(target.id)),
+    availableSources,
+  );
+  const suggestionsByTarget = new Map(
+    suggestions.map((suggestion) => [suggestion.targetId, suggestion]),
+  );
+
+  return targets.map((target, ordinal) => {
+    const existing = existingByTarget.get(target.id);
+    if (existing) return { ...existing, ordinal };
+    const suggestion = suggestionsByTarget.get(target.id);
+    return {
+      ...newMapping(ordinal),
+      targetWorkflowInputId: target.id,
+      sourceFormFieldId: suggestion?.sourceId ?? "",
+      autoMatch: suggestion?.reason ?? null,
+    };
+  });
+}
+
+function mappingReferenceValue(mapping: MappingDraft): string {
+  if (mapping.sourceType === "FORM_FIELD") return mapping.sourceFormFieldId;
+  const value =
+    mapping.sourceType === "SYSTEM_CONTEXT" ||
+    mapping.sourceType === "EXPRESSION"
+      ? mapping.sourceExpressionJson
+      : mapping.sourceType === "CONSTANT"
+        ? mapping.constantJson
+        : mapping.defaultJson;
+  if (value == null) return "";
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+function updateMappingReference(
+  mapping: MappingDraft,
+  raw: string,
+): Partial<MappingDraft> {
+  if (
+    mapping.sourceType === "SYSTEM_CONTEXT" ||
+    mapping.sourceType === "EXPRESSION"
+  ) {
+    return { sourceExpressionJson: raw || null, autoMatch: null };
+  }
+  let value: unknown = raw || null;
+  if (raw.trim()) {
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      value = raw;
+    }
+  }
+  return {
+    ...(mapping.sourceType === "CONSTANT"
+      ? { constantJson: value }
+      : { defaultJson: value }),
+    autoMatch: null,
+  };
+}
+
 export default function TicketCategoriesPage() {
   const [key, setKey] = useState("NEW_INTENT");
   const [name, setName] = useState("Nhu cầu nghiệp vụ mới");
@@ -132,6 +274,11 @@ export default function TicketCategoriesPage() {
   const [workflowVersionId, setWorkflowVersionId] = useState("");
   const [revision, setRevision] = useState(0);
   const [mappings, setMappings] = useState<MappingDraft[]>([newMapping(0)]);
+  const [workflowInputs, setWorkflowInputs] = useState<WorkflowInputOption[]>(
+    [],
+  );
+  const [formFields, setFormFields] = useState<FormFieldOption[]>([]);
+  const [mappingSchemaLoading, setMappingSchemaLoading] = useState(false);
   const [catalog, setCatalog] = useState<CatalogIntent[]>([]);
   const [forms, setForms] = useState<FormOption[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
@@ -144,6 +291,18 @@ export default function TicketCategoriesPage() {
   const [validationIssues, setValidationIssues] = useState<CategoryIssue[]>([]);
   const [working, setWorking] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const selectedForm = useMemo(
+    () => forms.find((form) => form.formVersionId === formVersionId) ?? null,
+    [forms, formVersionId],
+  );
+  const selectedWorkflowOption = useMemo(
+    () =>
+      workflows.find(
+        (workflow) => workflow.currentPublishedVersionId === workflowVersionId,
+      ) ?? null,
+    [workflows, workflowVersionId],
+  );
 
   const selectedBinding = useMemo(
     () =>
@@ -183,6 +342,80 @@ export default function TicketCategoriesPage() {
   useEffect(() => {
     void Promise.resolve().then(() => loadPageData());
   }, []);
+
+  useEffect(() => {
+    let ignore = false;
+    if (
+      !formVersionId ||
+      !workflowVersionId ||
+      !selectedForm ||
+      !selectedWorkflowOption
+    ) {
+      return;
+    }
+
+    Promise.all([
+      apiGet<
+        Array<{
+          id: string;
+          inputKey: string;
+          semanticTag?: string | null;
+          type: unknown;
+          required: boolean;
+          description?: string | null;
+          ordinal: number;
+        }>
+      >(
+        `/api/v1/workflows/${selectedWorkflowOption.id}/versions/${workflowVersionId}/inputs`,
+      ),
+      apiGet<FormFieldApiItem[]>(
+        `/api/v1/forms/${selectedForm.formId}/versions/${formVersionId}/fields`,
+      ),
+    ])
+      .then(([inputItems, fieldItems]) => {
+        if (ignore) return;
+        const targets: WorkflowInputOption[] = inputItems.map((input) => ({
+          id: input.id,
+          key: input.inputKey,
+          label: input.inputKey,
+          semanticTag: input.semanticTag,
+          type: normalizeMappingType(input.type),
+          required: input.required,
+          description: input.description,
+          ordinal: input.ordinal,
+        }));
+        const sources: FormFieldOption[] = fieldItems.map((field) => ({
+          id: field.id,
+          key: field.fieldKey,
+          label: field.label,
+          semanticTag: field.semanticTag,
+          type: normalizeMappingType(field.type),
+          required: false,
+          ordinal: field.ordinal,
+        }));
+        setWorkflowInputs(targets);
+        setFormFields(sources);
+        setMappings((current) =>
+          applyAutomaticMappings(current, targets, sources),
+        );
+      })
+      .catch((error: unknown) => {
+        if (!ignore) {
+          setWorkflowInputs([]);
+          setFormFields([]);
+          setMessage(
+            friendlyError(error, "Không thể tải schema để tự động ánh xạ."),
+          );
+        }
+      })
+      .finally(() => {
+        if (!ignore) setMappingSchemaLoading(false);
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [formVersionId, selectedForm, selectedWorkflowOption, workflowVersionId]);
 
   async function loadCategory(category: CatalogIntent) {
     setWorking(true);
@@ -227,6 +460,7 @@ export default function TicketCategoriesPage() {
             onMissing: item.onMissing ?? "ERROR",
             transformJson: item.transformJson ?? null,
             ordinal: item.ordinal ?? ordinal,
+            autoMatch: null,
           })),
         );
       } else {
@@ -429,6 +663,23 @@ export default function TicketCategoriesPage() {
     );
   }
 
+  function autoMapUnmappedFields() {
+    if (workflowInputs.length === 0 || formFields.length === 0) return;
+    setMappings((current) =>
+      applyAutomaticMappings(current, workflowInputs, formFields),
+    );
+    setMessage(
+      "Đã tự động ánh xạ các trường khớp; trường còn lại có thể chọn thủ công.",
+    );
+  }
+
+  const mappedCount = mappings.filter(
+    (mapping) =>
+      mapping.targetWorkflowInputId &&
+      mapping.sourceType === "FORM_FIELD" &&
+      mapping.sourceFormFieldId,
+  ).length;
+
   const selectedWorkflow = workflows.find(
     (workflow) => workflow.currentPublishedVersionId === workflowVersionId,
   );
@@ -497,7 +748,14 @@ export default function TicketCategoriesPage() {
                   Form
                   <select
                     value={formVersionId}
-                    onChange={(event) => setFormVersionId(event.target.value)}
+                    onChange={(event) => {
+                      setFormVersionId(event.target.value);
+                      setWorkflowInputs([]);
+                      setFormFields([]);
+                      setMappingSchemaLoading(
+                        Boolean(event.target.value && workflowVersionId),
+                      );
+                    }}
                     disabled={Boolean(overview?.sharedForm)}
                     className="mt-1.5 w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-normal disabled:bg-blue-50"
                   >
@@ -651,9 +909,14 @@ export default function TicketCategoriesPage() {
                     Workflow mặc định
                     <select
                       value={workflowVersionId}
-                      onChange={(event) =>
-                        setWorkflowVersionId(event.target.value)
-                      }
+                      onChange={(event) => {
+                        setWorkflowVersionId(event.target.value);
+                        setWorkflowInputs([]);
+                        setFormFields([]);
+                        setMappingSchemaLoading(
+                          Boolean(event.target.value && formVersionId),
+                        );
+                      }}
                       className="mt-1.5 w-full rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm font-normal"
                     >
                       <option value="">Chọn Workflow đã Published</option>
@@ -673,7 +936,9 @@ export default function TicketCategoriesPage() {
                     </select>
                   </label>
                   {selectedWorkflow ? (
-                    <p className="mt-2 text-xs text-indigo-900/70">Workflow mặc định</p>
+                    <p className="mt-2 text-xs text-indigo-900/70">
+                      Workflow mặc định
+                    </p>
                   ) : null}
                 </div>
                 <div>
@@ -682,19 +947,41 @@ export default function TicketCategoriesPage() {
                       <h3 className="text-sm font-semibold text-slate-900">
                         Ánh xạ dữ liệu
                       </h3>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {mappingSchemaLoading
+                          ? "Đang tải schema để gợi ý ánh xạ…"
+                          : workflowInputs.length > 0
+                            ? `${mappedCount}/${workflowInputs.length} workflow input đã được map với form field.`
+                            : "Chọn Form và Workflow đã Published để xem schema."}
+                      </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setMappings((current) => [
-                          ...current,
-                          newMapping(current.length),
-                        ])
-                      }
-                      className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
-                    >
-                      + Thêm
-                    </button>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={autoMapUnmappedFields}
+                        disabled={
+                          working ||
+                          mappingSchemaLoading ||
+                          workflowInputs.length === 0 ||
+                          formFields.length === 0
+                        }
+                        className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 disabled:opacity-50"
+                      >
+                        Tự động map
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setMappings((current) => [
+                            ...current,
+                            newMapping(current.length),
+                          ])
+                        }
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
+                      >
+                        + Thêm
+                      </button>
+                    </div>
                   </div>
                   <div className="mt-4 space-y-3">
                     {mappings.map((mapping, index) => (
@@ -703,17 +990,49 @@ export default function TicketCategoriesPage() {
                         className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 sm:grid-cols-[1fr_150px_1fr_auto]"
                       >
                         <label className="text-xs font-semibold text-slate-600">
-                          Workflow input ID
-                          <input
-                            value={mapping.targetWorkflowInputId}
-                            onChange={(event) =>
-                              updateMapping(index, {
-                                targetWorkflowInputId: event.target.value,
-                              })
-                            }
-                            placeholder="Chỉ dùng trong phần nâng cao"
-                            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 font-mono text-xs font-normal"
-                          />
+                          Workflow input
+                          {workflowInputs.length > 0 ? (
+                            <select
+                              value={mapping.targetWorkflowInputId}
+                              onChange={(event) =>
+                                updateMapping(index, {
+                                  targetWorkflowInputId: event.target.value,
+                                  autoMatch: null,
+                                })
+                              }
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-normal"
+                            >
+                              <option value="">Chọn input đích</option>
+                              {workflowInputs.map((input) => (
+                                <option key={input.id} value={input.id}>
+                                  {input.key} ·{" "}
+                                  {String(
+                                    input.type && typeof input.type === "object"
+                                      ? input.type.type
+                                      : input.type,
+                                  )}
+                                  {input.required ? " · bắt buộc" : ""}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              value={mapping.targetWorkflowInputId}
+                              onChange={(event) =>
+                                updateMapping(index, {
+                                  targetWorkflowInputId: event.target.value,
+                                  autoMatch: null,
+                                })
+                              }
+                              placeholder="Chọn Workflow để tải input"
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 font-mono text-xs font-normal"
+                            />
+                          )}
+                          {mapping.autoMatch ? (
+                            <span className="mt-1 inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                              Tự động · {mapping.autoMatch.toLowerCase()}
+                            </span>
+                          ) : null}
                         </label>
                         <label className="text-xs font-semibold text-slate-600">
                           Nguồn
@@ -722,6 +1041,11 @@ export default function TicketCategoriesPage() {
                             onChange={(event) =>
                               updateMapping(index, {
                                 sourceType: event.target.value as SourceType,
+                                sourceFormFieldId: "",
+                                sourceExpressionJson: null,
+                                constantJson: null,
+                                defaultJson: null,
+                                autoMatch: null,
                               })
                             }
                             className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-normal"
@@ -738,17 +1062,51 @@ export default function TicketCategoriesPage() {
                           </select>
                         </label>
                         <label className="text-xs font-semibold text-slate-600">
-                          Tham chiếu
-                          <input
-                            value={mapping.sourceFormFieldId}
-                            onChange={(event) =>
-                              updateMapping(index, {
-                                sourceFormFieldId: event.target.value,
-                              })
-                            }
-                            placeholder="ID trường / biểu thức"
-                            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-normal"
-                          />
+                          {mapping.sourceType === "FORM_FIELD"
+                            ? "Form field"
+                            : "Tham chiếu"}
+                          {mapping.sourceType === "FORM_FIELD" &&
+                          formFields.length > 0 ? (
+                            <select
+                              value={mapping.sourceFormFieldId}
+                              onChange={(event) =>
+                                updateMapping(index, {
+                                  sourceFormFieldId: event.target.value,
+                                  autoMatch: null,
+                                })
+                              }
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-normal"
+                            >
+                              <option value="">Chọn form field</option>
+                              {formFields.map((field) => (
+                                <option key={field.id} value={field.id}>
+                                  {field.label} · {field.key}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              value={mappingReferenceValue(mapping)}
+                              onChange={(event) =>
+                                updateMapping(
+                                  index,
+                                  updateMappingReference(
+                                    mapping,
+                                    event.target.value,
+                                  ),
+                                )
+                              }
+                              placeholder={
+                                mapping.sourceType === "FORM_FIELD"
+                                  ? "Chọn Form để tải field"
+                                  : mapping.sourceType === "CONSTANT" ||
+                                      mapping.sourceType === "DEFAULT"
+                                    ? '{"value":"..."}'
+                                    : "Ví dụ: form.title hoặc actor.id"
+                              }
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-normal"
+                            />
+                          )}
                         </label>
                         <label className="text-xs font-semibold text-slate-600 sm:col-span-2">
                           Transform (JSON, tùy chọn)
@@ -767,7 +1125,9 @@ export default function TicketCategoriesPage() {
                                 return;
                               }
                               try {
-                                updateMapping(index, { transformJson: JSON.parse(raw) });
+                                updateMapping(index, {
+                                  transformJson: JSON.parse(raw),
+                                });
                               } catch {
                                 // Keep the raw text visible; the server returns a structured
                                 // validation error when malformed JSON is submitted.
@@ -873,9 +1233,14 @@ export default function TicketCategoriesPage() {
                 </p>
                 <ul className="space-y-1.5 text-xs text-amber-900">
                   {validationIssues.map((issue, index) => (
-                    <li key={`${issue.code}-${issue.fieldPath ?? "root"}-${index}`}>
-                      <span className="font-mono font-semibold">{issue.code}</span>
-                      {issue.fieldPath ? ` · ${issue.fieldPath}` : ""}: {issue.message}
+                    <li
+                      key={`${issue.code}-${issue.fieldPath ?? "root"}-${index}`}
+                    >
+                      <span className="font-mono font-semibold">
+                        {issue.code}
+                      </span>
+                      {issue.fieldPath ? ` · ${issue.fieldPath}` : ""}:{" "}
+                      {issue.message}
                     </li>
                   ))}
                 </ul>
