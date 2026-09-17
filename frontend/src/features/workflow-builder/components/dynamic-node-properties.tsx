@@ -45,6 +45,85 @@ export function DynamicNodeProperties({
 
   const schemaVersion = manifest?.configSchemaVersion ?? 1;
 
+  const quickSetup = () => {
+    if (readOnly) return;
+    const defaults: Record<string, unknown> = {};
+    switch (node.data.nodeType) {
+      case "APPROVAL":
+      case "REVIEW":
+        defaults.participant = {
+          type: "MANAGER_OF",
+          depth: 1,
+          cardinality: "SINGLE",
+          taskGenerationMode: "ONE_PER_PARTICIPANT",
+          completionPolicy: "FIRST_RESPONSE",
+        };
+        defaults.allowedActions =
+          node.data.nodeType === "APPROVAL"
+            ? ["APPROVED", "REJECTED"]
+            : ["SUBMITTED", "RETURNED"];
+        break;
+      case "CONDITION": {
+        const firstField = requestForm?.fields[0];
+        const fieldPath = `payload.${firstField?.key ?? "title"}`;
+        const literal =
+          firstField?.type === "BOOLEAN"
+            ? { value: true, type: "BOOLEAN" }
+            : firstField?.type === "INTEGER" || firstField?.type === "DECIMAL"
+              ? { value: 0, type: firstField.type }
+              : {
+                  value:
+                    firstField?.type === "ENUM"
+                      ? (firstField.options?.[0] ?? "")
+                      : "",
+                  type: "STRING",
+                };
+        defaults.expression = {
+          operator: "EQ",
+          operands: [{ path: fieldPath }, literal],
+        };
+        break;
+      }
+      case "JOIN":
+        defaults.policy = "ALL";
+        defaults.remainingBranchPolicy = "CANCEL_REMAINING";
+        break;
+      case "SUB_WORKFLOW":
+        defaults.executionMode = "WAIT_FOR_COMPLETION";
+        defaults.cancellationPolicy = "PROPAGATE";
+        break;
+      case "NOTIFICATION":
+        defaults.channel = "IN_APP";
+        defaults.participant = { type: "CREATOR" };
+        defaults.template = {
+          title: "Yêu cầu đã được cập nhật",
+          body: "Yêu cầu của bạn đã được cập nhật.",
+        };
+        defaults.maxAttempts = 3;
+        defaults.allowAfterTerminal = true;
+        break;
+      case "SYSTEM_ACTION":
+        defaults.actionVersion = 1;
+        defaults.retryPolicy = { maxAttempts: 3 };
+        defaults.failureAction = "ROUTE_ERROR_PORT";
+        break;
+      default:
+        break;
+    }
+    if (Object.keys(defaults).length > 0) {
+      onUpdateConfig({ ...defaults, ...config });
+    }
+  };
+
+  const hasQuickSetup =
+    node.data.nodeType === "APPROVAL" ||
+    node.data.nodeType === "REVIEW" ||
+    node.data.nodeType === "CONDITION" ||
+    node.data.nodeType === "JOIN" ||
+    node.data.nodeType === "SUB_WORKFLOW" ||
+    node.data.nodeType === "NOTIFICATION" ||
+    node.data.nodeType === "SYSTEM_ACTION";
+
   return (
     <div className="space-y-4" data-testid="dynamic-node-properties">
       {/* Schema Version & Manifest Header */}
@@ -60,6 +139,16 @@ export function DynamicNodeProperties({
             Danh mục {manifest?.category}
           </span>
         </div>
+        {hasQuickSetup && !readOnly && (
+          <button
+            type="button"
+            data-testid="apply-node-quick-setup"
+            onClick={quickSetup}
+            className="rounded-lg bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+          >
+            Thiết lập nhanh
+          </button>
+        )}
       </div>
 
       {/* Strict Unknown Property Warning */}
@@ -101,6 +190,7 @@ export function DynamicNodeProperties({
           readOnly={readOnly}
           onChange={handleConfigChange}
           formHtmlId={formHtmlId}
+          requestForm={requestForm}
         />
       )}
 
@@ -140,12 +230,23 @@ export function DynamicNodeProperties({
         />
       )}
 
+      {node.data.nodeType === "NOTIFICATION" && (
+        <NotificationPropertiesSection
+          config={config}
+          readOnly={readOnly}
+          onChange={handleConfigChange}
+          formHtmlId={formHtmlId}
+          requestForm={requestForm}
+        />
+      )}
+
       {node.data.nodeType !== "APPROVAL" &&
         node.data.nodeType !== "REVIEW" &&
         node.data.nodeType !== "SYSTEM_ACTION" &&
         node.data.nodeType !== "JOIN" &&
         node.data.nodeType !== "SUB_WORKFLOW" &&
-        node.data.nodeType !== "CONDITION" && (
+        node.data.nodeType !== "CONDITION" &&
+        node.data.nodeType !== "NOTIFICATION" && (
           <GenericNodePropertiesSection
             config={config}
             readOnly={readOnly}
@@ -165,11 +266,13 @@ function ApprovalPropertiesSection({
   readOnly,
   onChange,
   formHtmlId,
+  requestForm,
 }: {
   config: Record<string, unknown>;
   readOnly: boolean;
   onChange: (key: string, value: unknown) => void;
   formHtmlId: string;
+  requestForm?: FormSchema;
 }) {
   const [activeTab, setActiveTab] = useState<string>("general");
   const tabs = [
@@ -257,6 +360,7 @@ function ApprovalPropertiesSection({
                 : {}
             }
             onChange={(compiled) => onChange("participant", compiled)}
+            availableFormFields={requestForm?.fields}
             readOnly={readOnly}
           />
         </div>
@@ -361,6 +465,54 @@ function ApprovalPropertiesSection({
 
       {activeTab === "sla" && (
         <div className="space-y-3 pt-1">
+          {(() => {
+            const slaMinutes =
+              typeof config.sla === "object" && config.sla !== null
+                ? Number(
+                    (config.sla as Record<string, unknown>).durationMinutes ??
+                      1440,
+                  )
+                : 1440;
+            const presets = [
+              { value: 60, label: "1 giờ" },
+              { value: 240, label: "4 giờ" },
+              { value: 1440, label: "1 ngày" },
+              { value: 4320, label: "3 ngày" },
+              { value: 10080, label: "7 ngày" },
+            ];
+            const isPreset = presets.some(
+              (preset) => preset.value === slaMinutes,
+            );
+            return (
+              <label
+                htmlFor={`${formHtmlId}-slaPreset`}
+                className="mb-1 block text-xs font-semibold text-slate-700"
+              >
+                Chọn nhanh thời hạn SLA
+                <select
+                  id={`${formHtmlId}-slaPreset`}
+                  data-testid="select-sla-preset"
+                  disabled={readOnly}
+                  value={isPreset ? String(slaMinutes) : "CUSTOM"}
+                  onChange={(e) => {
+                    if (e.target.value !== "CUSTOM") {
+                      onChange("sla", {
+                        durationMinutes: Number(e.target.value),
+                      });
+                    }
+                  }}
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs disabled:bg-slate-100"
+                >
+                  {presets.map((preset) => (
+                    <option key={preset.value} value={preset.value}>
+                      {preset.label} ({preset.value} phút)
+                    </option>
+                  ))}
+                  <option value="CUSTOM">Tùy chỉnh</option>
+                </select>
+              </label>
+            );
+          })()}
           <label
             htmlFor={`${formHtmlId}-slaMinutes`}
             className="mb-1 block text-xs font-semibold text-slate-700"
@@ -542,6 +694,44 @@ function SystemActionPropertiesSection({
 
       {activeTab === "retry" && (
         <div className="space-y-3 pt-1">
+          <label
+            htmlFor={`${formHtmlId}-retryPreset`}
+            className="mb-1 block text-xs font-semibold text-slate-700"
+          >
+            Chọn nhanh số lần thử lại
+            <select
+              id={`${formHtmlId}-retryPreset`}
+              data-testid="select-retry-preset"
+              disabled={readOnly}
+              value={(() => {
+                const attempts =
+                  typeof config.retryPolicy === "object" &&
+                  config.retryPolicy !== null
+                    ? Number(
+                        (config.retryPolicy as Record<string, unknown>)
+                          .maxAttempts ?? 3,
+                      )
+                    : 3;
+                return [0, 1, 3, 5].includes(attempts)
+                  ? String(attempts)
+                  : "CUSTOM";
+              })()}
+              onChange={(e) => {
+                if (e.target.value !== "CUSTOM") {
+                  onChange("retryPolicy", {
+                    maxAttempts: Number(e.target.value),
+                  });
+                }
+              }}
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs disabled:bg-slate-100"
+            >
+              <option value="0">Không thử lại</option>
+              <option value="1">Thử lại 1 lần</option>
+              <option value="3">Thử lại 3 lần</option>
+              <option value="5">Thử lại 5 lần</option>
+              <option value="CUSTOM">Tùy chỉnh</option>
+            </select>
+          </label>
           <label
             htmlFor={`${formHtmlId}-maxAttempts`}
             className="mb-1 block text-xs font-semibold text-slate-700"
@@ -869,6 +1059,196 @@ function ConditionPropertiesSection({
         availableFields={requestForm?.fields}
         readOnly={readOnly}
       />
+    </div>
+  );
+}
+
+/* =========================================================================
+   Notification Guided Properties Section
+   ========================================================================= */
+function NotificationPropertiesSection({
+  config,
+  readOnly,
+  onChange,
+  formHtmlId,
+  requestForm,
+}: {
+  config: Record<string, unknown>;
+  readOnly: boolean;
+  onChange: (key: string, value: unknown) => void;
+  formHtmlId: string;
+  requestForm?: FormSchema;
+}) {
+  const template =
+    typeof config.template === "object" && config.template !== null
+      ? (config.template as Record<string, unknown>)
+      : {};
+  const templateTitle = String(template.title ?? "");
+  const templateBody = String(template.body ?? "");
+  const templatePresets = [
+    {
+      value: "REQUEST_RECEIVED",
+      label: "Đã tiếp nhận yêu cầu",
+      title: "Yêu cầu đã được tiếp nhận",
+      body: "Yêu cầu của bạn đã được ghi nhận và đang được xử lý.",
+    },
+    {
+      value: "TASK_ASSIGNED",
+      label: "Có công việc mới",
+      title: "Bạn có công việc mới",
+      body: "Bạn vừa được giao một công việc cần xử lý.",
+    },
+    {
+      value: "REQUEST_COMPLETED",
+      label: "Yêu cầu hoàn tất",
+      title: "Yêu cầu đã hoàn tất",
+      body: "Yêu cầu của bạn đã được hoàn tất.",
+    },
+  ];
+  const activePreset = templatePresets.find(
+    (preset) => preset.title === templateTitle && preset.body === templateBody,
+  );
+
+  const updateTemplate = (updates: Record<string, unknown>) => {
+    onChange("template", { ...template, ...updates });
+  };
+
+  return (
+    <div className="space-y-4 pt-1" data-testid="notification-properties-panel">
+      <div>
+        <label
+          htmlFor={`${formHtmlId}-notificationChannel`}
+          className="mb-1 block text-xs font-semibold text-slate-700"
+        >
+          Kênh gửi *
+        </label>
+        <select
+          id={`${formHtmlId}-notificationChannel`}
+          data-testid="select-notification-channel"
+          disabled={readOnly}
+          value={String(config.channel ?? "IN_APP")}
+          onChange={(e) => onChange("channel", e.target.value)}
+          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs disabled:bg-slate-100"
+        >
+          <option value="IN_APP">IN_APP · Thông báo trong hệ thống</option>
+          <option value="EMAIL">EMAIL · Thư điện tử</option>
+        </select>
+      </div>
+
+      <div className="border-t border-slate-200 pt-3">
+        <p className="mb-2 text-xs font-semibold text-slate-700">Người nhận</p>
+        <ParticipantBuilder
+          value={
+            typeof config.participant === "object" &&
+            config.participant !== null
+              ? (config.participant as Record<string, unknown>)
+              : {}
+          }
+          onChange={(compiled) => onChange("participant", compiled)}
+          availableFormFields={requestForm?.fields}
+          readOnly={readOnly}
+        />
+      </div>
+
+      <div className="space-y-3 border-t border-slate-200 pt-3">
+        <div>
+          <label
+            htmlFor={`${formHtmlId}-notificationTemplatePreset`}
+            className="mb-1 block text-xs font-semibold text-slate-700"
+          >
+            Mẫu thông báo
+          </label>
+          <select
+            id={`${formHtmlId}-notificationTemplatePreset`}
+            data-testid="select-notification-template-preset"
+            disabled={readOnly}
+            value={activePreset?.value ?? "CUSTOM"}
+            onChange={(e) => {
+              const preset = templatePresets.find(
+                (item) => item.value === e.target.value,
+              );
+              if (preset) {
+                onChange("template", {
+                  title: preset.title,
+                  body: preset.body,
+                });
+              }
+            }}
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs disabled:bg-slate-100"
+          >
+            {templatePresets.map((preset) => (
+              <option key={preset.value} value={preset.value}>
+                {preset.label}
+              </option>
+            ))}
+            <option value="CUSTOM">Tùy chỉnh nội dung</option>
+          </select>
+        </div>
+        <label
+          htmlFor={`${formHtmlId}-notificationTitle`}
+          className="block text-xs font-semibold text-slate-700"
+        >
+          Tiêu đề
+          <input
+            id={`${formHtmlId}-notificationTitle`}
+            data-testid="input-notification-title"
+            type="text"
+            disabled={readOnly}
+            value={templateTitle}
+            placeholder="Ví dụ: Yêu cầu đã được cập nhật"
+            onChange={(e) => updateTemplate({ title: e.target.value })}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs disabled:bg-slate-100"
+          />
+        </label>
+        <label
+          htmlFor={`${formHtmlId}-notificationBody`}
+          className="block text-xs font-semibold text-slate-700"
+        >
+          Nội dung
+          <textarea
+            id={`${formHtmlId}-notificationBody`}
+            data-testid="input-notification-body"
+            rows={3}
+            disabled={readOnly}
+            value={templateBody}
+            placeholder="Ví dụ: Yêu cầu {{ticket.key}} đang chờ bạn xử lý."
+            onChange={(e) => updateTemplate({ body: e.target.value })}
+            className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-xs disabled:bg-slate-100"
+          />
+        </label>
+      </div>
+
+      <div className="grid gap-3 border-t border-slate-200 pt-3 sm:grid-cols-2">
+        <label
+          htmlFor={`${formHtmlId}-notificationAttempts`}
+          className="block text-xs font-semibold text-slate-700"
+        >
+          Số lần gửi tối đa
+          <select
+            id={`${formHtmlId}-notificationAttempts`}
+            data-testid="select-notification-attempts"
+            disabled={readOnly}
+            value={String(config.maxAttempts ?? 3)}
+            onChange={(e) => onChange("maxAttempts", Number(e.target.value))}
+            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs disabled:bg-slate-100"
+          >
+            <option value="1">1 lần</option>
+            <option value="3">3 lần</option>
+            <option value="5">5 lần</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-2 pt-5 text-xs text-slate-700">
+          <input
+            type="checkbox"
+            data-testid="checkbox-notification-after-terminal"
+            disabled={readOnly}
+            checked={Boolean(config.allowAfterTerminal ?? true)}
+            onChange={(e) => onChange("allowAfterTerminal", e.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 text-blue-600"
+          />
+          Cho phép gửi sau khi kết thúc
+        </label>
+      </div>
     </div>
   );
 }

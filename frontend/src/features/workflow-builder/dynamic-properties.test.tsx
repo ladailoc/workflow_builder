@@ -91,6 +91,16 @@ describe("DynamicNodeProperties Component", () => {
       screen.getByTestId("system-action-tab-actionVersion"),
     ).toBeInTheDocument();
     expect(screen.getByTestId("system-action-tab-retry")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("apply-node-quick-setup"));
+    expect(updateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectorKey: "slack",
+        actionKey: "send_message",
+        actionVersion: 2,
+        retryPolicy: { maxAttempts: 3 },
+        failureAction: "ROUTE_ERROR_PORT",
+      }),
+    );
 
     expect(screen.getByTestId("input-connectorKey")).toHaveValue("slack");
 
@@ -256,5 +266,80 @@ describe("DynamicNodeProperties Component", () => {
     expect(screen.getByRole("option", { name: /STRING/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /INTEGER/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /BOOLEAN/ })).toBeInTheDocument();
+  });
+
+  it("offers form-field participant selection and notification presets", () => {
+    const notificationNode: BuilderNode = {
+      id: "node-notification-1",
+      type: "workflowNode",
+      position: { x: 100, y: 100 },
+      data: {
+        key: "notify_requester",
+        label: "Notify requester",
+        nodeType: "NOTIFICATION",
+        outputPorts: ["QUEUED"],
+        config: {
+          channel: "IN_APP",
+          participant: {
+            type: "ITEM_USER",
+            field: "requesterId",
+          },
+          template: {},
+        },
+      },
+    };
+    const updateSpy = vi.fn();
+
+    render(
+      <DynamicNodeProperties
+        node={notificationNode}
+        onUpdateConfig={updateSpy}
+        requestForm={{
+          fields: [
+            {
+              key: "requesterId",
+              label: "Người yêu cầu",
+              type: "STRING",
+              required: true,
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByTestId("notification-properties-panel"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("select-notification-channel"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("select-notification-template-preset"),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId("select-primary-resolver"), {
+      target: { value: "REQUEST_FIELD" },
+    });
+    expect(screen.getByTestId("select-request-field-key")).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", {
+        name: "Người yêu cầu · requesterId · STRING",
+      }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(
+      screen.getByTestId("select-notification-template-preset"),
+      {
+        target: { value: "TASK_ASSIGNED" },
+      },
+    );
+    expect(updateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        template: {
+          title: "Bạn có công việc mới",
+          body: "Bạn vừa được giao một công việc cần xử lý.",
+        },
+      }),
+    );
   });
 });

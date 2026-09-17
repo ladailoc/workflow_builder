@@ -12,6 +12,7 @@ import {
   compileParticipantConfig,
   decompileParticipantConfig,
 } from "../utils/participant-compiler";
+import type { FormFieldDefinition } from "../form-types";
 
 const RESOLVER_OPTIONS: { value: FriendlyResolverKind; label: string }[] = [
   {
@@ -71,12 +72,14 @@ const RESOLVER_OPTIONS: { value: FriendlyResolverKind; label: string }[] = [
 interface ParticipantBuilderProps {
   value?: Record<string, unknown>;
   onChange: (compiled: CompiledParticipantConfig) => void;
+  availableFormFields?: FormFieldDefinition[];
   readOnly?: boolean;
 }
 
 export function ParticipantBuilder({
   value,
   onChange,
+  availableFormFields = [],
   readOnly = false,
 }: ParticipantBuilderProps) {
   // Decompile incoming raw/compiled config to friendly state
@@ -135,7 +138,7 @@ export function ParticipantBuilder({
       <div className="space-y-2">
         <label
           htmlFor={`${formHtmlId}-primaryResolver`}
-          className="text-xs font-semibold text-slate-800 block"
+          className="block text-xs font-semibold text-slate-800"
         >
           Cách xác định người xử lý chính *
         </label>
@@ -162,7 +165,7 @@ export function ParticipantBuilder({
         <div className="space-y-1">
           <label
             htmlFor={`${formHtmlId}-userId`}
-            className="text-xs font-semibold text-slate-700 block"
+            className="block text-xs font-semibold text-slate-700"
           >
             UUID người dùng *
           </label>
@@ -183,7 +186,7 @@ export function ParticipantBuilder({
         <div className="space-y-1">
           <label
             htmlFor={`${formHtmlId}-depth`}
-            className="text-xs font-semibold text-slate-700 block"
+            className="block text-xs font-semibold text-slate-700"
           >
             Số cấp quản lý *
           </label>
@@ -207,7 +210,7 @@ export function ParticipantBuilder({
         <div className="space-y-1">
           <label
             htmlFor={`${formHtmlId}-itemDepth`}
-            className="text-xs font-semibold text-slate-700 block"
+            className="block text-xs font-semibold text-slate-700"
           >
             Số cấp quản lý tài sản *
           </label>
@@ -231,20 +234,46 @@ export function ParticipantBuilder({
         <div className="space-y-1">
           <label
             htmlFor={`${formHtmlId}-fieldKey`}
-            className="text-xs font-semibold text-slate-700 block"
+            className="block text-xs font-semibold text-slate-700"
           >
             Khóa trường biểu mẫu *
           </label>
-          <input
-            id={`${formHtmlId}-fieldKey`}
-            type="text"
-            data-testid="input-request-field-key"
-            disabled={readOnly}
-            value={friendly.fieldKey ?? ""}
-            placeholder="Ví dụ: designatedApproverId"
-            onChange={(e) => updateFriendly({ fieldKey: e.target.value })}
-            className="w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-xs disabled:bg-slate-100"
-          />
+          {availableFormFields.length > 0 ? (
+            <select
+              id={`${formHtmlId}-fieldKey`}
+              data-testid="select-request-field-key"
+              disabled={readOnly}
+              value={friendly.fieldKey ?? ""}
+              onChange={(e) => updateFriendly({ fieldKey: e.target.value })}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs disabled:bg-slate-100"
+            >
+              <option value="">Chọn trường biểu mẫu</option>
+              {!availableFormFields.some(
+                (field) => field.key === friendly.fieldKey,
+              ) &&
+                friendly.fieldKey && (
+                  <option value={friendly.fieldKey}>
+                    {friendly.fieldKey} · giá trị cũ
+                  </option>
+                )}
+              {availableFormFields.map((field) => (
+                <option key={field.key} value={field.key}>
+                  {field.label} · {field.key} · {field.type}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              id={`${formHtmlId}-fieldKey`}
+              type="text"
+              data-testid="input-request-field-key"
+              disabled={readOnly}
+              value={friendly.fieldKey ?? ""}
+              placeholder="Ví dụ: designatedApproverId"
+              onChange={(e) => updateFriendly({ fieldKey: e.target.value })}
+              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-xs disabled:bg-slate-100"
+            />
+          )}
         </div>
       )}
 
@@ -252,7 +281,7 @@ export function ParticipantBuilder({
         <div className="space-y-1">
           <label
             htmlFor={`${formHtmlId}-role`}
-            className="text-xs font-semibold text-slate-700 block"
+            className="block text-xs font-semibold text-slate-700"
           >
             Tên / mã vai trò *
           </label>
@@ -273,7 +302,7 @@ export function ParticipantBuilder({
         <div className="space-y-1">
           <label
             htmlFor={`${formHtmlId}-group`}
-            className="text-xs font-semibold text-slate-700 block"
+            className="block text-xs font-semibold text-slate-700"
           >
             Mã nhóm *
           </label>
@@ -294,7 +323,7 @@ export function ParticipantBuilder({
         <div className="space-y-1">
           <label
             htmlFor={`${formHtmlId}-stepId`}
-            className="text-xs font-semibold text-slate-700 block"
+            className="block text-xs font-semibold text-slate-700"
           >
             Mã bước trước *
           </label>
@@ -315,7 +344,7 @@ export function ParticipantBuilder({
         <div className="space-y-1">
           <label
             htmlFor={`${formHtmlId}-expression`}
-            className="text-xs font-semibold text-slate-700 block"
+            className="block text-xs font-semibold text-slate-700"
           >
             Biểu thức quy tắc *
           </label>
@@ -333,7 +362,7 @@ export function ParticipantBuilder({
       )}
 
       {/* 3. Cardinality & Multi-Participant Configuration */}
-      <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 space-y-3">
+      <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold text-slate-800">
             Số lượng người xử lý
@@ -381,12 +410,12 @@ export function ParticipantBuilder({
         </div>
 
         {isMulti && (
-          <div className="space-y-3 pt-2 border-t border-slate-200">
+          <div className="space-y-3 border-t border-slate-200 pt-2">
             {/* Task Generation Mode */}
             <div>
               <label
                 htmlFor={`${formHtmlId}-taskGenMode`}
-                className="text-[11px] font-semibold text-slate-700 block mb-1"
+                className="mb-1 block text-[11px] font-semibold text-slate-700"
               >
                 Cách tạo công việc
               </label>
@@ -406,7 +435,8 @@ export function ParticipantBuilder({
                   ONE_PER_PARTICIPANT (Mỗi người một công việc)
                 </option>
                 <option value="SINGLE_CLAIMABLE">
-                  SINGLE_CLAIMABLE (Công việc chung, thành viên bất kỳ có thể nhận)
+                  SINGLE_CLAIMABLE (Công việc chung, thành viên bất kỳ có thể
+                  nhận)
                 </option>
               </select>
             </div>
@@ -415,7 +445,7 @@ export function ParticipantBuilder({
             <div>
               <label
                 htmlFor={`${formHtmlId}-completionPolicy`}
-                className="text-[11px] font-semibold text-slate-700 block mb-1"
+                className="mb-1 block text-[11px] font-semibold text-slate-700"
               >
                 Quy tắc hoàn tất khi có nhiều người xử lý
               </label>
@@ -450,7 +480,7 @@ export function ParticipantBuilder({
               <div>
                 <label
                   htmlFor={`${formHtmlId}-completionPercent`}
-                  className="text-[11px] font-semibold text-slate-700 block mb-1"
+                  className="mb-1 block text-[11px] font-semibold text-slate-700"
                 >
                   Tỷ lệ phê duyệt bắt buộc (%)
                 </label>
@@ -464,7 +494,10 @@ export function ParticipantBuilder({
                   value={friendly.completionPercentage ?? 50}
                   onChange={(e) =>
                     updateFriendly({
-                      completionPercentage: parseInt(e.target.value || "50", 10),
+                      completionPercentage: parseInt(
+                        e.target.value || "50",
+                        10,
+                      ),
                     })
                   }
                   className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs disabled:bg-slate-100"
@@ -476,7 +509,7 @@ export function ParticipantBuilder({
               <div>
                 <label
                   htmlFor={`${formHtmlId}-quorumCount`}
-                  className="text-[11px] font-semibold text-slate-700 block mb-1"
+                  className="mb-1 block text-[11px] font-semibold text-slate-700"
                 >
                   Số phiếu tối thiểu
                 </label>
@@ -505,7 +538,7 @@ export function ParticipantBuilder({
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <div>
-            <span className="text-xs font-bold text-slate-800 block">
+            <span className="block text-xs font-bold text-slate-800">
               Chuỗi người xử lý dự phòng
             </span>
           </div>
@@ -565,7 +598,9 @@ export function ParticipantBuilder({
             ))}
           </div>
         ) : (
-          <p className="text-[11px] italic text-slate-400">Chưa cấu hình người xử lý dự phòng.</p>
+          <p className="text-[11px] text-slate-400 italic">
+            Chưa cấu hình người xử lý dự phòng.
+          </p>
         )}
       </div>
     </div>
