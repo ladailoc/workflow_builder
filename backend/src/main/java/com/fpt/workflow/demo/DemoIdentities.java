@@ -66,6 +66,52 @@ public final class DemoIdentities {
   public static final UUID EMPLOYEE_E_EMPLOYEE_ID =
       UUID.fromString("10000000-0000-4000-8000-000000000125");
 
+  // Additional organization demo employees
+  public static final UUID EMPLOYEE_F_USER_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000026");
+  public static final UUID EMPLOYEE_F_EMPLOYEE_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000126");
+  public static final UUID EMPLOYEE_G_USER_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000027");
+  public static final UUID EMPLOYEE_G_EMPLOYEE_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000127");
+  public static final UUID EMPLOYEE_H_USER_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000028");
+  public static final UUID EMPLOYEE_H_EMPLOYEE_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000128");
+  public static final UUID PRODUCT_MANAGER_USER_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000030");
+  public static final UUID PRODUCT_MANAGER_EMPLOYEE_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000130");
+  public static final UUID PRODUCT_ANALYST_USER_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000031");
+  public static final UUID PRODUCT_ANALYST_EMPLOYEE_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000131");
+  public static final UUID QA_LEAD_USER_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000032");
+  public static final UUID QA_LEAD_EMPLOYEE_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000132");
+  public static final UUID QA_ENGINEER_USER_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000033");
+  public static final UUID QA_ENGINEER_EMPLOYEE_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000133");
+  public static final UUID FINANCE_ANALYST_USER_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000034");
+  public static final UUID FINANCE_ANALYST_EMPLOYEE_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000134");
+  public static final UUID HR_SPECIALIST_USER_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000035");
+  public static final UUID HR_SPECIALIST_EMPLOYEE_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000135");
+  public static final UUID SECURITY_ANALYST_USER_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000036");
+  public static final UUID SECURITY_ANALYST_EMPLOYEE_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000136");
+  public static final UUID LEGAL_SPECIALIST_USER_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000037");
+  public static final UUID LEGAL_SPECIALIST_EMPLOYEE_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000137");
+
   public static final List<UUID> DEMO_SUBJECT_USER_IDS =
       List.of(
           EMPLOYEE_A_USER_ID,
@@ -86,13 +132,29 @@ public final class DemoIdentities {
   public static final UUID POS_MGR_ENG_ID = UUID.fromString("10000000-0000-4000-8000-000000000311");
   public static final UUID POS_STAFF_ENG_ID =
       UUID.fromString("10000000-0000-4000-8000-000000000320");
+  public static final UUID POS_QA_LEAD_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000321");
+  public static final UUID POS_QA_STAFF_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000322");
+  public static final UUID POS_PRODUCT_MANAGER_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000330");
+  public static final UUID POS_PRODUCT_ANALYST_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000331");
   public static final UUID POS_HR_LEAD_ID = UUID.fromString("10000000-0000-4000-8000-000000000302");
+  public static final UUID POS_HR_SPECIALIST_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000307");
   public static final UUID POS_SEC_LEAD_ID =
       UUID.fromString("10000000-0000-4000-8000-000000000303");
+  public static final UUID POS_SEC_ANALYST_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000308");
   public static final UUID POS_FIN_LEAD_ID =
       UUID.fromString("10000000-0000-4000-8000-000000000304");
+  public static final UUID POS_FIN_ANALYST_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000306");
   public static final UUID POS_LEG_LEAD_ID =
       UUID.fromString("10000000-0000-4000-8000-000000000305");
+  public static final UUID POS_LEG_SPECIALIST_ID =
+      UUID.fromString("10000000-0000-4000-8000-000000000309");
 
   // Workflow Keys
   public static final String KEY_LEAVE_REQUEST = "leave_request";

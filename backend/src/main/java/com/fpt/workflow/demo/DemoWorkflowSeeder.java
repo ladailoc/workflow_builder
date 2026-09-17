@@ -57,6 +57,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
@@ -65,8 +66,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Deterministic, idempotent seed provider for production-grade demo workflows. Zero
- * business-specific logic in engine runtime: authoring and compiling standard workflow packages.
+ * Deterministic, idempotent seed provider for the local demo baseline. Organization and connector
+ * fixtures remain available for development; workflow fixtures are opt-in so authors can start
+ * with an empty workflow catalog.
  */
 @Service
 public class DemoWorkflowSeeder {
@@ -91,6 +93,9 @@ public class DemoWorkflowSeeder {
   private final RequestTypeRepository requestTypeRepository;
   private final ObjectMapper objectMapper;
   private final PlatformClock clock;
+
+  @Value("${platform.seed.demo.workflows.enabled:false}")
+  private boolean seedDemoWorkflows;
 
   public DemoWorkflowSeeder(
       OrganizationUnitRepository orgUnitRepository,
@@ -135,15 +140,22 @@ public class DemoWorkflowSeeder {
   public void seedAll() {
     runAsAdmin(
         () -> {
-          log.info("Starting demo workflows seeding...");
+          log.info("Starting demo baseline seeding...");
           seedOrganization();
           seedConnectors();
-          seedVendorVerificationWorkflow();
-          seedLeaveRequestWorkflow();
-          seedAccessRequestWorkflow();
-          seedPurchaseRequestWorkflow();
-          seedEmployeeEvaluationWorkflow();
-          log.info("Demo workflows seeding completed successfully.");
+          if (seedDemoWorkflows) {
+            seedVendorVerificationWorkflow();
+            seedLeaveRequestWorkflow();
+            seedAccessRequestWorkflow();
+            seedPurchaseRequestWorkflow();
+            seedEmployeeEvaluationWorkflow();
+            log.info("Demo workflow fixtures seeded successfully.");
+          } else {
+            log.info(
+                "Demo workflow fixtures are disabled; create workflows from the admin UI. "
+                    + "Set platform.seed.demo.workflows.enabled=true to restore them.");
+          }
+          log.info("Demo baseline seeding completed successfully.");
         });
   }
 
@@ -186,6 +198,38 @@ public class DemoWorkflowSeeder {
         DemoIdentities.POS_MGR_ENG_ID,
         false,
         now);
+    seedPosition(
+        DemoIdentities.POS_QA_LEAD_ID,
+        "LEAD-QA",
+        "QA Lead",
+        DemoIdentities.UNIT_ENG_ID,
+        DemoIdentities.POS_MGR_ENG_ID,
+        false,
+        now);
+    seedPosition(
+        DemoIdentities.POS_QA_STAFF_ID,
+        "STAFF-QA",
+        "QA Engineer",
+        DemoIdentities.UNIT_ENG_ID,
+        DemoIdentities.POS_QA_LEAD_ID,
+        false,
+        now);
+    seedPosition(
+        DemoIdentities.POS_PRODUCT_MANAGER_ID,
+        "PM-ENG",
+        "Product Manager",
+        DemoIdentities.UNIT_ENG_ID,
+        DemoIdentities.POS_DIR_ENG_ID,
+        false,
+        now);
+    seedPosition(
+        DemoIdentities.POS_PRODUCT_ANALYST_ID,
+        "ANALYST-ENG",
+        "Product Analyst",
+        DemoIdentities.UNIT_ENG_ID,
+        DemoIdentities.POS_PRODUCT_MANAGER_ID,
+        false,
+        now);
 
     seedPosition(
         DemoIdentities.POS_HR_LEAD_ID,
@@ -196,12 +240,28 @@ public class DemoWorkflowSeeder {
         true,
         now);
     seedPosition(
+        DemoIdentities.POS_HR_SPECIALIST_ID,
+        "SPECIALIST-HR",
+        "HR Specialist",
+        DemoIdentities.UNIT_HR_ID,
+        DemoIdentities.POS_HR_LEAD_ID,
+        false,
+        now);
+    seedPosition(
         DemoIdentities.POS_SEC_LEAD_ID,
         "LEAD-SEC",
         "Security Lead",
         DemoIdentities.UNIT_SEC_ID,
         null,
         true,
+        now);
+    seedPosition(
+        DemoIdentities.POS_SEC_ANALYST_ID,
+        "ANALYST-SEC",
+        "Security Analyst",
+        DemoIdentities.UNIT_SEC_ID,
+        DemoIdentities.POS_SEC_LEAD_ID,
+        false,
         now);
     seedPosition(
         DemoIdentities.POS_FIN_LEAD_ID,
@@ -212,12 +272,28 @@ public class DemoWorkflowSeeder {
         true,
         now);
     seedPosition(
+        DemoIdentities.POS_FIN_ANALYST_ID,
+        "ANALYST-FIN",
+        "Finance Analyst",
+        DemoIdentities.UNIT_FIN_ID,
+        DemoIdentities.POS_FIN_LEAD_ID,
+        false,
+        now);
+    seedPosition(
         DemoIdentities.POS_LEG_LEAD_ID,
         "LEAD-LEG",
         "Legal Counsel",
         DemoIdentities.UNIT_LEG_ID,
         null,
         true,
+        now);
+    seedPosition(
+        DemoIdentities.POS_LEG_SPECIALIST_ID,
+        "SPECIALIST-LEG",
+        "Legal Specialist",
+        DemoIdentities.UNIT_LEG_ID,
+        DemoIdentities.POS_LEG_LEAD_ID,
+        false,
         now);
 
     // 3. Employees
@@ -307,6 +383,83 @@ public class DemoWorkflowSeeder {
         "Eve Engineer",
         "eve@demo.test",
         now);
+    seedEmployee(
+        DemoIdentities.EMPLOYEE_F_EMPLOYEE_ID,
+        DemoIdentities.EMPLOYEE_F_USER_ID,
+        "EMP-026",
+        "Grace Engineer",
+        "grace@demo.test",
+        now);
+    seedEmployee(
+        DemoIdentities.EMPLOYEE_G_EMPLOYEE_ID,
+        DemoIdentities.EMPLOYEE_G_USER_ID,
+        "EMP-027",
+        "Henry Engineer",
+        "henry@demo.test",
+        now);
+    seedEmployee(
+        DemoIdentities.EMPLOYEE_H_EMPLOYEE_ID,
+        DemoIdentities.EMPLOYEE_H_USER_ID,
+        "EMP-028",
+        "Iris Engineer",
+        "iris@demo.test",
+        now);
+    seedEmployee(
+        DemoIdentities.PRODUCT_MANAGER_EMPLOYEE_ID,
+        DemoIdentities.PRODUCT_MANAGER_USER_ID,
+        "EMP-030",
+        "Olivia Product Manager",
+        "olivia.product@demo.test",
+        now);
+    seedEmployee(
+        DemoIdentities.PRODUCT_ANALYST_EMPLOYEE_ID,
+        DemoIdentities.PRODUCT_ANALYST_USER_ID,
+        "EMP-031",
+        "Peter Product Analyst",
+        "peter.product@demo.test",
+        now);
+    seedEmployee(
+        DemoIdentities.QA_LEAD_EMPLOYEE_ID,
+        DemoIdentities.QA_LEAD_USER_ID,
+        "EMP-032",
+        "Quinn QA Lead",
+        "quinn.qa@demo.test",
+        now);
+    seedEmployee(
+        DemoIdentities.QA_ENGINEER_EMPLOYEE_ID,
+        DemoIdentities.QA_ENGINEER_USER_ID,
+        "EMP-033",
+        "Rachel QA Engineer",
+        "rachel.qa@demo.test",
+        now);
+    seedEmployee(
+        DemoIdentities.FINANCE_ANALYST_EMPLOYEE_ID,
+        DemoIdentities.FINANCE_ANALYST_USER_ID,
+        "EMP-034",
+        "Sofia Finance Analyst",
+        "sofia.finance@demo.test",
+        now);
+    seedEmployee(
+        DemoIdentities.HR_SPECIALIST_EMPLOYEE_ID,
+        DemoIdentities.HR_SPECIALIST_USER_ID,
+        "EMP-035",
+        "Thomas HR Specialist",
+        "thomas.hr@demo.test",
+        now);
+    seedEmployee(
+        DemoIdentities.SECURITY_ANALYST_EMPLOYEE_ID,
+        DemoIdentities.SECURITY_ANALYST_USER_ID,
+        "EMP-036",
+        "Uma Security Analyst",
+        "uma.security@demo.test",
+        now);
+    seedEmployee(
+        DemoIdentities.LEGAL_SPECIALIST_EMPLOYEE_ID,
+        DemoIdentities.LEGAL_SPECIALIST_USER_ID,
+        "EMP-037",
+        "Victor Legal Specialist",
+        "victor.legal@demo.test",
+        now);
 
     // 4. Position Assignments
     seedAssignment(
@@ -323,15 +476,55 @@ public class DemoWorkflowSeeder {
         DemoIdentities.EMPLOYEE_D_EMPLOYEE_ID, DemoIdentities.POS_STAFF_ENG_ID, effectiveDate, now);
     seedAssignment(
         DemoIdentities.EMPLOYEE_E_EMPLOYEE_ID, DemoIdentities.POS_STAFF_ENG_ID, effectiveDate, now);
+    seedAssignment(
+        DemoIdentities.EMPLOYEE_F_EMPLOYEE_ID, DemoIdentities.POS_STAFF_ENG_ID, effectiveDate, now);
+    seedAssignment(
+        DemoIdentities.EMPLOYEE_G_EMPLOYEE_ID, DemoIdentities.POS_STAFF_ENG_ID, effectiveDate, now);
+    seedAssignment(
+        DemoIdentities.EMPLOYEE_H_EMPLOYEE_ID, DemoIdentities.POS_STAFF_ENG_ID, effectiveDate, now);
+    seedAssignment(
+        DemoIdentities.PRODUCT_MANAGER_EMPLOYEE_ID,
+        DemoIdentities.POS_PRODUCT_MANAGER_ID,
+        effectiveDate,
+        now);
+    seedAssignment(
+        DemoIdentities.PRODUCT_ANALYST_EMPLOYEE_ID,
+        DemoIdentities.POS_PRODUCT_ANALYST_ID,
+        effectiveDate,
+        now);
+    seedAssignment(
+        DemoIdentities.QA_LEAD_EMPLOYEE_ID, DemoIdentities.POS_QA_LEAD_ID, effectiveDate, now);
+    seedAssignment(
+        DemoIdentities.QA_ENGINEER_EMPLOYEE_ID, DemoIdentities.POS_QA_STAFF_ID, effectiveDate, now);
 
     seedAssignment(
         DemoIdentities.HR_EMPLOYEE_ID, DemoIdentities.POS_HR_LEAD_ID, effectiveDate, now);
     seedAssignment(
+        DemoIdentities.HR_SPECIALIST_EMPLOYEE_ID,
+        DemoIdentities.POS_HR_SPECIALIST_ID,
+        effectiveDate,
+        now);
+    seedAssignment(
         DemoIdentities.SECURITY_EMPLOYEE_ID, DemoIdentities.POS_SEC_LEAD_ID, effectiveDate, now);
+    seedAssignment(
+        DemoIdentities.SECURITY_ANALYST_EMPLOYEE_ID,
+        DemoIdentities.POS_SEC_ANALYST_ID,
+        effectiveDate,
+        now);
     seedAssignment(
         DemoIdentities.FINANCE_EMPLOYEE_ID, DemoIdentities.POS_FIN_LEAD_ID, effectiveDate, now);
     seedAssignment(
+        DemoIdentities.FINANCE_ANALYST_EMPLOYEE_ID,
+        DemoIdentities.POS_FIN_ANALYST_ID,
+        effectiveDate,
+        now);
+    seedAssignment(
         DemoIdentities.LEGAL_EMPLOYEE_ID, DemoIdentities.POS_LEG_LEAD_ID, effectiveDate, now);
+    seedAssignment(
+        DemoIdentities.LEGAL_SPECIALIST_EMPLOYEE_ID,
+        DemoIdentities.POS_LEG_SPECIALIST_ID,
+        effectiveDate,
+        now);
   }
 
   private void seedOrgUnit(

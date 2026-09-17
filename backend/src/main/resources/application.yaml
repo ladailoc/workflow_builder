@@ -68,6 +68,8 @@ platform:
   seed:
     demo:
       enabled: ${PLATFORM_SEED_DEMO_ENABLED:false}
+      workflows:
+        enabled: ${PLATFORM_SEED_DEMO_WORKFLOWS_ENABLED:false}
 
 management:
   endpoint:

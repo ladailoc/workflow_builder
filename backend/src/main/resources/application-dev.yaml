@@ -35,6 +35,9 @@ platform:
   seed:
     demo:
       enabled: true
+      # Keep the organization directory populated while leaving workflow authoring to the user.
+      workflows:
+        enabled: ${PLATFORM_SEED_DEMO_WORKFLOWS_ENABLED:false}
   jobs:
     worker:
       enabled: true
