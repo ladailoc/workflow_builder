@@ -1,5 +1,6 @@
 import { apiGet, apiPost, apiPut } from "@/shared/api/client";
 import type { FormSchema } from "@/features/workflow-builder";
+import { toJsonObjectOrNull } from "./adapters";
 import type {
   BackendEdgeView,
   BackendNodeView,
@@ -77,9 +78,9 @@ export function saveWorkflowGraph(
       name: node.name,
       description: node.description ?? null,
       configSchemaVersion: node.configSchemaVersion,
-      configJson: node.configJson ?? {},
-      inputSchemaJson: node.inputSchemaJson ?? null,
-      outputSchemaJson: node.outputSchemaJson ?? null,
+      configJson: toJsonObjectOrNull(node.configJson) ?? {},
+      inputSchemaJson: toJsonObjectOrNull(node.inputSchemaJson),
+      outputSchemaJson: toJsonObjectOrNull(node.outputSchemaJson),
       positionJson: node.positionJson ?? {},
     })),
     edges: edges.map((edge) => ({
@@ -87,12 +88,12 @@ export function saveWorkflowGraph(
       sourceClientRef: edge.sourceNodeId,
       sourcePort: edge.sourcePort,
       targetClientRef: edge.targetNodeId,
-      conditionJson: edge.conditionJson ?? null,
+      conditionJson: toJsonObjectOrNull(edge.conditionJson),
       priority: edge.priority,
       defaultTransition: edge.defaultTransition,
       transitionType: edge.transitionType,
       label: edge.label ?? null,
-      configJson: edge.configJson ?? {},
+      configJson: toJsonObjectOrNull(edge.configJson) ?? {},
     })),
   };
   return apiPut(

@@ -13,6 +13,20 @@ import type {
   WorkflowVersionDetail,
 } from "./types";
 
+/**
+ * The graph API only accepts JSON objects for schema/config fields. Older
+ * drafts can contain a scalar or array in one of the optional schema fields;
+ * treat that invalid optional value as absent before it reaches the save API.
+ */
+export function toJsonObjectOrNull(
+  value: unknown,
+): Record<string, unknown> | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
 export function toBuilderVersion(
   detail: WorkflowVersionDetail,
 ): WorkflowVersionDto {
@@ -41,7 +55,9 @@ export function toBuilderNode(node: BackendNodeView): BuilderNode {
       label: node.name,
       nodeType,
       outputPorts: [...(getNodeManifest(nodeType)?.outputPorts ?? [])],
-      config: node.configJson ?? {},
+      config: toJsonObjectOrNull(node.configJson) ?? {},
+      inputSchema: toJsonObjectOrNull(node.inputSchemaJson),
+      outputSchema: toJsonObjectOrNull(node.outputSchemaJson),
       readOnly: false,
     },
   };
@@ -80,9 +96,9 @@ export function toBackendNodes(
       typeof node.data.configSchemaVersion === "number"
         ? node.data.configSchemaVersion
         : 1,
-    configJson: node.data.config,
-    inputSchemaJson: node.data.inputSchema ?? null,
-    outputSchemaJson: node.data.outputSchema ?? null,
+    configJson: toJsonObjectOrNull(node.data.config) ?? {},
+    inputSchemaJson: toJsonObjectOrNull(node.data.inputSchema),
+    outputSchemaJson: toJsonObjectOrNull(node.data.outputSchema),
     positionJson: node.position,
   }));
 }
@@ -97,7 +113,7 @@ export function toBackendEdges(
     sourceNodeId: edge.source,
     sourcePort: edge.sourceHandle ?? "DEFAULT",
     targetNodeId: edge.target,
-    conditionJson: edge.data?.condition ?? null,
+    conditionJson: toJsonObjectOrNull(edge.data?.condition),
     priority:
       typeof edge.data?.priority === "number" ? edge.data.priority : index,
     defaultTransition: edge.data?.isDefault === true,
@@ -108,10 +124,7 @@ export function toBackendEdges(
         ? edge.data.transitionType
         : "NORMAL",
     label: typeof edge.label === "string" ? edge.label : null,
-    configJson:
-      edge.data?.config && typeof edge.data.config === "object"
-        ? (edge.data.config as Record<string, unknown>)
-        : {},
+    configJson: toJsonObjectOrNull(edge.data?.config) ?? {},
   }));
 }
 
