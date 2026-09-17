@@ -211,15 +211,43 @@ export function Sidebar() {
               {hasRole(["WORKFLOW_OWNER", "ADMIN"]) && (
                 <>
                   <Link
+                    data-testid="nav-forms"
                     href="/forms"
                     className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium ${pathname.startsWith("/forms") ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-100"}`}
                   >
+                    <svg
+                      className={`h-4 w-4 shrink-0 ${pathname.startsWith("/forms") ? "text-blue-600" : "text-slate-400"}`}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414A1 1 0 0 1 19 9v10a2 2 0 0 1-2 2Z"
+                      />
+                    </svg>
                     <span>Forms</span>
                   </Link>
                   <Link
+                    data-testid="nav-ticket-categories"
                     href="/ticket-categories"
                     className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium ${pathname.startsWith("/ticket-categories") ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-100"}`}
                   >
+                    <svg
+                      className={`h-4 w-4 shrink-0 ${pathname.startsWith("/ticket-categories") ? "text-blue-600" : "text-slate-400"}`}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"
+                      />
+                    </svg>
                     <span>Business Intents</span>
                   </Link>
                   <Link

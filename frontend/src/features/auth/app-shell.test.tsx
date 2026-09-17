@@ -50,6 +50,12 @@ describe("Application Shell & Permission Navigation", () => {
 
     expect(screen.getByText("Workflows")).toBeInTheDocument();
     expect(screen.getByText("Request Types")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("nav-forms").querySelector("svg"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("nav-ticket-categories").querySelector("svg"),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Organization")).not.toBeInTheDocument();
   });
 

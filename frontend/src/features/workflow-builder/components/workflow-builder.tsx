@@ -23,7 +23,11 @@ import { NodeCatalogPanel } from "./node-catalog-panel";
 import { PropertiesPanel } from "./properties-panel";
 import { ValidationPanel } from "./validation-panel";
 import { BuilderToolbar } from "./builder-toolbar";
-import { getNodeManifest } from "../manifest";
+import {
+  formatPortLabel,
+  getNodeDisplayName,
+  getNodeManifest,
+} from "../manifest";
 import { validateWorkflowGraph } from "../validator";
 import type {
   BuilderEdge,
@@ -103,6 +107,7 @@ export function WorkflowBuilder({
   const [nodes, setNodes] = useState<BuilderNode[]>(initialVersion.nodes);
   const [edges, setEdges] = useState<BuilderEdge[]>(initialVersion.edges);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
   const reactFlowInstance = useRef<ReactFlowInstance<
     BuilderNode,
     BuilderEdge
@@ -284,6 +289,70 @@ export function WorkflowBuilder({
 
   const [selectedEdge, setSelectedEdge] = useState<BuilderEdge | null>(null);
 
+  const displayEdges = useMemo(() => {
+    const nodesById = new Map(nodes.map((node) => [node.id, node]));
+
+    return edges.map((edge) => {
+      const isHovered = edge.id === hoveredEdgeId;
+      const sourceNode = nodesById.get(edge.source);
+      const targetNode = nodesById.get(edge.target);
+      const sourceLabel = sourceNode
+        ? getNodeDisplayName(sourceNode.data.nodeType, sourceNode.data.label)
+        : edge.source;
+      const targetLabel = targetNode
+        ? getNodeDisplayName(targetNode.data.nodeType, targetNode.data.label)
+        : edge.target;
+      const sourcePort = edge.sourceHandle
+        ? formatPortLabel(edge.sourceHandle)
+        : "";
+      const baseStroke =
+        typeof edge.style?.stroke === "string" ? edge.style.stroke : "#2563eb";
+      const baseStrokeWidth =
+        typeof edge.style?.strokeWidth === "number"
+          ? edge.style.strokeWidth
+          : 2;
+
+      return {
+        ...edge,
+        animated: isHovered,
+        zIndex: isHovered ? 10 : edge.zIndex,
+        label: isHovered
+          ? `${sourceLabel} → ${targetLabel}${sourcePort ? ` · ${sourcePort}` : ""}`
+          : edge.label,
+        labelStyle: isHovered
+          ? { fill: "#0f172a", fontSize: 11, fontWeight: 700 }
+          : edge.labelStyle,
+        labelBgStyle: isHovered
+          ? {
+              fill: "#ffffff",
+              fillOpacity: 0.96,
+              stroke: "#2563eb",
+              strokeWidth: 1,
+            }
+          : edge.labelBgStyle,
+        labelBgPadding: isHovered
+          ? ([8, 4] as [number, number])
+          : edge.labelBgPadding,
+        style: {
+          ...edge.style,
+          stroke: isHovered ? "#0f172a" : baseStroke,
+          strokeWidth: isHovered
+            ? Math.max(baseStrokeWidth, 2) + 2
+            : baseStrokeWidth,
+          filter: isHovered
+            ? "drop-shadow(0 0 4px rgba(37, 99, 235, 0.45))"
+            : edge.style?.filter,
+        },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: isHovered ? "#0f172a" : "#2563eb",
+          width: isHovered ? 22 : 18,
+          height: isHovered ? 22 : 18,
+        },
+      };
+    });
+  }, [edges, hoveredEdgeId, nodes]);
+
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: BuilderNode) => {
       setSelectedNodeId(node.id);
@@ -325,6 +394,8 @@ export function WorkflowBuilder({
 
   const handlePaneClick = useCallback(() => {
     setSelectedNodeId(null);
+    setSelectedEdge(null);
+    setHoveredEdgeId(null);
   }, []);
 
   // Add node from catalog
@@ -513,13 +584,15 @@ export function WorkflowBuilder({
         >
           <ReactFlow<BuilderNode, BuilderEdge>
             nodes={nodes}
-            edges={edges}
+            edges={displayEdges}
             nodeTypes={nodeTypes}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onNodeClick={handleNodeClick}
             onEdgeClick={handleEdgeClick}
+            onEdgeMouseEnter={(_, edge) => setHoveredEdgeId(edge.id)}
+            onEdgeMouseLeave={() => setHoveredEdgeId(null)}
             onPaneClick={handlePaneClick}
             onInit={(instance) => {
               reactFlowInstance.current = instance;

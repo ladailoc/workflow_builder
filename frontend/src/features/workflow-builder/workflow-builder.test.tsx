@@ -12,13 +12,25 @@ vi.mock("@xyflow/react", async () => {
     ReactFlow: ({
       children,
       nodes,
+      edges,
       onDrop,
       onDragOver,
+      onEdgeMouseEnter,
+      onEdgeMouseLeave,
     }: {
       children: React.ReactNode;
       nodes: Array<{ id: string; data: { label: string; key: string } }>;
+      edges?: Array<{ id: string; label?: React.ReactNode }>;
       onDrop?: React.DragEventHandler<HTMLDivElement>;
       onDragOver?: React.DragEventHandler<HTMLDivElement>;
+      onEdgeMouseEnter?: (
+        event: React.MouseEvent,
+        edge: { id: string },
+      ) => void;
+      onEdgeMouseLeave?: (
+        event: React.MouseEvent,
+        edge: { id: string },
+      ) => void;
     }) => (
       <div
         data-testid="mock-react-flow"
@@ -29,6 +41,17 @@ vi.mock("@xyflow/react", async () => {
           <div key={n.id} data-testid={`node-element-${n.id}`}>
             {n.data.label}
           </div>
+        ))}
+        {edges?.map((edge) => (
+          <button
+            key={edge.id}
+            type="button"
+            data-testid={`edge-element-${edge.id}`}
+            onMouseEnter={(event) => onEdgeMouseEnter?.(event, edge)}
+            onMouseLeave={(event) => onEdgeMouseLeave?.(event, edge)}
+          >
+            {edge.label ?? edge.id}
+          </button>
         ))}
         {children}
       </div>
@@ -106,6 +129,19 @@ describe("WorkflowBuilder Component", () => {
     expect(screen.getByTestId("node-element-node_end")).toHaveTextContent(
       "End",
     );
+  });
+
+  it("shows the connection source and destination while hovering an edge", () => {
+    render(<WorkflowBuilder initialVersion={TEST_DRAFT_VERSION} />);
+
+    const edge = screen.getByTestId("edge-element-edge_start_end");
+    expect(edge).toHaveTextContent("edge_start_end");
+
+    fireEvent.mouseEnter(edge);
+    expect(edge).toHaveTextContent("Bắt đầu → Kết thúc · Mặc định");
+
+    fireEvent.mouseLeave(edge);
+    expect(edge).toHaveTextContent("edge_start_end");
   });
 
   it("collapses and reopens the node catalog to give the canvas more space", () => {
