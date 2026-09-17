@@ -138,7 +138,7 @@ describe("WorkflowBuilder Component", () => {
     expect(edge).toHaveTextContent("edge_start_end");
 
     fireEvent.mouseEnter(edge);
-    expect(edge).toHaveTextContent("Bắt đầu → Kết thúc · Mặc định");
+    expect(edge).toHaveTextContent("Bắt đầu → Kết thúc");
 
     fireEvent.mouseLeave(edge);
     expect(edge).toHaveTextContent("edge_start_end");

@@ -303,7 +303,9 @@ export function WorkflowBuilder({
         ? getNodeDisplayName(targetNode.data.nodeType, targetNode.data.label)
         : edge.target;
       const sourcePort = edge.sourceHandle
-        ? formatPortLabel(edge.sourceHandle)
+        ? edge.sourceHandle === "DEFAULT"
+          ? ""
+          : ` · ${formatPortLabel(edge.sourceHandle)}`
         : "";
       const baseStroke =
         typeof edge.style?.stroke === "string" ? edge.style.stroke : "#2563eb";
@@ -314,40 +316,42 @@ export function WorkflowBuilder({
 
       return {
         ...edge,
-        animated: isHovered,
-        zIndex: isHovered ? 10 : edge.zIndex,
+        animated: edge.animated,
+        zIndex: isHovered ? Math.max(edge.zIndex ?? 0, 5) : edge.zIndex,
         label: isHovered
-          ? `${sourceLabel} → ${targetLabel}${sourcePort ? ` · ${sourcePort}` : ""}`
+          ? `${sourceLabel} → ${targetLabel}${sourcePort}`
           : edge.label,
+        labelShowBg: isHovered ? true : edge.labelShowBg,
         labelStyle: isHovered
-          ? { fill: "#0f172a", fontSize: 11, fontWeight: 700 }
+          ? { fill: "#1e3a8a", fontSize: 10, fontWeight: 600 }
           : edge.labelStyle,
         labelBgStyle: isHovered
           ? {
-              fill: "#ffffff",
-              fillOpacity: 0.96,
-              stroke: "#2563eb",
+              fill: "#eff6ff",
+              fillOpacity: 0.98,
+              stroke: "#93c5fd",
               strokeWidth: 1,
             }
           : edge.labelBgStyle,
         labelBgPadding: isHovered
-          ? ([8, 4] as [number, number])
+          ? ([6, 3] as [number, number])
           : edge.labelBgPadding,
+        labelBgBorderRadius: isHovered ? 6 : edge.labelBgBorderRadius,
         style: {
           ...edge.style,
-          stroke: isHovered ? "#0f172a" : baseStroke,
+          stroke: isHovered ? "#2563eb" : baseStroke,
           strokeWidth: isHovered
-            ? Math.max(baseStrokeWidth, 2) + 2
+            ? Math.max(baseStrokeWidth, 2.75)
             : baseStrokeWidth,
           filter: isHovered
-            ? "drop-shadow(0 0 4px rgba(37, 99, 235, 0.45))"
+            ? "drop-shadow(0 0 2px rgba(37, 99, 235, 0.35))"
             : edge.style?.filter,
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          color: isHovered ? "#0f172a" : "#2563eb",
-          width: isHovered ? 22 : 18,
-          height: isHovered ? 22 : 18,
+          color: isHovered ? "#2563eb" : baseStroke,
+          width: isHovered ? 19 : 18,
+          height: isHovered ? 19 : 18,
         },
       };
     });
