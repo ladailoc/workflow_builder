@@ -1,5 +1,8 @@
 import { apiGet, apiPost, apiPut } from "@/shared/api/client";
-import type { FormSchema } from "@/features/workflow-builder";
+import {
+  withRequiredNodeConfigDefaults,
+  type FormSchema,
+} from "@/features/workflow-builder";
 import { toJsonObjectOrNull } from "./adapters";
 import type {
   BackendEdgeView,
@@ -81,7 +84,10 @@ export function saveWorkflowGraph(
       name: node.name,
       description: node.description ?? null,
       configSchemaVersion: node.configSchemaVersion,
-      configJson: toJsonObjectOrNull(node.configJson) ?? {},
+      configJson: withRequiredNodeConfigDefaults(
+        node.nodeType,
+        toJsonObjectOrNull(node.configJson),
+      ),
       ...(inputSchemaJson === null ? {} : { inputSchemaJson }),
       ...(outputSchemaJson === null ? {} : { outputSchemaJson }),
       positionJson: node.positionJson ?? {},

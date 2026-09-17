@@ -166,6 +166,57 @@ export const NODE_CATALOG: readonly NodeSchemaManifest[] = [
   },
 ] as const;
 
+function isConfigObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Supplies safe values for required properties whose defaults are unambiguous.
+ * Nodes that need an external identifier (connector or child workflow) remain
+ * incomplete until the user configures them explicitly.
+ */
+export function withRequiredNodeConfigDefaults(
+  type: string,
+  config: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  const next = { ...(config ?? {}) };
+
+  if (type === "APPROVAL" || type === "REVIEW") {
+    if (!isConfigObject(next.participant)) {
+      next.participant = {
+        type: "MANAGER_OF",
+        depth: 1,
+        cardinality: "SINGLE",
+        taskGenerationMode: "ONE_PER_PARTICIPANT",
+        completionPolicy: "FIRST_RESPONSE",
+      };
+    }
+    if (!Array.isArray(next.allowedActions)) {
+      next.allowedActions =
+        type === "APPROVAL"
+          ? ["APPROVED", "REJECTED"]
+          : ["SUBMITTED", "RETURNED"];
+    }
+  }
+
+  if (type === "NOTIFICATION") {
+    if (typeof next.channel !== "string" || next.channel.trim() === "") {
+      next.channel = "IN_APP";
+    }
+    if (!isConfigObject(next.participant)) {
+      next.participant = { type: "CREATOR" };
+    }
+    if (!isConfigObject(next.template)) {
+      next.template = {
+        title: "Yêu cầu đã được cập nhật",
+        body: "Yêu cầu của bạn đã được cập nhật.",
+      };
+    }
+  }
+
+  return next;
+}
+
 export function getNodeManifest(type: string): NodeSchemaManifest | undefined {
   return NODE_CATALOG.find((item) => item.type === type);
 }

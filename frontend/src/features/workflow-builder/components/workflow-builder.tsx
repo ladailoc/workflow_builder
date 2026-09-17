@@ -27,6 +27,7 @@ import {
   formatPortLabel,
   getNodeDisplayName,
   getNodeManifest,
+  withRequiredNodeConfigDefaults,
 } from "../manifest";
 import { validateWorkflowGraph } from "../validator";
 import type {
@@ -483,7 +484,7 @@ export function WorkflowBuilder({
           label: manifest?.name ?? type,
           nodeType: type,
           outputPorts: manifest?.outputPorts ? [...manifest.outputPorts] : [],
-          config: {},
+          config: withRequiredNodeConfigDefaults(type, {}),
           readOnly: !isDraft,
         },
       };

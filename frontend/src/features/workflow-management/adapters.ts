@@ -6,6 +6,7 @@ import {
   type FormFieldType,
   type FormSchema,
   type WorkflowVersionDto,
+  withRequiredNodeConfigDefaults,
 } from "@/features/workflow-builder";
 import type {
   BackendEdgeView,
@@ -55,7 +56,10 @@ export function toBuilderNode(node: BackendNodeView): BuilderNode {
       label: node.name,
       nodeType,
       outputPorts: [...(getNodeManifest(nodeType)?.outputPorts ?? [])],
-      config: toJsonObjectOrNull(node.configJson) ?? {},
+      config: withRequiredNodeConfigDefaults(
+        nodeType,
+        toJsonObjectOrNull(node.configJson),
+      ),
       inputSchema: toJsonObjectOrNull(node.inputSchemaJson),
       outputSchema: toJsonObjectOrNull(node.outputSchemaJson),
       readOnly: false,
@@ -96,7 +100,10 @@ export function toBackendNodes(
       typeof node.data.configSchemaVersion === "number"
         ? node.data.configSchemaVersion
         : 1,
-    configJson: toJsonObjectOrNull(node.data.config) ?? {},
+    configJson: withRequiredNodeConfigDefaults(
+      node.data.nodeType,
+      toJsonObjectOrNull(node.data.config),
+    ),
     inputSchemaJson: toJsonObjectOrNull(node.data.inputSchema),
     outputSchemaJson: toJsonObjectOrNull(node.data.outputSchema),
     positionJson: node.position,

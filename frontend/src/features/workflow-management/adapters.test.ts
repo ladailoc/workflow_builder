@@ -23,6 +23,29 @@ describe("workflow graph adapters", () => {
     expect(node.data.outputSchema).toBeNull();
   });
 
+  it("fills required defaults for human task nodes before saving", () => {
+    const node = toBuilderNode({
+      ...NODE,
+      nodeType: "APPROVAL",
+      configJson: {},
+    });
+
+    expect(node.data.config).toEqual(
+      expect.objectContaining({
+        participant: expect.objectContaining({ type: "MANAGER_OF" }),
+        allowedActions: ["APPROVED", "REJECTED"],
+      }),
+    );
+
+    const [backendNode] = toBackendNodes("version-1", [node]);
+    expect(backendNode.configJson).toEqual(
+      expect.objectContaining({
+        participant: expect.objectContaining({ type: "MANAGER_OF" }),
+        allowedActions: ["APPROVED", "REJECTED"],
+      }),
+    );
+  });
+
   it("sends only JSON objects for optional graph schema fields", () => {
     const node = toBuilderNode(NODE);
     const [backendNode] = toBackendNodes("version-1", [node]);
