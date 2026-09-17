@@ -6,7 +6,9 @@ spring:
     hikari:
       connection-init-sql: SET TIME ZONE 'UTC'
       connection-timeout: 10000
+      keepalive-time: 120000
       initialization-fail-timeout: 1
+      max-lifetime: 1500000
       maximum-pool-size: 4
       minimum-idle: 0
       pool-name: WorkflowPlatformTestPool

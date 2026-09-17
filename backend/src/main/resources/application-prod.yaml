@@ -11,7 +11,8 @@ spring:
       connection-timeout: ${DB_POOL_CONNECTION_TIMEOUT_MS:15000}
       idle-timeout: ${DB_POOL_IDLE_TIMEOUT_MS:300000}
       initialization-fail-timeout: 1
-      max-lifetime: ${DB_POOL_MAX_LIFETIME_MS:1800000}
+      keepalive-time: ${DB_POOL_KEEPALIVE_MS:120000}
+      max-lifetime: ${DB_POOL_MAX_LIFETIME_MS:1500000}
       maximum-pool-size: ${DB_POOL_MAX_SIZE:30}
       minimum-idle: ${DB_POOL_MIN_IDLE:10}
       pool-name: WorkflowPlatformProdPool

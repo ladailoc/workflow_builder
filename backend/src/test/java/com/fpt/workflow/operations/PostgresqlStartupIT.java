@@ -55,5 +55,7 @@ class PostgresqlStartupIT {
     assertThat(hikariDataSource.getPoolName()).isEqualTo("WorkflowPlatformTestPool");
     assertThat(hikariDataSource.getMaximumPoolSize()).isEqualTo(4);
     assertThat(hikariDataSource.getConnectionInitSql()).isEqualTo("SET TIME ZONE 'UTC'");
+    assertThat(hikariDataSource.getKeepaliveTime()).isEqualTo(120_000L);
+    assertThat(hikariDataSource.getMaxLifetime()).isEqualTo(1_500_000L);
   }
 }

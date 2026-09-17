@@ -60,7 +60,8 @@ The platform uses Spring profiles to cleanly segregate environment configuration
 | `minimum-idle` | 2 | 5 | 10 | Minimum idle connections retained |
 | `connection-timeout` | 30,000ms | 30,000ms | 15,000ms | Max wait time before connection acquisition failure |
 | `idle-timeout` | 600,000ms | 300,000ms | 300,000ms | Max idle duration before releasing idle connection |
-| `max-lifetime` | 1,800,000ms | 1,800,000ms | 1,800,000ms | Max connection age before retirement |
+| `keepalive-time` | 120,000ms | 120,000ms | 120,000ms | Periodic health check for idle connections so network-closed sessions are replaced |
+| `max-lifetime` | 1,500,000ms | 1,500,000ms | 1,500,000ms | Max connection age before retirement |
 | `validation-timeout` | 5,000ms | 5,000ms | 3,000ms | Connection health check timeout |
 
 ### Tomcat & Network Configuration
