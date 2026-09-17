@@ -13,6 +13,10 @@ public final class WorkflowGraphDtos {
 
   private WorkflowGraphDtos() {}
 
+  private static JsonNode nullableJson(JsonNode value) {
+    return value == null || value.isNull() ? null : value;
+  }
+
   public record CreateNode(
       UUID workflowVersionId,
       String nodeKey,
@@ -23,7 +27,12 @@ public final class WorkflowGraphDtos {
       JsonNode configJson,
       JsonNode inputSchemaJson,
       JsonNode outputSchemaJson,
-      JsonNode positionJson) {}
+      JsonNode positionJson) {
+    public CreateNode {
+      inputSchemaJson = nullableJson(inputSchemaJson);
+      outputSchemaJson = nullableJson(outputSchemaJson);
+    }
+  }
 
   public record UpdateNode(
       String nodeType,
@@ -33,7 +42,12 @@ public final class WorkflowGraphDtos {
       JsonNode configJson,
       JsonNode inputSchemaJson,
       JsonNode outputSchemaJson,
-      JsonNode positionJson) {}
+      JsonNode positionJson) {
+    public UpdateNode {
+      inputSchemaJson = nullableJson(inputSchemaJson);
+      outputSchemaJson = nullableJson(outputSchemaJson);
+    }
+  }
 
   public record NodeView(
       UUID id,
@@ -74,7 +88,11 @@ public final class WorkflowGraphDtos {
       boolean defaultTransition,
       TransitionType transitionType,
       String label,
-      JsonNode configJson) {}
+      JsonNode configJson) {
+    public CreateEdge {
+      conditionJson = nullableJson(conditionJson);
+    }
+  }
 
   public record UpdateEdge(
       UUID sourceNodeId,
@@ -85,7 +103,11 @@ public final class WorkflowGraphDtos {
       boolean defaultTransition,
       TransitionType transitionType,
       String label,
-      JsonNode configJson) {}
+      JsonNode configJson) {
+    public UpdateEdge {
+      conditionJson = nullableJson(conditionJson);
+    }
+  }
 
   public record EdgeView(
       UUID id,
@@ -148,6 +170,8 @@ public final class WorkflowGraphDtos {
       JsonNode positionJson) {
     public GraphNode {
       configJson = configJson == null ? JsonNodeFactory.instance.objectNode() : configJson;
+      inputSchemaJson = nullableJson(inputSchemaJson);
+      outputSchemaJson = nullableJson(outputSchemaJson);
       positionJson = positionJson == null ? JsonNodeFactory.instance.objectNode() : positionJson;
     }
   }
@@ -164,6 +188,7 @@ public final class WorkflowGraphDtos {
       String label,
       JsonNode configJson) {
     public GraphEdge {
+      conditionJson = nullableJson(conditionJson);
       configJson = configJson == null ? JsonNodeFactory.instance.objectNode() : configJson;
     }
   }

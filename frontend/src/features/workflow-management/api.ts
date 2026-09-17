@@ -70,8 +70,11 @@ export function saveWorkflowGraph(
   nodes: BackendNodeView[],
   edges: BackendEdgeView[],
 ): Promise<{ draft: { revision: number; lockVersion: number } }> {
-  const graph = {
-    nodes: nodes.map((node) => ({
+  const nodesPayload = nodes.map((node) => {
+    const inputSchemaJson = toJsonObjectOrNull(node.inputSchemaJson);
+    const outputSchemaJson = toJsonObjectOrNull(node.outputSchemaJson);
+
+    return {
       clientRef: node.id,
       nodeKey: node.nodeKey,
       nodeType: node.nodeType,
@@ -79,22 +82,30 @@ export function saveWorkflowGraph(
       description: node.description ?? null,
       configSchemaVersion: node.configSchemaVersion,
       configJson: toJsonObjectOrNull(node.configJson) ?? {},
-      inputSchemaJson: toJsonObjectOrNull(node.inputSchemaJson),
-      outputSchemaJson: toJsonObjectOrNull(node.outputSchemaJson),
+      ...(inputSchemaJson === null ? {} : { inputSchemaJson }),
+      ...(outputSchemaJson === null ? {} : { outputSchemaJson }),
       positionJson: node.positionJson ?? {},
-    })),
-    edges: edges.map((edge) => ({
-      clientRef: edge.id,
-      sourceClientRef: edge.sourceNodeId,
-      sourcePort: edge.sourcePort,
-      targetClientRef: edge.targetNodeId,
-      conditionJson: toJsonObjectOrNull(edge.conditionJson),
-      priority: edge.priority,
-      defaultTransition: edge.defaultTransition,
-      transitionType: edge.transitionType,
-      label: edge.label ?? null,
-      configJson: toJsonObjectOrNull(edge.configJson) ?? {},
-    })),
+    };
+  });
+
+  const graph = {
+    nodes: nodesPayload,
+    edges: edges.map((edge) => {
+      const conditionJson = toJsonObjectOrNull(edge.conditionJson);
+
+      return {
+        clientRef: edge.id,
+        sourceClientRef: edge.sourceNodeId,
+        sourcePort: edge.sourcePort,
+        targetClientRef: edge.targetNodeId,
+        ...(conditionJson === null ? {} : { conditionJson }),
+        priority: edge.priority,
+        defaultTransition: edge.defaultTransition,
+        transitionType: edge.transitionType,
+        label: edge.label ?? null,
+        configJson: toJsonObjectOrNull(edge.configJson) ?? {},
+      };
+    }),
   };
   return apiPut(
     `/api/v1/workflows/${encodeURIComponent(workflowId)}/versions/${encodeURIComponent(versionId)}/graph`,
