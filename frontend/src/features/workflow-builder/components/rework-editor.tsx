@@ -8,11 +8,13 @@ import type {
   ReworkRollbackStrategy,
 } from "../editor-types";
 import type { BuilderNode } from "../types";
+import { formatPortLabel } from "../manifest";
 
 interface ReworkEditorProps {
   value?: ReworkConfig;
   onChange: (config: ReworkConfig) => void;
   availableNodes?: BuilderNode[];
+  availableExhaustionPorts?: string[];
   readOnly?: boolean;
 }
 
@@ -20,6 +22,7 @@ export function ReworkEditor({
   value,
   onChange,
   availableNodes = [],
+  availableExhaustionPorts = [],
   readOnly = false,
 }: ReworkEditorProps) {
   const formHtmlId = useId();
@@ -29,7 +32,7 @@ export function ReworkEditor({
     maxIterations: 3,
     exhaustionBehavior: "FAIL_EVENT",
     rollbackStrategy: "KEEP_CURRENT",
-    multiInstanceScope: "CURRENT_ITEM",
+    multiInstanceScope: "WHOLE_NODE",
   };
 
   const update = (updates: Partial<ReworkConfig>) => {
@@ -41,7 +44,7 @@ export function ReworkEditor({
     <div className="space-y-4" data-testid="rework-editor">
       <div className="border-b border-slate-200 pb-1.5">
         <h4 className="text-xs font-bold text-slate-800">
-          Rework Loop Configuration
+          Cấu hình vòng lặp xử lý lại
         </h4>
       </div>
 
@@ -49,7 +52,7 @@ export function ReworkEditor({
       <div className="space-y-1">
         <label
           htmlFor={`${formHtmlId}-targetStepId`}
-          className="text-xs font-semibold text-slate-700 block"
+          className="block text-xs font-semibold text-slate-700"
         >
           Bước xử lý lại đích *
         </label>
@@ -60,7 +63,7 @@ export function ReworkEditor({
             disabled={readOnly}
             value={current.targetStepId}
             onChange={(e) => update({ targetStepId: e.target.value })}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 disabled:bg-slate-100 font-semibold"
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 disabled:bg-slate-100"
           >
             {availableNodes.map((n) => (
               <option key={n.id} value={n.id}>
@@ -87,7 +90,7 @@ export function ReworkEditor({
         <div>
           <label
             htmlFor={`${formHtmlId}-maxIterations`}
-            className="text-[11px] font-semibold text-slate-700 block mb-0.5"
+            className="mb-0.5 block text-[11px] font-semibold text-slate-700"
           >
             Số lần xử lý tối đa *
           </label>
@@ -102,7 +105,7 @@ export function ReworkEditor({
             onChange={(e) =>
               update({ maxIterations: parseInt(e.target.value || "1", 10) })
             }
-            className="w-full rounded border border-slate-300 px-2.5 py-1.5 text-xs disabled:bg-slate-100 font-semibold"
+            className="w-full rounded border border-slate-300 px-2.5 py-1.5 text-xs font-semibold disabled:bg-slate-100"
           />
         </div>
 
@@ -110,7 +113,7 @@ export function ReworkEditor({
         <div>
           <label
             htmlFor={`${formHtmlId}-exhaustionBehavior`}
-            className="text-[11px] font-semibold text-slate-700 block mb-0.5"
+            className="mb-0.5 block text-[11px] font-semibold text-slate-700"
           >
             Cách xử lý khi hết lượt
           </label>
@@ -121,8 +124,7 @@ export function ReworkEditor({
             value={current.exhaustionBehavior}
             onChange={(e) =>
               update({
-                exhaustionBehavior: e.target
-                  .value as ReworkExhaustionBehavior,
+                exhaustionBehavior: e.target.value as ReworkExhaustionBehavior,
               })
             }
             className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs disabled:bg-slate-100"
@@ -135,12 +137,51 @@ export function ReworkEditor({
         </div>
       </div>
 
+      {current.exhaustionBehavior === "ROUTE_ESCALATION" && (
+        <div className="space-y-1">
+          <label
+            htmlFor={`${formHtmlId}-exhaustionPort`}
+            className="block text-[11px] font-semibold text-slate-700"
+          >
+            Cổng khi hết lượt xử lý lại *
+          </label>
+          {availableExhaustionPorts.length > 0 ? (
+            <select
+              id={`${formHtmlId}-exhaustionPort`}
+              data-testid="select-rework-exhaustion-port"
+              disabled={readOnly}
+              value={current.exhaustionPort ?? ""}
+              onChange={(e) => update({ exhaustionPort: e.target.value })}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 disabled:bg-slate-100"
+            >
+              <option value="">Chọn cổng đích</option>
+              {availableExhaustionPorts.map((port) => (
+                <option key={port} value={port}>
+                  {formatPortLabel(port)}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              id={`${formHtmlId}-exhaustionPort`}
+              type="text"
+              data-testid="input-rework-exhaustion-port"
+              disabled={readOnly}
+              value={current.exhaustionPort ?? ""}
+              placeholder="Ví dụ: REJECTED"
+              onChange={(e) => update({ exhaustionPort: e.target.value })}
+              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-xs disabled:bg-slate-100"
+            />
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3">
         {/* Rollback Strategy */}
         <div>
           <label
             htmlFor={`${formHtmlId}-rollbackStrategy`}
-            className="text-[11px] font-semibold text-slate-700 block mb-0.5"
+            className="mb-0.5 block text-[11px] font-semibold text-slate-700"
           >
             Cách lưu dữ liệu trước khi xử lý lại
           </label>
@@ -151,8 +192,7 @@ export function ReworkEditor({
             value={current.rollbackStrategy}
             onChange={(e) =>
               update({
-                rollbackStrategy: e.target
-                  .value as ReworkRollbackStrategy,
+                rollbackStrategy: e.target.value as ReworkRollbackStrategy,
               })
             }
             className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs disabled:bg-slate-100"
@@ -170,7 +210,7 @@ export function ReworkEditor({
         <div>
           <label
             htmlFor={`${formHtmlId}-multiInstanceScope`}
-            className="text-[11px] font-semibold text-slate-700 block mb-0.5"
+            className="mb-0.5 block text-[11px] font-semibold text-slate-700"
           >
             Phạm vi nhiều mục
           </label>
@@ -178,11 +218,10 @@ export function ReworkEditor({
             id={`${formHtmlId}-multiInstanceScope`}
             data-testid="select-rework-mi-scope"
             disabled={readOnly}
-            value={current.multiInstanceScope ?? "CURRENT_ITEM"}
+            value={current.multiInstanceScope ?? "WHOLE_NODE"}
             onChange={(e) =>
               update({
-                multiInstanceScope: e.target
-                  .value as MultiInstanceReworkScope,
+                multiInstanceScope: e.target.value as MultiInstanceReworkScope,
               })
             }
             className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs disabled:bg-slate-100"

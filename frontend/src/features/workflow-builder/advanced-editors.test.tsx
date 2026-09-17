@@ -34,7 +34,19 @@ describe("Prompt 56: Advanced Graph Editors", () => {
         key: "appr_1",
         label: "Manager Review",
         nodeType: "APPROVAL",
-        outputPorts: ["APPROVED", "REJECTED"],
+        outputPorts: ["APPROVED", "REJECTED", "REVISION_REQUESTED"],
+        config: {},
+      },
+    },
+    {
+      id: "node_review",
+      type: "workflowNode",
+      position: { x: 220, y: 220 },
+      data: {
+        key: "review_1",
+        label: "Information Review",
+        nodeType: "REVIEW",
+        outputPorts: ["PASSED", "FAILED"],
         config: {},
       },
     },
@@ -110,6 +122,60 @@ describe("Prompt 56: Advanced Graph Editors", () => {
       // Destination strictly exists in Edge, not duplicated inside source node data or config
       expect(mockNodes[0].data.config.target).toBeUndefined();
       expect(mockNodes[0].data.config.destination).toBeUndefined();
+    });
+
+    it("defaults the revision branch to a bounded rework policy", () => {
+      const saveSpy = vi.fn();
+      const revisionEdge: BuilderEdge = {
+        id: "edge-approval-review",
+        source: "node_approval",
+        target: "node_end",
+        sourceHandle: "REVISION_REQUESTED",
+        data: {},
+      };
+
+      render(
+        <EdgeEditorModal
+          isOpen={true}
+          edge={revisionEdge}
+          nodes={mockNodes}
+          onSave={saveSpy}
+          onClose={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByTestId("select-edge-source-handle")).toHaveValue("REVISION_REQUESTED");
+      expect(screen.getByTestId("select-edge-transition-type")).toHaveValue("REWORK");
+      expect(screen.getByTestId("select-edge-target-node")).toHaveValue("node_end");
+      expect(screen.getByText("Nhánh Yêu cầu bổ sung")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId("edge-tab-rework"));
+      fireEvent.change(screen.getByTestId("select-rework-target-step"), {
+        target: { value: "node_review" },
+      });
+      expect(screen.getByTestId("select-rework-target-step")).toHaveValue("node_review");
+      expect(screen.getByTestId("input-max-rework-iterations")).toHaveValue(3);
+
+      fireEvent.click(screen.getByTestId("btn-save-edge"));
+      const savedEdge = saveSpy.mock.calls[0][0] as BuilderEdge;
+      expect(savedEdge.data?.transitionType).toBe("REWORK");
+      expect(savedEdge.target).toBe("node_review");
+      expect(savedEdge.data?.reworkConfig).toEqual(
+        expect.objectContaining({
+          targetStepId: "node_review",
+          maxIterations: 3,
+          multiInstanceScope: "WHOLE_NODE",
+        }),
+      );
+      expect(savedEdge.data?.config).toEqual(
+        expect.objectContaining({
+          reworkPolicy: expect.objectContaining({
+            maxIterations: 3,
+            onExhausted: "FAIL_EVENT",
+            scope: "WHOLE_NODE",
+          }),
+        }),
+      );
     });
   });
 

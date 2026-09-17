@@ -61,14 +61,27 @@ export function CustomWorkflowNode({
             {data.outputPorts.map((port) => (
               <div
                 key={port}
-                className="relative flex items-center justify-between rounded-md bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-700"
+                title={
+                  port === "REVISION_REQUESTED"
+                    ? "Kéo cổng này tới bước muốn xử lý lại"
+                    : `Kéo cổng ${formatPortLabel(port)} tới bước tiếp theo`
+                }
+                className={`relative flex items-center justify-between rounded-md px-2 py-1 text-[11px] font-medium ${
+                  port === "REVISION_REQUESTED"
+                    ? "bg-amber-50 text-amber-800"
+                    : "bg-slate-50 text-slate-700"
+                }`}
               >
                 <span>{formatPortLabel(port)}</span>
                 <Handle
                   type="source"
                   position={Position.Right}
                   id={port}
-                  className="!static !h-2.5 !w-2.5 !transform-none !rounded-full !border-2 !border-white !bg-blue-600 hover:!bg-blue-800"
+                  className={`!static !h-2.5 !w-2.5 !transform-none !rounded-full !border-2 !border-white ${
+                    port === "REVISION_REQUESTED"
+                      ? "!bg-amber-500 hover:!bg-amber-700"
+                      : "!bg-blue-600 hover:!bg-blue-800"
+                  }`}
                 />
               </div>
             ))}

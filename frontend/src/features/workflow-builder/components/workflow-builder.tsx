@@ -45,6 +45,7 @@ import { PublishModal } from "./publish-modal";
 import { VersionHistoryDrawer } from "./version-history-drawer";
 import { VersionDiffModal } from "./version-diff-modal";
 import { ApiRequestError } from "@/shared/api/client";
+import { createDefaultReworkConfig, toReworkPolicy } from "../editor-types";
 
 interface WorkflowBuilderProps {
   workflowName?: string;
@@ -343,10 +344,21 @@ export function WorkflowBuilder({
       }
 
       setEdges((eds) => {
+        const revisionBranch =
+          connection.sourceHandle === "REVISION_REQUESTED"
+            ? createDefaultReworkConfig(connection.target)
+            : undefined;
         const next = addEdge(
           {
             ...connection,
             id: `edge_${connection.source}_${connection.target}_${connection.sourceHandle || "default"}`,
+            data: revisionBranch
+              ? {
+                  transitionType: "REWORK",
+                  reworkConfig: revisionBranch,
+                  config: { reworkPolicy: toReworkPolicy(revisionBranch) },
+                }
+              : undefined,
           },
           eds,
         );

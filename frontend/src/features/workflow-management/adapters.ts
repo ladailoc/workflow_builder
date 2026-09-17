@@ -1,11 +1,14 @@
 import {
   getNodeManifest,
+  type ReworkConfig,
   type BuilderEdge,
   type BuilderNode,
   type BuilderNodeType,
   type FormFieldType,
   type FormSchema,
   type WorkflowVersionDto,
+  fromReworkPolicy,
+  toReworkPolicy,
   withRequiredNodeConfigDefaults,
 } from "@/features/workflow-builder";
 import type {
@@ -68,6 +71,8 @@ export function toBuilderNode(node: BackendNodeView): BuilderNode {
 }
 
 export function toBuilderEdge(edge: BackendEdgeView): BuilderEdge {
+  const config = toJsonObjectOrNull(edge.configJson) ?? {};
+  const persistedPolicy = toJsonObjectOrNull(config.reworkPolicy);
   return {
     id: edge.id,
     source: edge.sourceNodeId,
@@ -79,7 +84,17 @@ export function toBuilderEdge(edge: BackendEdgeView): BuilderEdge {
       priority: edge.priority,
       isDefault: edge.defaultTransition,
       transitionType: edge.transitionType,
-      config: edge.configJson ?? {},
+      config,
+      reworkConfig:
+        (edge.transitionType === "REWORK" ||
+          edge.transitionType === "RETURN") &&
+        persistedPolicy
+          ? fromReworkPolicy(
+              edge.targetNodeId,
+              persistedPolicy,
+              config.rollbackStrategy,
+            )
+          : undefined,
     },
   };
 }
@@ -114,25 +129,41 @@ export function toBackendEdges(
   versionId: string,
   edges: BuilderEdge[],
 ): BackendEdgeView[] {
-  return edges.map((edge, index) => ({
-    id: edge.id,
-    workflowVersionId: versionId,
-    sourceNodeId: edge.source,
-    sourcePort: edge.sourceHandle ?? "DEFAULT",
-    targetNodeId: edge.target,
-    conditionJson: toJsonObjectOrNull(edge.data?.condition),
-    priority:
-      typeof edge.data?.priority === "number" ? edge.data.priority : index,
-    defaultTransition: edge.data?.isDefault === true,
-    transitionType:
+  return edges.map((edge, index) => {
+    const transitionType =
       edge.data?.transitionType === "CONDITIONAL" ||
       edge.data?.transitionType === "REWORK" ||
       edge.data?.transitionType === "RETURN"
         ? edge.data.transitionType
-        : "NORMAL",
-    label: typeof edge.label === "string" ? edge.label : null,
-    configJson: toJsonObjectOrNull(edge.data?.config) ?? {},
-  }));
+        : "NORMAL";
+    const existingConfig = toJsonObjectOrNull(edge.data?.config) ?? {};
+    const editorReworkConfig = edge.data?.reworkConfig as
+      ReworkConfig | undefined;
+    const config =
+      (transitionType === "REWORK" || transitionType === "RETURN") &&
+      editorReworkConfig
+        ? {
+            ...existingConfig,
+            reworkPolicy: toReworkPolicy(editorReworkConfig),
+            rollbackStrategy: editorReworkConfig.rollbackStrategy,
+          }
+        : existingConfig;
+
+    return {
+      id: edge.id,
+      workflowVersionId: versionId,
+      sourceNodeId: edge.source,
+      sourcePort: edge.sourceHandle ?? "DEFAULT",
+      targetNodeId: edge.target,
+      conditionJson: toJsonObjectOrNull(edge.data?.condition),
+      priority:
+        typeof edge.data?.priority === "number" ? edge.data.priority : index,
+      defaultTransition: edge.data?.isDefault === true,
+      transitionType,
+      label: typeof edge.label === "string" ? edge.label : null,
+      configJson: config,
+    };
+  });
 }
 
 export function toBuilderForm(detail: WorkflowVersionDetail): FormSchema {

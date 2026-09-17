@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { toBackendEdges, toBackendNodes, toBuilderNode } from "./adapters";
-import type { BackendNodeView } from "./types";
+import {
+  toBackendEdges,
+  toBackendNodes,
+  toBuilderEdge,
+  toBuilderNode,
+} from "./adapters";
+import type { BackendEdgeView, BackendNodeView } from "./types";
 
 const NODE: BackendNodeView = {
   id: "node-1",
@@ -66,5 +71,82 @@ describe("workflow graph adapters", () => {
     expect(backendNode.outputSchemaJson).toBeNull();
     expect(backendEdge.conditionJson).toBeNull();
     expect(backendEdge.configJson).toEqual({});
+  });
+
+  it("round-trips a revision rework edge and its bounded policy", () => {
+    const backendEdge: BackendEdgeView = {
+      id: "edge-revision-review",
+      workflowVersionId: "version-1",
+      sourceNodeId: "node-approval",
+      sourcePort: "REVISION_REQUESTED",
+      targetNodeId: "node-review",
+      priority: 2,
+      defaultTransition: false,
+      transitionType: "REWORK",
+      configJson: {
+        reworkPolicy: {
+          maxIterations: 4,
+          onExhausted: "FAIL_EVENT",
+          scope: "WHOLE_NODE",
+        },
+        rollbackStrategy: "RESTORE_ORIGINAL",
+      },
+    };
+
+    const builderEdge = toBuilderEdge(backendEdge);
+    expect(builderEdge.data?.reworkConfig).toEqual(
+      expect.objectContaining({
+        targetStepId: "node-review",
+        maxIterations: 4,
+        rollbackStrategy: "RESTORE_ORIGINAL",
+        multiInstanceScope: "WHOLE_NODE",
+      }),
+    );
+
+    const [savedEdge] = toBackendEdges("version-1", [builderEdge]);
+    expect(savedEdge.transitionType).toBe("REWORK");
+    expect(savedEdge.sourcePort).toBe("REVISION_REQUESTED");
+    expect(savedEdge.configJson?.reworkPolicy).toEqual(
+      expect.objectContaining({
+        maxIterations: 4,
+        onExhausted: "FAIL_EVENT",
+        scope: "WHOLE_NODE",
+      }),
+    );
+  });
+
+  it("creates a backend rework policy from editor configuration", () => {
+    const [savedEdge] = toBackendEdges("version-1", [
+      {
+        id: "edge-revision-review",
+        source: "node-approval",
+        target: "node-review",
+        sourceHandle: "REVISION_REQUESTED",
+        data: {
+          transitionType: "REWORK",
+          reworkConfig: {
+            targetStepId: "node-review",
+            maxIterations: 3,
+            exhaustionBehavior: "ROUTE_ESCALATION",
+            exhaustionPort: "REJECTED",
+            rollbackStrategy: "KEEP_CURRENT",
+            multiInstanceScope: "WHOLE_NODE",
+          },
+        },
+      },
+    ]);
+
+    expect(savedEdge.configJson).toEqual(
+      expect.objectContaining({
+        reworkPolicy: {
+          maxIterations: 3,
+          onExhausted: "ROUTE_ESCALATION",
+          scope: "WHOLE_NODE",
+          allowParallelScopeReset: false,
+          exhaustionPort: "REJECTED",
+        },
+        rollbackStrategy: "KEEP_CURRENT",
+      }),
+    );
   });
 });
